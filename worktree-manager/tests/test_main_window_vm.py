@@ -231,3 +231,127 @@ def test_default_editor_from_config(vm):
     ed, mode = vm.default_editor()
     assert ed == "cursor"
     assert mode == "reuse"
+
+
+# Phase 2 — is_protected_branch, has_uncommitted_changes_for_branch, create_worktree
+
+def test_is_protected_branch_main(vm):
+    assert vm.is_protected_branch("main") is True
+
+
+def test_is_protected_branch_feature(vm):
+    assert vm.is_protected_branch("feature/payments") is True
+
+
+def test_is_protected_branch_regular(vm):
+    assert vm.is_protected_branch("chore/deps") is False
+
+
+def test_is_protected_branch_fix(vm):
+    assert vm.is_protected_branch("fix/auth") is False
+
+
+def test_has_uncommitted_changes_for_branch_true(vm):
+    from unittest.mock import patch
+    vm._git.has_uncommitted_changes.return_value = True
+    with patch("os.path.isdir", return_value=True):
+        result = vm.has_uncommitted_changes_for_branch("chore/deps")
+    assert result is True
+    vm._git.has_uncommitted_changes.assert_called_once_with("/repos/proj-wt/chore-deps")
+
+
+def test_has_uncommitted_changes_for_branch_false(vm):
+    from unittest.mock import patch
+    vm._git.has_uncommitted_changes.return_value = False
+    with patch("os.path.isdir", return_value=True):
+        assert vm.has_uncommitted_changes_for_branch("chore/deps") is False
+
+
+def test_has_uncommitted_changes_for_branch_no_worktree(vm, tmp_path):
+    # Branch has no worktree directory on disk — returns False without calling git
+    assert vm.has_uncommitted_changes_for_branch("orphan/branch") is False
+    vm._git.has_uncommitted_changes.assert_not_called()
+
+
+def test_create_worktree_existing_branch(vm):
+    vm.create_worktree(branch="feature/payments", base_branch=None, existing=True)
+    vm._git.create_worktree_from_existing.assert_called_once_with(
+        repo_path="/repos/proj",
+        worktree_path="/repos/proj-wt/feature-payments",
+        branch="feature/payments",
+    )
+
+
+def test_create_worktree_new_branch(vm):
+    vm.create_worktree(branch="fix/new", base_branch="main", existing=False)
+    vm._git.create_worktree.assert_called_once_with(
+        repo_path="/repos/proj",
+        worktree_path="/repos/proj-wt/fix-new",
+        branch="fix/new",
+        base_branch="main",
+    )
+
+
+# Phase 3 — all_cleanup_candidates includes all non-protected branches
+
+def test_all_cleanup_candidates_excludes_protected_worktree(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    candidates = vm.all_cleanup_candidates()
+    assert all(not c.branch.startswith("feature/") for c in candidates)
+    assert all(c.branch != "main" for c in candidates)
+
+
+def test_all_cleanup_candidates_includes_healthy_worktree(vm, store, git, editor):
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+        WorktreeModel("/repos/proj-wt/wip-thing", "wip/thing", False, now - 2 * 86400, False, False),
+    ]
+    git.list_local_branches.return_value = []
+    git.list_feature_branches.return_value = []
+    git.is_merged_into_any.return_value = (False, None)
+    local_vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    local_vm.load_worktrees()
+    candidates = local_vm.all_cleanup_candidates()
+    assert any(c.branch == "wip/thing" for c in candidates)
+
+
+def test_all_cleanup_candidates_excludes_protected_orphan(store, git, editor):
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main", "feature/payments", "fix/thing"]
+    git.list_feature_branches.return_value = ["feature/payments"]
+    git.is_merged_into_any.return_value = (True, "main")
+    git.last_commit_ts.return_value = now - 5 * 86400
+    local_vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    local_vm.load_worktrees()
+    candidates = local_vm.all_cleanup_candidates()
+    assert all(c.branch != "feature/payments" for c in candidates)
+    assert all(c.branch != "main" for c in candidates)
+
+
+def test_all_cleanup_candidates_includes_healthy_orphan(store, git, editor):
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main", "hotfix/patch"]
+    git.list_feature_branches.return_value = []
+    git.is_merged_into_any.return_value = (False, None)
+    git.last_commit_ts.return_value = now - 1 * 86400
+    local_vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    local_vm.load_worktrees()
+    candidates = local_vm.all_cleanup_candidates()
+    assert any(c.branch == "hotfix/patch" for c in candidates)

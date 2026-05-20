@@ -80,6 +80,29 @@ class GitService:
     def delete_branch(self, repo_path: str, branch: str) -> None:
         self._run(["git", "branch", "-D", branch], cwd=repo_path)
 
+    def has_uncommitted_changes(self, worktree_path: str) -> bool:
+        try:
+            out = self._run(["git", "status", "--porcelain"], cwd=worktree_path)
+            return bool(out.strip())
+        except subprocess.CalledProcessError:
+            return False
+
+    def checked_out_branch(self, worktree_path: str) -> str:
+        try:
+            return self._run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path
+            ).strip()
+        except subprocess.CalledProcessError:
+            return "(detached)"
+
+    def create_worktree_from_existing(
+        self, repo_path: str, worktree_path: str, branch: str
+    ) -> None:
+        self._run(
+            ["git", "worktree", "add", worktree_path, branch],
+            cwd=repo_path,
+        )
+
     def list_feature_branches(self, repo_path: str) -> list[str]:
         out = self._run(["git", "branch", "--format=%(refname:short)"], cwd=repo_path)
         return [b for b in out.splitlines() if b.startswith("feature/")]

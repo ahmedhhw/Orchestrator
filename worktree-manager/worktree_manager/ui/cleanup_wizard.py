@@ -14,7 +14,15 @@ def _reason(c) -> str:
     if c.is_merged:
         target = c.merged_into or "main"
         return f"merged into {target}"
-    return f"{_fmt_age(c.last_commit_ts)}, stale"
+    if c.is_stale:
+        return f"{_fmt_age(c.last_commit_ts)}, stale"
+    return f"{_fmt_age(c.last_commit_ts)} ago"
+
+
+def _sort_candidates(candidates: list) -> list:
+    priority = [c for c in candidates if c.is_stale or c.is_merged]
+    healthy = [c for c in candidates if not c.is_stale and not c.is_merged]
+    return priority + healthy
 
 
 class CleanupWizard(ctk.CTkToplevel):
@@ -25,60 +33,29 @@ class CleanupWizard(ctk.CTkToplevel):
         self._on_delete_selected = on_delete_selected
         self._vars: list = []
         self._candidates: list = []
+        self._also_branches = ctk.BooleanVar(value=False)
 
-        self._worktree_candidates = [c for c in candidates if c.path is not None]
-        self._branch_candidates = [c for c in candidates if c.path is None]
+        worktree_candidates = _sort_candidates([c for c in candidates if c.path is not None])
+        branch_candidates = _sort_candidates([c for c in candidates if c.path is None])
 
-        self._build()
+        self._build(worktree_candidates, branch_candidates)
 
-    def _build(self):
+    def _build(self, worktree_candidates, branch_candidates):
         ctk.CTkLabel(
             self, text="Cleanup Wizard", font=ctk.CTkFont(size=16, weight="bold")
         ).pack(pady=(20, 4))
 
-        # Worktrees section
-        ctk.CTkLabel(
-            self, text="Worktrees", font=ctk.CTkFont(weight="bold"), anchor="w"
-        ).pack(fill="x", padx=24, pady=(8, 2))
+        self._build_section(
+            label="Worktrees",
+            candidates=worktree_candidates,
+            show_also_branches=True,
+        )
 
-        if self._worktree_candidates:
-            for c in self._worktree_candidates:
-                var = ctk.BooleanVar(value=c.is_stale or c.is_merged)
-                self._vars.append(var)
-                self._candidates.append(c)
-                reason = _reason(c)
-                ctk.CTkCheckBox(
-                    self, text=f"{c.branch}  ({reason})", variable=var
-                ).pack(anchor="w", padx=24, pady=2)
-
-            self._also_branches = ctk.BooleanVar(value=True)
-            ctk.CTkCheckBox(
-                self, text="Also delete their branches", variable=self._also_branches
-            ).pack(anchor="w", padx=24, pady=(6, 2))
-        else:
-            self._also_branches = ctk.BooleanVar(value=False)
-            ctk.CTkLabel(
-                self, text="(none to clean)", text_color="gray", anchor="w"
-            ).pack(fill="x", padx=24, pady=2)
-
-        # Branches section
-        ctk.CTkLabel(
-            self, text="Branches (no worktree)", font=ctk.CTkFont(weight="bold"), anchor="w"
-        ).pack(fill="x", padx=24, pady=(12, 2))
-
-        if self._branch_candidates:
-            for c in self._branch_candidates:
-                var = ctk.BooleanVar(value=c.is_stale or c.is_merged)
-                self._vars.append(var)
-                self._candidates.append(c)
-                reason = _reason(c)
-                ctk.CTkCheckBox(
-                    self, text=f"{c.branch}  ({reason})", variable=var
-                ).pack(anchor="w", padx=24, pady=2)
-        else:
-            ctk.CTkLabel(
-                self, text="(none to clean)", text_color="gray", anchor="w"
-            ).pack(fill="x", padx=24, pady=2)
+        self._build_section(
+            label="Branches (no worktree)",
+            candidates=branch_candidates,
+            show_also_branches=False,
+        )
 
         btns = ctk.CTkFrame(self)
         btns.pack(fill="x", padx=24, pady=16)
@@ -94,6 +71,50 @@ class CleanupWizard(ctk.CTkToplevel):
         ctk.CTkButton(
             btns, text="Delete", fg_color="#c0392b", command=self._delete_selected
         ).pack(side="right")
+
+    def _build_section(self, label: str, candidates: list, show_also_branches: bool):
+        ctk.CTkLabel(
+            self, text=label, font=ctk.CTkFont(weight="bold"), anchor="w"
+        ).pack(fill="x", padx=24, pady=(12, 2))
+
+        if not candidates:
+            ctk.CTkLabel(
+                self, text="(none to clean)", text_color="gray", anchor="w"
+            ).pack(fill="x", padx=24, pady=2)
+            return
+
+        scroll = ctk.CTkScrollableFrame(self, height=140)
+        scroll.pack(fill="x", padx=24, pady=(0, 4))
+
+        priority = [c for c in candidates if c.is_stale or c.is_merged]
+        healthy = [c for c in candidates if not c.is_stale and not c.is_merged]
+
+        for c in priority:
+            self._add_item(scroll, c, pre_checked=True)
+
+        if healthy:
+            ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
+            ctk.CTkLabel(
+                scroll, text="Healthy:", text_color="gray",
+                font=ctk.CTkFont(size=11), anchor="w"
+            ).pack(fill="x", padx=4, pady=(0, 2))
+            for c in healthy:
+                self._add_item(scroll, c, pre_checked=False)
+
+        if show_also_branches:
+            has_priority = bool(priority)
+            self._also_branches = ctk.BooleanVar(value=has_priority)
+            ctk.CTkCheckBox(
+                self, text="Also delete their branches", variable=self._also_branches
+            ).pack(anchor="w", padx=24, pady=(4, 2))
+
+    def _add_item(self, parent, c: CleanupCandidate, pre_checked: bool):
+        var = ctk.BooleanVar(value=pre_checked)
+        self._vars.append(var)
+        self._candidates.append(c)
+        ctk.CTkCheckBox(
+            parent, text=f"{c.branch}  ({_reason(c)})", variable=var
+        ).pack(anchor="w", padx=4, pady=2)
 
     def _select_all(self):
         for v in self._vars:

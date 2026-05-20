@@ -1,3 +1,4 @@
+import subprocess
 import pytest
 from unittest.mock import patch, MagicMock
 from worktree_manager.git_service import GitService
@@ -160,3 +161,41 @@ def test_is_merged_into_any_empty_targets_returns_false(svc):
     merged, target = svc.is_merged_into_any("/repos/proj", "fix/bug", [])
     assert merged is False
     assert target is None
+
+
+def test_has_uncommitted_changes_returns_true_when_dirty(svc):
+    with patch.object(svc, "_run", return_value="M modified_file.py\n"):
+        assert svc.has_uncommitted_changes("/repos/proj-wt/fix-auth") is True
+
+
+def test_has_uncommitted_changes_returns_false_when_clean(svc):
+    with patch.object(svc, "_run", return_value=""):
+        assert svc.has_uncommitted_changes("/repos/proj-wt/fix-auth") is False
+
+
+def test_has_uncommitted_changes_returns_false_on_error(svc):
+    with patch.object(svc, "_run", side_effect=subprocess.CalledProcessError(1, "git")):
+        assert svc.has_uncommitted_changes("/repos/proj-wt/fix-auth") is False
+
+
+def test_checked_out_branch_returns_branch_name(svc):
+    with patch.object(svc, "_run", return_value="hotfix/2.1\n"):
+        assert svc.checked_out_branch("/repos/proj-wt/fix-auth") == "hotfix/2.1"
+
+
+def test_checked_out_branch_returns_detached_on_error(svc):
+    with patch.object(svc, "_run", side_effect=subprocess.CalledProcessError(1, "git")):
+        assert svc.checked_out_branch("/repos/proj-wt/fix-auth") == "(detached)"
+
+
+def test_create_worktree_from_existing_calls_correct_command(svc):
+    with patch.object(svc, "_run") as mock_run:
+        svc.create_worktree_from_existing(
+            repo_path="/repos/proj",
+            worktree_path="/repos/proj-wt/feature-payments",
+            branch="feature/payments",
+        )
+        mock_run.assert_called_once_with(
+            ["git", "worktree", "add", "/repos/proj-wt/feature-payments", "feature/payments"],
+            cwd="/repos/proj",
+        )

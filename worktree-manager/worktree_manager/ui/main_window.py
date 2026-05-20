@@ -68,6 +68,15 @@ class MainWindow(ctk.CTkFrame):
         dot = "●" if wt.is_main else "○"
         ctk.CTkLabel(row, text=dot, width=20).pack(side="left")
         ctk.CTkLabel(row, text=wt.branch, anchor="w", width=180).pack(side="left")
+
+        checked_out = self._vm._git.checked_out_branch(wt.path)
+        if checked_out != wt.branch:
+            ctk.CTkLabel(
+                row, text=f"↳ {checked_out}", text_color="gray", anchor="w", width=140
+            ).pack(side="left")
+        else:
+            ctk.CTkLabel(row, text="", width=140).pack(side="left")
+
         ctk.CTkLabel(
             row, text=_fmt_age(wt.last_commit_ts), text_color="gray", width=80
         ).pack(side="left")
@@ -157,15 +166,18 @@ class MainWindow(ctk.CTkFrame):
 
     def _open_create(self):
         from worktree_manager.ui.create_dialog import CreateDialog
-        branches = self._vm.list_local_branches()
+        all_branches = self._vm.list_local_branches()
+        worktree_branches = {wt.branch for wt in self._vm._worktrees}
+        existing_branches = [b for b in all_branches if b not in worktree_branches]
         ed, mode = self._vm.default_editor()
         CreateDialog(
-            self, branches=branches, default_editor=ed, default_mode=mode,
+            self, branches=all_branches, existing_branches=existing_branches,
+            default_editor=ed, default_mode=mode,
             on_create=self._handle_create,
         )
 
-    def _handle_create(self, branch, base_branch, open_after, editor, reuse_window):
-        self._vm.create_worktree(branch=branch, base_branch=base_branch)
+    def _handle_create(self, branch, base_branch, open_after, editor, reuse_window, existing=False):
+        self._vm.create_worktree(branch=branch, base_branch=base_branch, existing=existing)
         if open_after:
             path = self._vm.worktree_path_for_branch(branch)
             self._vm.open_worktree(path, editor, reuse_window)
@@ -174,7 +186,13 @@ class MainWindow(ctk.CTkFrame):
     def _open_delete(self, wt: WorktreeModel):
         from worktree_manager.ui.delete_dialog import DeleteDialog
         live = self._vm.get_window(wt.path)
-        DeleteDialog(self, wt=wt, on_delete=self._handle_delete, live_window=live)
+        is_protected = self._vm.is_protected_branch(wt.branch)
+        has_uncommitted = self._vm.has_uncommitted_changes_for_branch(wt.branch)
+        DeleteDialog(
+            self, wt=wt, on_delete=self._handle_delete,
+            live_window=live, is_protected=is_protected,
+            has_uncommitted=has_uncommitted,
+        )
 
     def _handle_delete(self, wt, also_delete_branch):
         self._vm.delete_worktree(

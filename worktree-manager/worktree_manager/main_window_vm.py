@@ -73,14 +73,31 @@ class MainWindowViewModel:
         cfg = self._store.get_repo(self._repo_path)
         return cfg.last_editor, cfg.last_editor_mode
 
-    def create_worktree(self, branch: str, base_branch: str) -> None:
+    def is_protected_branch(self, branch: str) -> bool:
+        return branch == "main" or branch.startswith("feature/")
+
+    def has_uncommitted_changes_for_branch(self, branch: str) -> bool:
+        import os
         path = self.worktree_path_for_branch(branch)
-        self._git.create_worktree(
-            repo_path=self._repo_path,
-            worktree_path=path,
-            branch=branch,
-            base_branch=base_branch,
-        )
+        if not os.path.isdir(path):
+            return False
+        return self._git.has_uncommitted_changes(path)
+
+    def create_worktree(self, branch: str, base_branch: str | None, existing: bool = False) -> None:
+        path = self.worktree_path_for_branch(branch)
+        if existing:
+            self._git.create_worktree_from_existing(
+                repo_path=self._repo_path,
+                worktree_path=path,
+                branch=branch,
+            )
+        else:
+            self._git.create_worktree(
+                repo_path=self._repo_path,
+                worktree_path=path,
+                branch=branch,
+                base_branch=base_branch,
+            )
 
     def delete_worktree(self, path: str, branch: str, also_delete_branch: bool) -> None:
         if self._registry is not None:
@@ -106,37 +123,39 @@ class MainWindowViewModel:
         for wt in self._worktrees:
             if wt.is_main:
                 continue
+            if self.is_protected_branch(wt.branch):
+                continue
             merged, merged_into = self._git.is_merged_into_any(
                 self._repo_path, wt.branch, merge_targets
             )
             stale = wt.last_commit_ts > 0 and wt.last_commit_ts < stale_threshold
-            if merged or stale:
-                candidates.append(CleanupCandidate(
-                    branch=wt.branch,
-                    path=wt.path,
-                    is_merged=merged,
-                    is_stale=stale,
-                    last_commit_ts=wt.last_commit_ts,
-                    merged_into=merged_into,
-                ))
+            candidates.append(CleanupCandidate(
+                branch=wt.branch,
+                path=wt.path,
+                is_merged=merged,
+                is_stale=stale,
+                last_commit_ts=wt.last_commit_ts,
+                merged_into=merged_into,
+            ))
 
         for branch in self._git.list_local_branches(self._repo_path):
             if branch in worktree_branches:
+                continue
+            if self.is_protected_branch(branch):
                 continue
             ts = self._git.last_commit_ts(self._repo_path, branch)
             merged, merged_into = self._git.is_merged_into_any(
                 self._repo_path, branch, merge_targets
             )
             stale = ts > 0 and ts < stale_threshold
-            if merged or stale:
-                candidates.append(CleanupCandidate(
-                    branch=branch,
-                    path=None,
-                    is_merged=merged,
-                    is_stale=stale,
-                    last_commit_ts=ts,
-                    merged_into=merged_into,
-                ))
+            candidates.append(CleanupCandidate(
+                branch=branch,
+                path=None,
+                is_merged=merged,
+                is_stale=stale,
+                last_commit_ts=ts,
+                merged_into=merged_into,
+            ))
 
         return candidates
 

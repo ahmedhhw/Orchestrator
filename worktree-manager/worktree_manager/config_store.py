@@ -39,10 +39,7 @@ class ConfigStore:
 
     def all_repos(self) -> dict:
         data = self._load_raw()
-        repos = {
+        return {
             path: RepoConfig(repo_path=path, **entry)
             for path, entry in data["repos"].items()
         }
-        return dict(
-            sorted(repos.items(), key=lambda kv: kv[1].last_opened, reverse=True)
-        )

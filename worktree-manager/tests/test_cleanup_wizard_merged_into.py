@@ -72,3 +72,58 @@ def test_wizard_shows_merged_without_target_when_none(root):
     texts = _collect_text(wiz)
     assert any("merged" in t.lower() for t in texts)
     wiz.destroy()
+
+
+def test_wizard_healthy_items_are_unchecked(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    healthy = CleanupCandidate(
+        branch="wip/thing", path=None, is_merged=False, is_stale=False,
+        last_commit_ts=now - 2 * 86400, merged_into=None,
+    )
+    stale = CleanupCandidate(
+        branch="old/thing", path=None, is_merged=False, is_stale=True,
+        last_commit_ts=now - 40 * 86400, merged_into=None,
+    )
+    wiz = CleanupWizard(root, candidates=[healthy, stale], on_delete_selected=lambda s, b: None)
+    stale_idx = next(i for i, c in enumerate(wiz._candidates) if c.branch == "old/thing")
+    healthy_idx = next(i for i, c in enumerate(wiz._candidates) if c.branch == "wip/thing")
+    assert wiz._vars[stale_idx].get() is True
+    assert wiz._vars[healthy_idx].get() is False
+    wiz.destroy()
+
+
+def test_wizard_stale_sorted_before_healthy(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    healthy = CleanupCandidate(
+        branch="wip/thing", path=None, is_merged=False, is_stale=False,
+        last_commit_ts=now - 2 * 86400, merged_into=None,
+    )
+    stale = CleanupCandidate(
+        branch="old/thing", path=None, is_merged=False, is_stale=True,
+        last_commit_ts=now - 40 * 86400, merged_into=None,
+    )
+    wiz = CleanupWizard(root, candidates=[healthy, stale], on_delete_selected=lambda s, b: None)
+    branches_in_order = [c.branch for c in wiz._candidates]
+    assert branches_in_order.index("old/thing") < branches_in_order.index("wip/thing")
+    wiz.destroy()
+
+
+def test_cleanup_wizard_smoke_with_healthy_and_stale(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    candidates = [
+        CleanupCandidate("chore/deps", "/wt/chore-deps", False, True, now - 35 * 86400),
+        CleanupCandidate("wip/thing", "/wt/wip-thing", False, False, now - 2 * 86400),
+        CleanupCandidate("release/1.0", None, True, False, now - 5 * 86400),
+        CleanupCandidate("hotfix/patch", None, False, False, now - 1 * 86400),
+    ]
+    wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    wiz.destroy()
