@@ -211,4 +211,9 @@ def main():
 
 
 if __name__ == "__main__":
+    # When running the script directly from the checkout, ensure the package
+    # root is on sys.path so `import worktree_manager` works.
+    repo_root = Path(__file__).resolve().parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
     main()

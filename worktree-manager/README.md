@@ -10,6 +10,19 @@ A GUI app for managing Git worktrees across multiple repositories.
 python3.14 -m pytest
 ```
 
+Run the app from the checkout with:
+
+```bash
+python3.14 -m worktree_manager.cli
+```
+
+Or install editable mode once and use the console script:
+
+```bash
+python3.14 -m pip install -e .
+worktree-manager
+```
+
 Or activate the venv if present:
 
 ```bash
