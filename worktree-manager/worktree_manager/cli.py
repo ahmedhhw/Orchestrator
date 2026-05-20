@@ -106,10 +106,14 @@ class App:
                 fg_color=("gray30" if is_active else "transparent"),
                 hover_color="gray25",
                 text_color=("white" if is_active else ("gray10", "gray90")),
-                wraplength=196,
                 command=lambda p=path: self._switch_repo(p),
             )
             btn.pack(fill="x", padx=4, pady=1)
+            # Make the internal label wrap long repo names
+            try:
+                btn._text_label.configure(wraplength=196)
+            except Exception:
+                pass
 
         ctk.CTkButton(
             sidebar, text="+ Add Repo", fg_color="transparent",
