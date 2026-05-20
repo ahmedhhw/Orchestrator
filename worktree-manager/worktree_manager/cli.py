@@ -38,6 +38,8 @@ class App:
         self._current_frame = None
         self._sidebar_frame = None
 
+        self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+
         if repo_path:
             self._load_repo(repo_path)
         else:
@@ -45,6 +47,10 @@ class App:
 
     def run(self):
         self._root.mainloop()
+
+    def _on_close(self):
+        self._store.clear_all_open_paths()
+        self._root.destroy()
 
     def _clear_main(self):
         if self._current_frame:

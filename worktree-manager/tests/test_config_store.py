@@ -127,6 +127,26 @@ def test_defaults_when_fields_missing_from_disk(store, config_path):
     assert loaded.cur_open_path is None
 
 
+def test_clear_all_open_paths_resets_every_repo(store):
+    for path, open_path in [
+        ("/repos/a", "/repos/a-wt/feat"),
+        ("/repos/b", "/repos/b-wt/fix"),
+        ("/repos/c", None),
+    ]:
+        store.save_repo(RepoConfig(
+            repo_path=path,
+            worktree_storage=path + "-wt",
+            stale_days=30,
+            last_editor="cursor",
+            last_editor_mode="reuse",
+            last_opened="2026-05-20T10:00:00",
+            cur_open_path=open_path,
+        ))
+    store.clear_all_open_paths()
+    for path in ("/repos/a", "/repos/b", "/repos/c"):
+        assert store.get_repo(path).cur_open_path is None
+
+
 def test_cur_open_path_can_be_cleared(store):
     cfg = RepoConfig(
         repo_path="/repos/proj",

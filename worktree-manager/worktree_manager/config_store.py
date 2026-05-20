@@ -50,6 +50,12 @@ class ConfigStore:
         }
         self._save_raw(data)
 
+    def clear_all_open_paths(self) -> None:
+        data = self._load_raw()
+        for entry in data["repos"].values():
+            entry["cur_open_path"] = None
+        self._save_raw(data)
+
     def all_repos(self) -> dict:
         data = self._load_raw()
         repos = {

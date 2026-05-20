@@ -69,5 +69,13 @@ class DeleteDialog(ctk.CTkToplevel):
                 "Commit or discard changes before deleting.",
             )
             return
+        if self._has_uncommitted:
+            confirmed = mb.askyesno(
+                "Uncommitted changes",
+                f'"{self._wt.branch}" has uncommitted changes that will be lost.\n\n'
+                "Are you sure you want to delete this worktree?",
+            )
+            if not confirmed:
+                return
         self._on_delete(self._wt, self._also_branch.get())
         self.destroy()

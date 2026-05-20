@@ -151,6 +151,16 @@ def test_app_shows_empty_main_when_no_repo_path():
     assert "sidebar" in shown
 
 
+def test_on_close_clears_open_paths_and_destroys_window():
+    import worktree_manager.cli as cli_mod
+    app = object.__new__(cli_mod.App)
+    app._store = MagicMock()
+    app._root = MagicMock()
+    app._on_close()
+    app._store.clear_all_open_paths.assert_called_once()
+    app._root.destroy.assert_called_once()
+
+
 def test_show_landing_is_noop(tmp_path):
     import worktree_manager.cli as cli_mod
     from worktree_manager.window_registry import WindowRegistry

@@ -47,3 +47,7 @@ class EditorService:
         cmd = _resolve_editor_cmd(editor)
         subprocess.run([cmd, "-r", cur_path], check=False)
         subprocess.run([cmd, "-r", new_path], check=False)
+
+    def focus(self, path: str, editor: str) -> None:
+        cmd = _resolve_editor_cmd(editor)
+        subprocess.run([cmd, path], check=False)

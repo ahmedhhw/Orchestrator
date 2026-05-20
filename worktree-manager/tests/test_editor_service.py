@@ -79,6 +79,13 @@ def test_open_replacing_vscode(svc):
     )
 
 
+def test_focus_runs_without_r_flag(svc):
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="code"), \
+         patch("subprocess.run") as mock_run:
+        svc.focus("/repos/proj-wt/feat", editor="vscode")
+    mock_run.assert_called_once_with(["code", "/repos/proj-wt/feat"], check=False)
+
+
 def test_open_new_returns_popen_object(svc):
     mock_proc = MagicMock()
     with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="cursor"), \

@@ -37,7 +37,10 @@ class MainWindowViewModel:
         cfg = self._store.get_repo(self._repo_path)
         editor = cfg.editor
         if cfg.window_mode == "single":
-            if cfg.cur_open_path:
+            if cfg.cur_open_path == path:
+                self._editor.focus(path, editor=editor)
+                return
+            elif cfg.cur_open_path:
                 self._editor.open_replacing(
                     cur_path=cfg.cur_open_path,
                     new_path=path,
@@ -106,6 +109,10 @@ class MainWindowViewModel:
         self._git.delete_worktree(repo_path=self._repo_path, worktree_path=path)
         if also_delete_branch:
             self._git.delete_branch(repo_path=self._repo_path, branch=branch)
+        cfg = self._store.get_repo(self._repo_path)
+        if cfg.cur_open_path == path:
+            cfg.cur_open_path = None
+            self._store.save_repo(cfg)
 
     def all_cleanup_candidates(self) -> list:
         import time
