@@ -1,7 +1,7 @@
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
 from worktree_manager.editor_service import EditorService
-from worktree_manager.models import WorktreeModel
+from worktree_manager.models import WorktreeModel, WindowRecord
 
 
 class MainWindowViewModel:
@@ -11,11 +11,13 @@ class MainWindowViewModel:
         config_store: ConfigStore,
         git_service: GitService,
         editor_service: EditorService,
+        window_registry=None,
     ):
         self._repo_path = repo_path
         self._store = config_store
         self._git = git_service
         self._editor = editor_service
+        self._registry = window_registry
         self._worktrees: list = []
 
     def load_worktrees(self) -> list:
@@ -32,6 +34,27 @@ class MainWindowViewModel:
     def worktree_path_for_branch(self, branch: str) -> str:
         cfg = self._store.get_repo(self._repo_path)
         return cfg.worktree_storage + "/" + self.branch_to_folder_name(branch)
+
+    def is_open(self, worktree_path: str) -> bool:
+        if self._registry is None:
+            return False
+        rec = self._registry.get_window(self._repo_path, worktree_path)
+        if rec is None:
+            return False
+        return self._registry.is_alive(rec)
+
+    def get_window(self, worktree_path: str) -> WindowRecord | None:
+        if self._registry is None:
+            return None
+        return self._registry.get_window(self._repo_path, worktree_path)
+
+    def focus_window(self, worktree_path: str) -> None:
+        if self._registry is None:
+            return
+        rec = self._registry.get_window(self._repo_path, worktree_path)
+        if rec is None or not self._registry.is_alive(rec):
+            return
+        self._editor.focus(rec)
 
     def open_worktree(self, path: str, editor: str, reuse_window: bool) -> None:
         self._editor.open(path, editor=editor, reuse_window=reuse_window, repo_path=self._repo_path)
@@ -50,6 +73,10 @@ class MainWindowViewModel:
         )
 
     def delete_worktree(self, path: str, branch: str, also_delete_branch: bool) -> None:
+        if self._registry is not None:
+            rec = self._registry.get_window(self._repo_path, path)
+            if rec is not None and self._registry.is_alive(rec):
+                self._registry.close(rec)
         self._git.delete_worktree(repo_path=self._repo_path, worktree_path=path)
         if also_delete_branch:
             self._git.delete_branch(repo_path=self._repo_path, branch=branch)

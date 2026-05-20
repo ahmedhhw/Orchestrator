@@ -79,26 +79,45 @@ class MainWindow(ctk.CTkFrame):
         else:
             ctk.CTkLabel(row, text="", width=70).pack(side="left")
 
+        if self._vm.is_open(wt.path):
+            ctk.CTkLabel(
+                row, text="[OPEN]", text_color="#2ecc71", width=60
+            ).pack(side="left")
+        else:
+            ctk.CTkLabel(row, text="", width=60).pack(side="left")
+
         if not wt.is_main:
             ctk.CTkButton(
                 row, text="✕", width=28, fg_color="#c0392b",
                 command=lambda w=wt: self._open_delete(w)
             ).pack(side="right", padx=(0, 4))
 
-        ed, mode = self._vm.default_editor()
-        reuse = mode == "reuse"
         arrow_btn = ctk.CTkButton(
             row, text="▾", width=28,
             command=lambda w=wt: self._show_open_menu(w)
         )
         arrow_btn.pack(side="right", padx=(0, 2))
+
+        ed, mode = self._vm.default_editor()
+        reuse = mode == "reuse"
+        open_label = "Focus" if self._vm.is_open(wt.path) else "Open"
         ctk.CTkButton(
-            row, text="Open", width=55,
+            row, text=open_label, width=55,
             command=lambda p=wt.path: self._vm.open_worktree(p, ed, reuse)
         ).pack(side="right", padx=(0, 2))
 
     def _show_open_menu(self, wt: WorktreeModel):
         menu = tk.Menu(self, tearoff=0)
+        has_window = self._vm.is_open(wt.path)
+        rec = self._vm.get_window(wt.path) if has_window else None
+
+        if has_window and rec:
+            menu.add_command(
+                label=f"{rec.editor.title()} — focus existing window",
+                command=lambda: self._vm.focus_window(wt.path),
+            )
+            menu.add_separator()
+
         menu.add_command(
             label="VS Code — new window",
             command=lambda: self._vm.open_worktree(wt.path, "vscode", False),
@@ -138,7 +157,8 @@ class MainWindow(ctk.CTkFrame):
 
     def _open_delete(self, wt: WorktreeModel):
         from worktree_manager.ui.delete_dialog import DeleteDialog
-        DeleteDialog(self, wt=wt, on_delete=self._handle_delete)
+        live = self._vm.get_window(wt.path)
+        DeleteDialog(self, wt=wt, on_delete=self._handle_delete, live_window=live)
 
     def _handle_delete(self, wt, also_delete_branch):
         self._vm.delete_worktree(

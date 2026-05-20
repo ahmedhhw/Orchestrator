@@ -2,6 +2,14 @@ from dataclasses import dataclass
 
 
 @dataclass
+class WindowRecord:
+    repo_path: str
+    worktree_path: str
+    editor: str
+    pid: int
+
+
+@dataclass
 class WorktreeModel:
     path: str
     branch: str

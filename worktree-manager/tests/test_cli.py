@@ -1,6 +1,6 @@
 import pytest
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from worktree_manager.cli import parse_args, resolve_repo_path
 from worktree_manager.git_service import GitService
 
@@ -74,3 +74,58 @@ def test_show_cleanup_shows_messagebox_when_empty():
             app._show_cleanup(vm)
     MockWizard.assert_not_called()
     mock_info.assert_called_once()
+
+
+def test_app_has_window_registry():
+    import worktree_manager.cli as cli_mod
+    from worktree_manager.window_registry import WindowRegistry
+    app = object.__new__(cli_mod.App)
+    app._window_registry = WindowRegistry()
+    assert isinstance(app._window_registry, WindowRegistry)
+
+
+def test_show_main_passes_registry_to_vm():
+    import worktree_manager.cli as cli_mod
+    from unittest.mock import patch, MagicMock
+    from worktree_manager.window_registry import WindowRegistry
+    from worktree_manager.models import RepoConfig
+
+    store = MagicMock()
+    store.get_repo.return_value = RepoConfig(
+        repo_path="/repos/proj",
+        worktree_storage="/repos/proj-wt",
+        stale_days=30,
+        last_editor="cursor",
+        last_editor_mode="reuse",
+        last_opened="2026-05-19T10:00:00",
+    )
+    store.save_repo.return_value = None
+    store.all_repos.return_value = {"/repos/proj": store.get_repo.return_value}
+    registry = WindowRegistry()
+    captured = {}
+
+    def fake_vm_init(self, repo_path, config_store, git_service, editor_service, window_registry=None):
+        captured["window_registry"] = window_registry
+        self._repo_path = repo_path
+        self._store = config_store
+        self._git = git_service
+        self._editor = editor_service
+        self._registry = window_registry
+        self._worktrees = []
+
+    with patch("worktree_manager.main_window_vm.MainWindowViewModel.__init__", fake_vm_init), \
+         patch("worktree_manager.ui.main_window.MainWindow") as MockWindow, \
+         patch.object(cli_mod.App, "_show_sidebar"):
+        MockWindow.return_value = MagicMock()
+        app = object.__new__(cli_mod.App)
+        app._ctk = MagicMock()
+        app._root = MagicMock()
+        app._store = store
+        app._git = MagicMock()
+        app._editor = MagicMock()
+        app._current_frame = None
+        app._sidebar_frame = None
+        app._window_registry = registry
+        app._show_main("/repos/proj")
+
+    assert captured["window_registry"] is registry

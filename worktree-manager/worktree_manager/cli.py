@@ -27,16 +27,19 @@ class App:
         from worktree_manager.config_store import ConfigStore
         from worktree_manager.git_service import GitService
         from worktree_manager.editor_service import EditorService
+        from worktree_manager.window_registry import WindowRegistry
 
         self._ctk = ctk
         self._root = ctk.CTk()
         self._root.title("Git Worktree Manager")
-        self._root.geometry("720x500")
+        self._root.geometry("900x520")
 
         self._store = ConfigStore()
         self._git = GitService()
-        self._editor = EditorService(self._store)
+        self._window_registry = WindowRegistry()
+        self._editor = EditorService(self._store, window_registry=self._window_registry)
         self._current_frame = None
+        self._sidebar_frame = None
 
         if repo_path:
             self._load_repo(repo_path)
@@ -46,10 +49,16 @@ class App:
     def run(self):
         self._root.mainloop()
 
-    def _clear(self):
+    def _clear_main(self):
         if self._current_frame:
             self._current_frame.destroy()
             self._current_frame = None
+
+    def _clear(self):
+        self._clear_main()
+        if self._sidebar_frame:
+            self._sidebar_frame.destroy()
+            self._sidebar_frame = None
 
     def _show_landing(self):
         self._clear()
@@ -60,6 +69,56 @@ class App:
             self._root, vm=vm, on_repo_chosen=self._load_repo
         )
         self._current_frame.pack(fill="both", expand=True)
+
+    def _show_sidebar(self, active_repo_path: str):
+        import customtkinter as ctk
+
+        if self._sidebar_frame:
+            self._sidebar_frame.destroy()
+
+        sidebar = ctk.CTkFrame(self._root, width=180, corner_radius=0)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        self._sidebar_frame = sidebar
+
+        ctk.CTkLabel(
+            sidebar, text="REPOS", font=ctk.CTkFont(weight="bold"), text_color="gray"
+        ).pack(pady=(12, 4), padx=8, anchor="w")
+
+        repos = self._store.all_repos()
+        for path, cfg in repos.items():
+            name = Path(path).name
+            is_active = path == active_repo_path
+            btn = ctk.CTkButton(
+                sidebar,
+                text=("● " if is_active else "  ") + name,
+                anchor="w",
+                fg_color=("gray30" if is_active else "transparent"),
+                hover_color="gray25",
+                text_color=("white" if is_active else ("gray10", "gray90")),
+                command=lambda p=path: self._switch_repo(p),
+            )
+            btn.pack(fill="x", padx=4, pady=1)
+
+        ctk.CTkButton(
+            sidebar, text="+ Add Repo", fg_color="transparent",
+            border_width=1, text_color=("gray10", "gray90"),
+            command=self._pick_and_add_repo,
+        ).pack(fill="x", padx=4, pady=(8, 4))
+
+    def _pick_and_add_repo(self):
+        from tkinter import filedialog
+        import tkinter.messagebox as mb
+        path = filedialog.askdirectory(title="Select git repo")
+        if not path:
+            return
+        if not self._git.is_valid_repo(path):
+            mb.showerror("Error", f"'{path}' is not a git repository.")
+            return
+        self._load_repo(path)
+
+    def _switch_repo(self, repo_path: str):
+        self._load_repo(repo_path)
 
     def _load_repo(self, repo_path: str):
         cfg = self._store.get_repo(repo_path)
@@ -89,12 +148,15 @@ class App:
         cfg.last_opened = datetime.now(timezone.utc).isoformat()
         self._store.save_repo(cfg)
 
-        self._clear()
+        self._clear_main()
+        self._show_sidebar(repo_path)
+
         vm = MainWindowViewModel(
             repo_path=repo_path,
             config_store=self._store,
             git_service=self._git,
             editor_service=self._editor,
+            window_registry=self._window_registry,
         )
         repo_name = Path(repo_path).name
         self._current_frame = MainWindow(
@@ -102,7 +164,7 @@ class App:
             on_settings=lambda: self._show_settings(repo_path),
             on_cleanup=lambda: self._show_cleanup(vm),
         )
-        self._current_frame.pack(fill="both", expand=True)
+        self._current_frame.pack(side="left", fill="both", expand=True)
 
     def _show_settings(self, repo_path: str):
         from worktree_manager.setup_settings_vm import SettingsViewModel

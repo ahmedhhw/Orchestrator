@@ -66,3 +66,42 @@ def test_open_persists_new_mode(svc, store):
         svc.open("/repos/proj-wt/feat", editor="cursor", reuse_window=False, repo_path="/repos/proj")
     cfg = store.get_repo("/repos/proj")
     assert cfg.last_editor_mode == "new"
+
+
+def test_open_returns_popen_object(svc):
+    mock_proc = MagicMock()
+    mock_proc.pid = 77
+    with patch("subprocess.Popen", return_value=mock_proc):
+        result = svc.open(
+            "/repos/proj-wt/feat", editor="cursor",
+            reuse_window=False, repo_path="/repos/proj",
+        )
+    assert result is mock_proc
+
+
+def test_open_registers_pid_in_registry(store):
+    from worktree_manager.window_registry import WindowRegistry
+    reg = WindowRegistry()
+    svc = EditorService(store, window_registry=reg)
+    mock_proc = MagicMock()
+    mock_proc.pid = 99
+    with patch("subprocess.Popen", return_value=mock_proc):
+        svc.open(
+            "/repos/proj-wt/feat", editor="cursor",
+            reuse_window=False, repo_path="/repos/proj",
+        )
+    rec = reg.get_window("/repos/proj", "/repos/proj-wt/feat")
+    assert rec is not None
+    assert rec.pid == 99
+    assert rec.editor == "cursor"
+
+
+def test_open_without_registry_does_not_crash(svc):
+    mock_proc = MagicMock()
+    mock_proc.pid = 55
+    with patch("subprocess.Popen", return_value=mock_proc):
+        result = svc.open(
+            "/repos/proj-wt/feat", editor="vscode",
+            reuse_window=True, repo_path="/repos/proj",
+        )
+    assert result is mock_proc
