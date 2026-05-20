@@ -129,3 +129,48 @@ def test_show_main_passes_registry_to_vm():
         app._show_main("/repos/proj")
 
     assert captured["window_registry"] is registry
+
+
+def test_app_shows_empty_main_when_no_repo_path():
+    import worktree_manager.cli as cli_mod
+    from worktree_manager.window_registry import WindowRegistry
+
+    app = object.__new__(cli_mod.App)
+    app._ctk = MagicMock()
+    app._root = MagicMock()
+    app._store = MagicMock()
+    app._store.all_repos.return_value = {}
+    app._git = MagicMock()
+    app._editor = MagicMock()
+    app._current_frame = None
+    app._sidebar_frame = None
+    app._window_registry = WindowRegistry()
+
+    shown = {}
+    app._show_sidebar = lambda active_repo_path=None: shown.update({"sidebar": active_repo_path})
+
+    app._show_empty_main()
+    assert "sidebar" in shown
+
+
+def test_show_landing_is_noop(tmp_path):
+    import worktree_manager.cli as cli_mod
+    from worktree_manager.window_registry import WindowRegistry
+
+    app = object.__new__(cli_mod.App)
+    app._ctk = MagicMock()
+    app._root = MagicMock()
+    app._store = MagicMock()
+    app._store.all_repos.return_value = {}
+    app._git = MagicMock()
+    app._editor = MagicMock()
+    app._current_frame = None
+    app._sidebar_frame = None
+    app._window_registry = WindowRegistry()
+
+    shown = {}
+    app._show_sidebar = lambda active: shown.update({"sidebar": True})
+    app._show_empty_main = lambda: shown.update({"empty": True})
+
+    app._show_landing()
+    assert shown.get("empty") is True

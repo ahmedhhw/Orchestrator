@@ -10,6 +10,13 @@ def _fmt_age(ts: int) -> str:
     return f"{diff // 86400}d"
 
 
+def _reason(c) -> str:
+    if c.is_merged:
+        target = c.merged_into or "main"
+        return f"merged into {target}"
+    return f"{_fmt_age(c.last_commit_ts)}, stale"
+
+
 class CleanupWizard(ctk.CTkToplevel):
     def __init__(self, master, candidates: list, on_delete_selected):
         super().__init__(master)
@@ -39,7 +46,7 @@ class CleanupWizard(ctk.CTkToplevel):
                 var = ctk.BooleanVar(value=c.is_stale or c.is_merged)
                 self._vars.append(var)
                 self._candidates.append(c)
-                reason = "merged" if c.is_merged else f"{_fmt_age(c.last_commit_ts)}, stale"
+                reason = _reason(c)
                 ctk.CTkCheckBox(
                     self, text=f"{c.branch}  ({reason})", variable=var
                 ).pack(anchor="w", padx=24, pady=2)
@@ -64,7 +71,7 @@ class CleanupWizard(ctk.CTkToplevel):
                 var = ctk.BooleanVar(value=c.is_stale or c.is_merged)
                 self._vars.append(var)
                 self._candidates.append(c)
-                reason = "merged" if c.is_merged else f"{_fmt_age(c.last_commit_ts)}, stale"
+                reason = _reason(c)
                 ctk.CTkCheckBox(
                     self, text=f"{c.branch}  ({reason})", variable=var
                 ).pack(anchor="w", padx=24, pady=2)

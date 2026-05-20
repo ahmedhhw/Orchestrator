@@ -44,7 +44,7 @@ class App:
         if repo_path:
             self._load_repo(repo_path)
         else:
-            self._show_landing()
+            self._show_empty_main()
 
     def run(self):
         self._root.mainloop()
@@ -61,14 +61,21 @@ class App:
             self._sidebar_frame = None
 
     def _show_landing(self):
-        self._clear()
-        from worktree_manager.landing_screen import LandingScreenViewModel
-        from worktree_manager.ui.landing_screen import LandingScreen
-        vm = LandingScreenViewModel(config_store=self._store, git_service=self._git)
-        self._current_frame = LandingScreen(
-            self._root, vm=vm, on_repo_chosen=self._load_repo
-        )
-        self._current_frame.pack(fill="both", expand=True)
+        self._show_empty_main()
+
+    def _show_empty_main(self):
+        self._clear_main()
+        self._show_sidebar(active_repo_path=None)
+
+        frame = self._ctk.CTkFrame(self._root)
+        frame.pack(side="left", fill="both", expand=True)
+        self._ctk.CTkLabel(
+            frame,
+            text="No repo selected.\nPick one from the sidebar or click + Add Repo.",
+            text_color="gray",
+            justify="center",
+        ).place(relx=0.5, rely=0.5, anchor="center")
+        self._current_frame = frame
 
     def _show_sidebar(self, active_repo_path: str):
         import customtkinter as ctk
@@ -88,7 +95,7 @@ class App:
         repos = self._store.all_repos()
         for path, cfg in repos.items():
             name = Path(path).name
-            is_active = path == active_repo_path
+            is_active = active_repo_path is not None and path == active_repo_path
             btn = ctk.CTkButton(
                 sidebar,
                 text=("● " if is_active else "  ") + name,

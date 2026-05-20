@@ -46,6 +46,8 @@ def worktrees():
 @pytest.fixture
 def vm(store, git, editor, worktrees):
     git.list_worktrees.return_value = worktrees
+    git.list_feature_branches.return_value = []
+    git.is_merged_into_any.return_value = (False, None)
     return MainWindowViewModel(
         repo_path="/repos/proj",
         config_store=store,
@@ -82,8 +84,14 @@ def test_cleanup_candidates_excludes_healthy(vm):
 
 
 def test_all_cleanup_candidates_includes_worktree_candidates(vm):
+    import time
+    now = int(time.time())
     vm.load_worktrees()
     vm._git.list_local_branches.return_value = []
+    # chore/deps is stale (35d), fix/old-bug is stale (40d) and merged
+    def merged_side_effect(repo, branch, targets):
+        return (True, "main") if branch == "fix/old-bug" else (False, None)
+    vm._git.is_merged_into_any.side_effect = merged_side_effect
     candidates = vm.all_cleanup_candidates()
     branches = [c.branch for c in candidates]
     assert "chore/deps" in branches
@@ -107,6 +115,9 @@ def test_all_cleanup_candidates_excludes_healthy_worktrees(vm):
 def test_all_cleanup_candidates_worktree_has_path(vm):
     vm.load_worktrees()
     vm._git.list_local_branches.return_value = []
+    def merged_side_effect(repo, branch, targets):
+        return (True, "main") if branch == "fix/old-bug" else (False, None)
+    vm._git.is_merged_into_any.side_effect = merged_side_effect
     candidates = vm.all_cleanup_candidates()
     wt_candidates = [c for c in candidates if c.path is not None]
     assert all(c.path for c in wt_candidates)
@@ -118,7 +129,8 @@ def test_all_cleanup_candidates_includes_orphan_merged_branch(store, git, editor
         WorktreeModel("/repos/proj", "main", True, now, False, False),
     ]
     git.list_local_branches.return_value = ["main", "release/1.0"]
-    git.is_merged.return_value = True
+    git.list_feature_branches.return_value = []
+    git.is_merged_into_any.return_value = (True, "main")
     git.last_commit_ts.return_value = now - 5 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -135,7 +147,8 @@ def test_all_cleanup_candidates_includes_orphan_stale_branch(store, git, editor)
         WorktreeModel("/repos/proj", "main", True, now, False, False),
     ]
     git.list_local_branches.return_value = ["main", "experiment/xyz"]
-    git.is_merged.return_value = False
+    git.list_feature_branches.return_value = []
+    git.is_merged_into_any.return_value = (False, None)
     git.last_commit_ts.return_value = now - 40 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -152,7 +165,8 @@ def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git, edito
         WorktreeModel("/repos/proj", "main", True, now, False, False),
     ]
     git.list_local_branches.return_value = ["main", "feature/wip"]
-    git.is_merged.return_value = False
+    git.list_feature_branches.return_value = []
+    git.is_merged_into_any.return_value = (False, None)
     git.last_commit_ts.return_value = now - 2 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -169,7 +183,8 @@ def test_all_cleanup_candidates_orphan_has_no_path(store, git, editor):
         WorktreeModel("/repos/proj", "main", True, now, False, False),
     ]
     git.list_local_branches.return_value = ["main", "release/1.0"]
-    git.is_merged.return_value = True
+    git.list_feature_branches.return_value = []
+    git.is_merged_into_any.return_value = (True, "main")
     git.last_commit_ts.return_value = now - 5 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,

@@ -97,6 +97,35 @@ def test_open_button_says_open_when_no_window(root):
     win.destroy()
 
 
+def _close_window_buttons(widget):
+    """Collect buttons that are the close-window button (gray #7f8c8d)."""
+    import customtkinter as ctk
+    result = []
+    if isinstance(widget, ctk.CTkButton):
+        fg = getattr(widget, "_fg_color", None)
+        if fg == "#7f8c8d":
+            result.append(widget)
+    for child in widget.winfo_children():
+        result.extend(_close_window_buttons(child))
+    return result
+
+
+def test_close_window_button_visible_when_open(root):
+    from worktree_manager.ui.main_window import MainWindow
+    vm = _make_vm(is_open_for="/repos/proj-wt/feat")
+    win = MainWindow(root, vm=vm, repo_name="proj", on_settings=MagicMock(), on_cleanup=MagicMock())
+    assert len(_close_window_buttons(win)) > 0
+    win.destroy()
+
+
+def test_close_window_button_absent_when_not_open(root):
+    from worktree_manager.ui.main_window import MainWindow
+    vm = _make_vm(is_open_for=None)
+    win = MainWindow(root, vm=vm, repo_name="proj", on_settings=MagicMock(), on_cleanup=MagicMock())
+    assert len(_close_window_buttons(win)) == 0
+    win.destroy()
+
+
 def test_open_delete_passes_live_window_to_dialog(root):
     from worktree_manager.ui.main_window import MainWindow
     vm = _make_vm(is_open_for="/repos/proj-wt/feat")

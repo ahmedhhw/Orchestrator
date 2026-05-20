@@ -83,6 +83,10 @@ class MainWindow(ctk.CTkFrame):
             ctk.CTkLabel(
                 row, text="[OPEN]", text_color="#2ecc71", width=60
             ).pack(side="left")
+            ctk.CTkButton(
+                row, text="✕", width=28, fg_color="#7f8c8d",
+                command=lambda p=wt.path: self._close_window(p),
+            ).pack(side="left", padx=(0, 2))
         else:
             ctk.CTkLabel(row, text="", width=60).pack(side="left")
 
@@ -103,7 +107,7 @@ class MainWindow(ctk.CTkFrame):
         open_label = "Focus" if self._vm.is_open(wt.path) else "Open"
         ctk.CTkButton(
             row, text=open_label, width=55,
-            command=lambda p=wt.path: self._vm.open_worktree(p, ed, reuse)
+            command=lambda p=wt.path, e=ed, r=reuse: self._open_worktree(p, e, r),
         ).pack(side="right", padx=(0, 2))
 
     def _show_open_menu(self, wt: WorktreeModel):
@@ -120,24 +124,36 @@ class MainWindow(ctk.CTkFrame):
 
         menu.add_command(
             label="VS Code — new window",
-            command=lambda: self._vm.open_worktree(wt.path, "vscode", False),
+            command=lambda: self._open_worktree(wt.path, "vscode", False),
         )
         menu.add_command(
             label="VS Code — reuse window",
-            command=lambda: self._vm.open_worktree(wt.path, "vscode", True),
+            command=lambda: self._open_worktree(wt.path, "vscode", True),
         )
         menu.add_separator()
         menu.add_command(
             label="Cursor — new window",
-            command=lambda: self._vm.open_worktree(wt.path, "cursor", False),
+            command=lambda: self._open_worktree(wt.path, "cursor", False),
         )
         menu.add_command(
             label="Cursor — reuse window",
-            command=lambda: self._vm.open_worktree(wt.path, "cursor", True),
+            command=lambda: self._open_worktree(wt.path, "cursor", True),
         )
         x = self.winfo_pointerx()
         y = self.winfo_pointery()
         menu.tk_popup(x, y)
+
+    def _open_worktree(self, path: str, editor: str, reuse: bool):
+        import tkinter.messagebox as mb
+        try:
+            self._vm.open_worktree(path, editor, reuse)
+            self.refresh()
+        except FileNotFoundError as e:
+            mb.showerror("Editor not found", str(e))
+
+    def _close_window(self, worktree_path: str):
+        self._vm.close_window(worktree_path)
+        self.refresh()
 
     def _open_create(self):
         from worktree_manager.ui.create_dialog import CreateDialog

@@ -48,6 +48,16 @@ class MainWindowViewModel:
             return None
         return self._registry.get_window(self._repo_path, worktree_path)
 
+    def close_window(self, worktree_path: str) -> None:
+        if self._registry is None:
+            return
+        key = (self._repo_path, worktree_path)
+        rec = self._registry.get_window(self._repo_path, worktree_path)
+        if rec is None:
+            return
+        self._registry.close(rec)
+        self._registry._windows.pop(key, None)
+
     def focus_window(self, worktree_path: str) -> None:
         if self._registry is None:
             return
@@ -87,24 +97,36 @@ class MainWindowViewModel:
         cfg = self._store.get_repo(self._repo_path)
         stale_threshold = int(time.time()) - cfg.stale_days * 86400
 
+        feature_branches = self._git.list_feature_branches(self._repo_path)
+        merge_targets = ["main"] + feature_branches
+
         worktree_branches = {wt.branch for wt in self._worktrees}
         candidates = []
 
         for wt in self._worktrees:
-            if not wt.is_main and (wt.is_stale or wt.is_merged):
+            if wt.is_main:
+                continue
+            merged, merged_into = self._git.is_merged_into_any(
+                self._repo_path, wt.branch, merge_targets
+            )
+            stale = wt.last_commit_ts > 0 and wt.last_commit_ts < stale_threshold
+            if merged or stale:
                 candidates.append(CleanupCandidate(
                     branch=wt.branch,
                     path=wt.path,
-                    is_merged=wt.is_merged,
-                    is_stale=wt.is_stale,
+                    is_merged=merged,
+                    is_stale=stale,
                     last_commit_ts=wt.last_commit_ts,
+                    merged_into=merged_into,
                 ))
 
         for branch in self._git.list_local_branches(self._repo_path):
             if branch in worktree_branches:
                 continue
             ts = self._git.last_commit_ts(self._repo_path, branch)
-            merged = self._git.is_merged(self._repo_path, branch, "main")
+            merged, merged_into = self._git.is_merged_into_any(
+                self._repo_path, branch, merge_targets
+            )
             stale = ts > 0 and ts < stale_threshold
             if merged or stale:
                 candidates.append(CleanupCandidate(
@@ -113,6 +135,7 @@ class MainWindowViewModel:
                     is_merged=merged,
                     is_stale=stale,
                     last_commit_ts=ts,
+                    merged_into=merged_into,
                 ))
 
         return candidates

@@ -154,6 +154,86 @@ def test_delete_cleanup_candidate_worktree_without_branch(store, git, editor):
     git.delete_branch.assert_not_called()
 
 
+def _make_vm(tmp_path, worktrees, branches, feature_branches=None):
+    from worktree_manager.config_store import ConfigStore
+    from worktree_manager.models import RepoConfig
+    s = ConfigStore(tmp_path / "config.json")
+    s.save_repo(RepoConfig(
+        repo_path="/repos/proj",
+        worktree_storage="/repos/proj-wt",
+        stale_days=30,
+        last_editor="cursor",
+        last_editor_mode="reuse",
+        last_opened="2026-05-19T10:00:00",
+    ))
+    git = MagicMock(spec=GitService)
+    git.list_worktrees.return_value = worktrees
+    git.list_local_branches.return_value = branches
+    git.list_feature_branches.return_value = feature_branches or []
+    git.last_commit_ts.return_value = 0
+    git.is_merged_into_any.return_value = (False, None)
+    editor = MagicMock(spec=EditorService)
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj",
+        config_store=s,
+        git_service=git,
+        editor_service=editor,
+    )
+    vm.load_worktrees()
+    return vm, git
+
+
+def test_cleanup_candidates_use_feature_branches_as_merge_targets(tmp_path):
+    now = int(time.time())
+    worktrees = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    branches = ["main", "feature/payments", "fix/old"]
+    vm, git = _make_vm(tmp_path, worktrees, branches, feature_branches=["feature/payments"])
+    git.is_merged_into_any.return_value = (True, "feature/payments")
+    git.last_commit_ts.return_value = now - 100
+
+    candidates = vm.all_cleanup_candidates()
+    fix_candidate = next((c for c in candidates if c.branch == "fix/old"), None)
+    assert fix_candidate is not None
+    assert fix_candidate.is_merged is True
+    assert fix_candidate.merged_into == "feature/payments"
+
+
+def test_cleanup_candidates_merged_into_main_when_no_feature_branches(tmp_path):
+    now = int(time.time())
+    worktrees = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    branches = ["main", "fix/old"]
+    vm, git = _make_vm(tmp_path, worktrees, branches, feature_branches=[])
+    git.is_merged_into_any.return_value = (True, "main")
+    git.last_commit_ts.return_value = now - 100
+
+    candidates = vm.all_cleanup_candidates()
+    fix_candidate = next((c for c in candidates if c.branch == "fix/old"), None)
+    assert fix_candidate is not None
+    assert fix_candidate.merged_into == "main"
+
+
+def test_cleanup_candidates_not_merged_when_not_in_any_target(tmp_path):
+    now = int(time.time())
+    stale_ts = now - 40 * 86400
+    worktrees = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    branches = ["main", "feature/payments", "fix/active"]
+    vm, git = _make_vm(tmp_path, worktrees, branches, feature_branches=["feature/payments"])
+    git.is_merged_into_any.return_value = (False, None)
+    git.last_commit_ts.return_value = stale_ts
+
+    candidates = vm.all_cleanup_candidates()
+    fix_candidate = next((c for c in candidates if c.branch == "fix/active"), None)
+    assert fix_candidate is not None
+    assert fix_candidate.is_merged is False
+    assert fix_candidate.merged_into is None
+
+
 def test_delete_cleanup_candidate_orphan_branch_always_deletes_branch(store, git, editor):
     from worktree_manager.models import CleanupCandidate
     now = int(time.time())

@@ -128,3 +128,33 @@ def test_vm_without_registry_is_open_always_false(store, git):
         editor_service=editor,
     )
     assert vm.is_open("/repos/proj-wt/feat") is False
+
+
+def test_close_window_closes_registry_record(vm, registry):
+    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
+    with patch("os.kill") as mock_kill:
+        vm.close_window("/repos/proj-wt/feat")
+    import signal
+    mock_kill.assert_any_call(42, signal.SIGTERM)
+
+
+def test_close_window_removes_registry_entry(vm, registry):
+    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
+    with patch("os.kill", return_value=None):
+        vm.close_window("/repos/proj-wt/feat")
+    assert registry.get_window("/repos/proj", "/repos/proj-wt/feat") is None
+
+
+def test_close_window_noop_when_no_registry(store, git):
+    editor = MagicMock(spec=EditorService)
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj",
+        config_store=store,
+        git_service=git,
+        editor_service=editor,
+    )
+    vm.close_window("/repos/proj-wt/feat")  # must not raise
+
+
+def test_close_window_noop_when_not_tracked(vm):
+    vm.close_window("/repos/proj-wt/feat")  # nothing registered, must not raise

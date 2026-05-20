@@ -72,6 +72,21 @@ def test_cleanup_candidate_orphan_branch():
     assert c.is_merged is True
 
 
+def test_cleanup_candidate_merged_into_defaults_to_none():
+    from worktree_manager.models import CleanupCandidate
+    c = CleanupCandidate(branch="fix/a", path=None, is_merged=True, is_stale=False, last_commit_ts=0)
+    assert c.merged_into is None
+
+
+def test_cleanup_candidate_merged_into_can_be_set():
+    from worktree_manager.models import CleanupCandidate
+    c = CleanupCandidate(
+        branch="fix/a", path=None, is_merged=True, is_stale=False,
+        last_commit_ts=0, merged_into="feature/payments",
+    )
+    assert c.merged_into == "feature/payments"
+
+
 def test_repo_config_vscode_editor():
     cfg = RepoConfig(
         repo_path="/repos/proj",

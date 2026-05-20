@@ -7,19 +7,24 @@ class WindowRegistry:
     def __init__(self):
         self._windows: dict[tuple[str, str], WindowRecord] = {}
 
-    def register(self, repo_path: str, worktree_path: str, pid: int, editor: str) -> None:
+    def register(
+        self, repo_path: str, worktree_path: str, pid: int, editor: str, proc=None
+    ) -> None:
         key = (repo_path, worktree_path)
         self._windows[key] = WindowRecord(
             repo_path=repo_path,
             worktree_path=worktree_path,
             editor=editor,
             pid=pid,
+            proc=proc,
         )
 
     def get_window(self, repo_path: str, worktree_path: str) -> WindowRecord | None:
         return self._windows.get((repo_path, worktree_path))
 
     def is_alive(self, record: WindowRecord) -> bool:
+        if record.proc is not None:
+            return record.proc.poll() is None
         try:
             os.kill(record.pid, 0)
             return True
@@ -38,7 +43,13 @@ class WindowRegistry:
         ]
 
     def close(self, record: WindowRecord) -> None:
-        try:
-            os.kill(record.pid, signal.SIGTERM)
-        except OSError:
-            pass
+        if record.proc is not None:
+            try:
+                record.proc.terminate()
+            except OSError:
+                pass
+        else:
+            try:
+                os.kill(record.pid, signal.SIGTERM)
+            except OSError:
+                pass

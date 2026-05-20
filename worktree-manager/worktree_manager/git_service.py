@@ -79,3 +79,17 @@ class GitService:
 
     def delete_branch(self, repo_path: str, branch: str) -> None:
         self._run(["git", "branch", "-D", branch], cwd=repo_path)
+
+    def list_feature_branches(self, repo_path: str) -> list[str]:
+        out = self._run(["git", "branch", "--format=%(refname:short)"], cwd=repo_path)
+        return [b for b in out.splitlines() if b.startswith("feature/")]
+
+    def is_merged_into_any(
+        self, repo_path: str, branch: str, targets: list[str]
+    ) -> tuple[bool, str | None]:
+        for target in targets:
+            out = self._run(["git", "branch", "--merged", target], cwd=repo_path)
+            merged = [b.strip().lstrip("* ") for b in out.splitlines()]
+            if branch in merged:
+                return True, target
+        return False, None

@@ -30,25 +30,29 @@ def svc(store):
 
 
 def test_open_vscode_new_window(svc):
-    with patch("subprocess.Popen") as mock_popen:
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="code"), \
+         patch("subprocess.Popen") as mock_popen:
         svc.open("/repos/proj-wt/feat", editor="vscode", reuse_window=False, repo_path="/repos/proj")
     mock_popen.assert_called_once_with(["code", "--new-window", "/repos/proj-wt/feat"])
 
 
 def test_open_vscode_reuse_window(svc):
-    with patch("subprocess.Popen") as mock_popen:
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="code"), \
+         patch("subprocess.Popen") as mock_popen:
         svc.open("/repos/proj-wt/feat", editor="vscode", reuse_window=True, repo_path="/repos/proj")
     mock_popen.assert_called_once_with(["code", "--reuse-window", "/repos/proj-wt/feat"])
 
 
 def test_open_cursor_new_window(svc):
-    with patch("subprocess.Popen") as mock_popen:
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="cursor"), \
+         patch("subprocess.Popen") as mock_popen:
         svc.open("/repos/proj-wt/feat", editor="cursor", reuse_window=False, repo_path="/repos/proj")
     mock_popen.assert_called_once_with(["cursor", "--new-window", "/repos/proj-wt/feat"])
 
 
 def test_open_cursor_reuse_window(svc):
-    with patch("subprocess.Popen") as mock_popen:
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="cursor"), \
+         patch("subprocess.Popen") as mock_popen:
         svc.open("/repos/proj-wt/feat", editor="cursor", reuse_window=True, repo_path="/repos/proj")
     mock_popen.assert_called_once_with(["cursor", "--reuse-window", "/repos/proj-wt/feat"])
 

@@ -111,3 +111,52 @@ def test_is_merged_true(svc):
 def test_is_merged_false(svc):
     with patch.object(svc, "_run", return_value="fix/wip\n"):
         assert svc.is_merged("/repos/proj", "feature/unmerged", "main") is False
+
+
+def test_list_feature_branches_returns_only_feature_prefix(svc):
+    with patch.object(svc, "_run", return_value="main\nfeature/auth\nfeature/payments\nfix/bug\n"):
+        result = svc.list_feature_branches("/repos/proj")
+    assert result == ["feature/auth", "feature/payments"]
+
+
+def test_list_feature_branches_returns_empty_when_none(svc):
+    with patch.object(svc, "_run", return_value="main\nfix/bug\n"):
+        result = svc.list_feature_branches("/repos/proj")
+    assert result == []
+
+
+def test_is_merged_into_any_returns_true_and_target_when_merged(svc):
+    def fake_run(cmd, cwd=None):
+        if "main" in cmd:
+            return "  main\n  fix/bug\n"
+        return "  main\n"
+    with patch.object(svc, "_run", side_effect=fake_run):
+        merged, target = svc.is_merged_into_any("/repos/proj", "fix/bug", ["main", "feature/auth"])
+    assert merged is True
+    assert target == "main"
+
+
+def test_is_merged_into_any_returns_feature_target_when_only_merged_there(svc):
+    def fake_run(cmd, cwd=None):
+        if "main" in cmd:
+            return "  main\n"
+        if "feature/auth" in cmd:
+            return "  main\n  fix/bug\n  feature/auth\n"
+        return "  main\n"
+    with patch.object(svc, "_run", side_effect=fake_run):
+        merged, target = svc.is_merged_into_any("/repos/proj", "fix/bug", ["main", "feature/auth"])
+    assert merged is True
+    assert target == "feature/auth"
+
+
+def test_is_merged_into_any_returns_false_when_not_merged_anywhere(svc):
+    with patch.object(svc, "_run", return_value="  main\n"):
+        merged, target = svc.is_merged_into_any("/repos/proj", "fix/bug", ["main", "feature/auth"])
+    assert merged is False
+    assert target is None
+
+
+def test_is_merged_into_any_empty_targets_returns_false(svc):
+    merged, target = svc.is_merged_into_any("/repos/proj", "fix/bug", [])
+    assert merged is False
+    assert target is None

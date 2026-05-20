@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -7,6 +7,7 @@ class WindowRecord:
     worktree_path: str
     editor: str
     pid: int
+    proc: object = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -26,6 +27,7 @@ class CleanupCandidate:
     is_merged: bool
     is_stale: bool
     last_commit_ts: int
+    merged_into: str | None = None
 
 
 @dataclass
