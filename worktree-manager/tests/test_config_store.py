@@ -88,3 +88,58 @@ def test_update_existing_repo(store):
     cfg.stale_days = 60
     store.save_repo(cfg)
     assert store.get_repo("/repos/proj").stale_days == 60
+
+
+def test_save_and_load_editor_and_window_mode(store):
+    cfg = RepoConfig(
+        repo_path="/repos/proj",
+        worktree_storage="/repos/proj-wt",
+        stale_days=30,
+        last_editor="cursor",
+        last_editor_mode="reuse",
+        last_opened="2026-05-19T10:00:00",
+        editor="vscode",
+        window_mode="single",
+        cur_open_path="/repos/proj-wt/feat",
+    )
+    store.save_repo(cfg)
+    loaded = store.get_repo("/repos/proj")
+    assert loaded.editor == "vscode"
+    assert loaded.window_mode == "single"
+    assert loaded.cur_open_path == "/repos/proj-wt/feat"
+
+
+def test_defaults_when_fields_missing_from_disk(store, config_path):
+    config_path.write_text(json.dumps({
+        "repos": {
+            "/repos/proj": {
+                "worktree_storage": "/repos/proj-wt",
+                "stale_days": 30,
+                "last_editor": "cursor",
+                "last_editor_mode": "reuse",
+                "last_opened": "2026-05-19T10:00:00",
+            }
+        }
+    }))
+    loaded = store.get_repo("/repos/proj")
+    assert loaded.editor == "cursor"
+    assert loaded.window_mode == "multi"
+    assert loaded.cur_open_path is None
+
+
+def test_cur_open_path_can_be_cleared(store):
+    cfg = RepoConfig(
+        repo_path="/repos/proj",
+        worktree_storage="/repos/proj-wt",
+        stale_days=30,
+        last_editor="cursor",
+        last_editor_mode="reuse",
+        last_opened="2026-05-19T10:00:00",
+        editor="cursor",
+        window_mode="single",
+        cur_open_path="/repos/proj-wt/feat",
+    )
+    store.save_repo(cfg)
+    cfg.cur_open_path = None
+    store.save_repo(cfg)
+    assert store.get_repo("/repos/proj").cur_open_path is None

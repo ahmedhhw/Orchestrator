@@ -1,5 +1,4 @@
 import os
-import platform
 import shutil
 import subprocess
 from worktree_manager.config_store import ConfigStore
@@ -37,38 +36,14 @@ def _resolve_editor_cmd(editor: str) -> str:
 
 
 class EditorService:
-    def __init__(self, config_store: ConfigStore, window_registry=None):
+    def __init__(self, config_store: ConfigStore):
         self._store = config_store
-        self._registry = window_registry
 
-    def open(self, path: str, editor: str, reuse_window: bool, repo_path: str):
+    def open_new(self, path: str, editor: str):
         cmd = _resolve_editor_cmd(editor)
-        window_flag = "--reuse-window" if reuse_window else "--new-window"
-        proc = subprocess.Popen([cmd, window_flag, path])
+        return subprocess.Popen([cmd, path])
 
-        if self._registry is not None:
-            self._registry.register(repo_path, path, proc.pid, editor, proc=proc)
-
-        cfg = self._store.get_repo(repo_path)
-        if cfg is not None:
-            cfg.last_editor = editor
-            cfg.last_editor_mode = "reuse" if reuse_window else "new"
-            self._store.save_repo(cfg)
-
-        return proc
-
-    def focus(self, record) -> None:
-        if platform.system() == "Darwin":
-            script = (
-                f'tell application "System Events" to set frontmost of '
-                f'(first process whose unix id is {record.pid}) to true'
-            )
-            try:
-                subprocess.run(["osascript", "-e", script], check=True)
-            except subprocess.CalledProcessError:
-                pass
-        else:
-            try:
-                subprocess.run(["wmctrl", "-ip", str(record.pid)], check=True)
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                pass
+    def open_replacing(self, cur_path: str, new_path: str, editor: str) -> None:
+        cmd = _resolve_editor_cmd(editor)
+        subprocess.run([cmd, "-r", cur_path], check=False)
+        subprocess.run([cmd, "-r", new_path], check=False)

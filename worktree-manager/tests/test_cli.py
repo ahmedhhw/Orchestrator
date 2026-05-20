@@ -84,10 +84,9 @@ def test_app_has_window_registry():
     assert isinstance(app._window_registry, WindowRegistry)
 
 
-def test_show_main_passes_registry_to_vm():
+def test_show_main_creates_vm_with_correct_services():
     import worktree_manager.cli as cli_mod
     from unittest.mock import patch, MagicMock
-    from worktree_manager.window_registry import WindowRegistry
     from worktree_manager.models import RepoConfig
 
     store = MagicMock()
@@ -101,16 +100,15 @@ def test_show_main_passes_registry_to_vm():
     )
     store.save_repo.return_value = None
     store.all_repos.return_value = {"/repos/proj": store.get_repo.return_value}
-    registry = WindowRegistry()
     captured = {}
 
-    def fake_vm_init(self, repo_path, config_store, git_service, editor_service, window_registry=None):
-        captured["window_registry"] = window_registry
+    def fake_vm_init(self, repo_path, config_store, git_service, editor_service):
+        captured["repo_path"] = repo_path
+        captured["config_store"] = config_store
         self._repo_path = repo_path
         self._store = config_store
         self._git = git_service
         self._editor = editor_service
-        self._registry = window_registry
         self._worktrees = []
 
     with patch("worktree_manager.main_window_vm.MainWindowViewModel.__init__", fake_vm_init), \
@@ -125,10 +123,10 @@ def test_show_main_passes_registry_to_vm():
         app._editor = MagicMock()
         app._current_frame = None
         app._sidebar_frame = None
-        app._window_registry = registry
         app._show_main("/repos/proj")
 
-    assert captured["window_registry"] is registry
+    assert captured["repo_path"] == "/repos/proj"
+    assert captured["config_store"] is store
 
 
 def test_app_shows_empty_main_when_no_repo_path():

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 from worktree_manager.editor_service import EditorService
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.models import RepoConfig
@@ -20,6 +20,9 @@ def store(config_path):
         last_editor="cursor",
         last_editor_mode="reuse",
         last_opened="2026-05-19T10:00:00",
+        editor="cursor",
+        window_mode="multi",
+        cur_open_path=None,
     ))
     return s
 
@@ -29,83 +32,70 @@ def svc(store):
     return EditorService(store)
 
 
-def test_open_vscode_new_window(svc):
-    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="code"), \
-         patch("subprocess.Popen") as mock_popen:
-        svc.open("/repos/proj-wt/feat", editor="vscode", reuse_window=False, repo_path="/repos/proj")
-    mock_popen.assert_called_once_with(["code", "--new-window", "/repos/proj-wt/feat"])
-
-
-def test_open_vscode_reuse_window(svc):
-    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="code"), \
-         patch("subprocess.Popen") as mock_popen:
-        svc.open("/repos/proj-wt/feat", editor="vscode", reuse_window=True, repo_path="/repos/proj")
-    mock_popen.assert_called_once_with(["code", "--reuse-window", "/repos/proj-wt/feat"])
-
-
-def test_open_cursor_new_window(svc):
+def test_open_new_launches_with_no_flags(svc):
     with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="cursor"), \
          patch("subprocess.Popen") as mock_popen:
-        svc.open("/repos/proj-wt/feat", editor="cursor", reuse_window=False, repo_path="/repos/proj")
-    mock_popen.assert_called_once_with(["cursor", "--new-window", "/repos/proj-wt/feat"])
+        svc.open_new("/repos/proj-wt/feat", editor="cursor")
+    mock_popen.assert_called_once_with(["cursor", "/repos/proj-wt/feat"])
 
 
-def test_open_cursor_reuse_window(svc):
-    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="cursor"), \
+def test_open_new_vscode_launches_with_no_flags(svc):
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="code"), \
          patch("subprocess.Popen") as mock_popen:
-        svc.open("/repos/proj-wt/feat", editor="cursor", reuse_window=True, repo_path="/repos/proj")
-    mock_popen.assert_called_once_with(["cursor", "--reuse-window", "/repos/proj-wt/feat"])
+        svc.open_new("/repos/proj-wt/feat", editor="vscode")
+    mock_popen.assert_called_once_with(["code", "/repos/proj-wt/feat"])
 
 
-def test_open_persists_last_editor(svc, store):
-    with patch("subprocess.Popen"):
-        svc.open("/repos/proj-wt/feat", editor="vscode", reuse_window=True, repo_path="/repos/proj")
-    cfg = store.get_repo("/repos/proj")
-    assert cfg.last_editor == "vscode"
-    assert cfg.last_editor_mode == "reuse"
-
-
-def test_open_persists_new_mode(svc, store):
-    with patch("subprocess.Popen"):
-        svc.open("/repos/proj-wt/feat", editor="cursor", reuse_window=False, repo_path="/repos/proj")
-    cfg = store.get_repo("/repos/proj")
-    assert cfg.last_editor_mode == "new"
-
-
-def test_open_returns_popen_object(svc):
-    mock_proc = MagicMock()
-    mock_proc.pid = 77
-    with patch("subprocess.Popen", return_value=mock_proc):
-        result = svc.open(
-            "/repos/proj-wt/feat", editor="cursor",
-            reuse_window=False, repo_path="/repos/proj",
+def test_open_replacing_runs_two_commands_in_sequence(svc):
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="cursor"), \
+         patch("subprocess.run") as mock_run:
+        svc.open_replacing(
+            cur_path="/repos/proj-wt/old",
+            new_path="/repos/proj-wt/new",
+            editor="cursor",
         )
+    assert mock_run.call_count == 2
+    assert mock_run.call_args_list[0] == call(
+        ["cursor", "-r", "/repos/proj-wt/old"], check=False
+    )
+    assert mock_run.call_args_list[1] == call(
+        ["cursor", "-r", "/repos/proj-wt/new"], check=False
+    )
+
+
+def test_open_replacing_vscode(svc):
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="code"), \
+         patch("subprocess.run") as mock_run:
+        svc.open_replacing(
+            cur_path="/repos/proj-wt/old",
+            new_path="/repos/proj-wt/new",
+            editor="vscode",
+        )
+    assert mock_run.call_args_list[0] == call(
+        ["code", "-r", "/repos/proj-wt/old"], check=False
+    )
+    assert mock_run.call_args_list[1] == call(
+        ["code", "-r", "/repos/proj-wt/new"], check=False
+    )
+
+
+def test_open_new_returns_popen_object(svc):
+    mock_proc = MagicMock()
+    with patch("worktree_manager.editor_service._resolve_editor_cmd", return_value="cursor"), \
+         patch("subprocess.Popen", return_value=mock_proc):
+        result = svc.open_new("/repos/proj-wt/feat", editor="cursor")
     assert result is mock_proc
 
 
-def test_open_registers_pid_in_registry(store):
-    from worktree_manager.window_registry import WindowRegistry
-    reg = WindowRegistry()
-    svc = EditorService(store, window_registry=reg)
-    mock_proc = MagicMock()
-    mock_proc.pid = 99
-    with patch("subprocess.Popen", return_value=mock_proc):
-        svc.open(
-            "/repos/proj-wt/feat", editor="cursor",
-            reuse_window=False, repo_path="/repos/proj",
-        )
-    rec = reg.get_window("/repos/proj", "/repos/proj-wt/feat")
-    assert rec is not None
-    assert rec.pid == 99
-    assert rec.editor == "cursor"
+def test_open_new_raises_when_editor_not_found(svc):
+    with patch("worktree_manager.editor_service._resolve_editor_cmd",
+               side_effect=FileNotFoundError("not found")):
+        with pytest.raises(FileNotFoundError):
+            svc.open_new("/repos/proj-wt/feat", editor="cursor")
 
 
-def test_open_without_registry_does_not_crash(svc):
-    mock_proc = MagicMock()
-    mock_proc.pid = 55
-    with patch("subprocess.Popen", return_value=mock_proc):
-        result = svc.open(
-            "/repos/proj-wt/feat", editor="vscode",
-            reuse_window=True, repo_path="/repos/proj",
-        )
-    assert result is mock_proc
+def test_open_replacing_raises_when_editor_not_found(svc):
+    with patch("worktree_manager.editor_service._resolve_editor_cmd",
+               side_effect=FileNotFoundError("not found")):
+        with pytest.raises(FileNotFoundError):
+            svc.open_replacing("/old", "/new", editor="cursor")

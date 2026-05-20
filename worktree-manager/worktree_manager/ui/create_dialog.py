@@ -1,24 +1,14 @@
 import customtkinter as ctk
 
-EDITOR_CHOICES = [
-    ("VS Code — new window",   "vscode", False),
-    ("VS Code — reuse window", "vscode", True),
-    ("Cursor — new window",    "cursor", False),
-    ("Cursor — reuse window",  "cursor", True),
-]
-
 
 class CreateDialog(ctk.CTkToplevel):
-    def __init__(self, master, branches: list, existing_branches: list,
-                 default_editor: str, default_mode: str, on_create):
+    def __init__(self, master, branches: list, existing_branches: list, on_create):
         super().__init__(master)
         self.title("New Worktree")
         self.resizable(False, False)
         self._branches = branches
         self._existing_branches = existing_branches
         self._on_create = on_create
-        self._default_editor = default_editor
-        self._default_mode = default_mode
         self._mode_var = ctk.StringVar(value="new")
         self._build()
 
@@ -66,23 +56,6 @@ class CreateDialog(ctk.CTkToplevel):
             values=self._existing_branches or ["(none available)"],
         ).pack(anchor="w")
 
-        # Shared controls — always below the mode area
-        self._open_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(
-            self, text="Open after creating", variable=self._open_var
-        ).pack(anchor="w", padx=24, pady=(16, 4))
-
-        default_label = (
-            f"{self._default_editor} — "
-            f"{'reuse' if self._default_mode == 'reuse' else 'new'} window"
-        )
-        default_label = default_label.replace("vscode", "VS Code").replace("cursor", "Cursor")
-        self._editor_var = ctk.StringVar(value=default_label)
-        labels = [c[0] for c in EDITOR_CHOICES]
-        ctk.CTkOptionMenu(
-            self, variable=self._editor_var, values=labels
-        ).pack(padx=40, anchor="w")
-
         btns = ctk.CTkFrame(self)
         btns.pack(fill="x", padx=24, pady=16)
         ctk.CTkButton(
@@ -102,22 +75,14 @@ class CreateDialog(ctk.CTkToplevel):
             self._existing_frame.pack(fill="x")
 
     def _create(self):
-        label = self._editor_var.get()
-        choice = next((c for c in EDITOR_CHOICES if c[0] == label), EDITOR_CHOICES[0])
         if self._mode_var.get() == "existing":
             branch = self._existing_var.get()
             if not branch or branch == "(none available)":
                 return
-            self._on_create(
-                branch, None, self._open_var.get(),
-                choice[1], choice[2], True,
-            )
+            self._on_create(branch, None, True)
         else:
             branch = self._branch_entry.get().strip()
             if not branch:
                 return
-            self._on_create(
-                branch, self._base_var.get(), self._open_var.get(),
-                choice[1], choice[2], False,
-            )
+            self._on_create(branch, self._base_var.get(), False)
         self.destroy()

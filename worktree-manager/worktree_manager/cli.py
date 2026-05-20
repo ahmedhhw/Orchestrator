@@ -27,8 +27,6 @@ class App:
         from worktree_manager.config_store import ConfigStore
         from worktree_manager.git_service import GitService
         from worktree_manager.editor_service import EditorService
-        from worktree_manager.window_registry import WindowRegistry
-
         self._ctk = ctk
         self._root = ctk.CTk()
         self._root.title("Git Worktree Manager")
@@ -36,8 +34,7 @@ class App:
 
         self._store = ConfigStore()
         self._git = GitService()
-        self._window_registry = WindowRegistry()
-        self._editor = EditorService(self._store, window_registry=self._window_registry)
+        self._editor = EditorService(self._store)
         self._current_frame = None
         self._sidebar_frame = None
 
@@ -163,7 +160,6 @@ class App:
             config_store=self._store,
             git_service=self._git,
             editor_service=self._editor,
-            window_registry=self._window_registry,
         )
         repo_name = Path(repo_path).name
         self._current_frame = MainWindow(

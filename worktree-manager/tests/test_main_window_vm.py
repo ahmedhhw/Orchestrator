@@ -221,10 +221,8 @@ def test_worktree_path_for_branch(vm):
 
 
 def test_open_worktree_delegates_to_editor(vm, editor):
-    vm.open_worktree("/repos/proj-wt/feat", editor="vscode", reuse_window=True)
-    editor.open.assert_called_once_with(
-        "/repos/proj-wt/feat", editor="vscode", reuse_window=True, repo_path="/repos/proj"
-    )
+    vm.open_worktree("/repos/proj-wt/feat")
+    editor.open_new.assert_called_once_with("/repos/proj-wt/feat", editor="cursor")
 
 
 def test_default_editor_from_config(vm):

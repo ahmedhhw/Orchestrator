@@ -24,7 +24,17 @@ class ConfigStore:
         entry = data["repos"].get(repo_path)
         if entry is None:
             return None
-        return RepoConfig(repo_path=repo_path, **entry)
+        return RepoConfig(
+            repo_path=repo_path,
+            worktree_storage=entry["worktree_storage"],
+            stale_days=entry["stale_days"],
+            last_editor=entry["last_editor"],
+            last_editor_mode=entry["last_editor_mode"],
+            last_opened=entry["last_opened"],
+            editor=entry.get("editor", entry.get("last_editor", "cursor")),
+            window_mode=entry.get("window_mode", "multi"),
+            cur_open_path=entry.get("cur_open_path", None),
+        )
 
     def save_repo(self, cfg: RepoConfig) -> None:
         data = self._load_raw()
@@ -34,12 +44,28 @@ class ConfigStore:
             "last_editor": cfg.last_editor,
             "last_editor_mode": cfg.last_editor_mode,
             "last_opened": cfg.last_opened,
+            "editor": cfg.editor,
+            "window_mode": cfg.window_mode,
+            "cur_open_path": cfg.cur_open_path,
         }
         self._save_raw(data)
 
     def all_repos(self) -> dict:
         data = self._load_raw()
-        return {
-            path: RepoConfig(repo_path=path, **entry)
+        repos = {
+            path: RepoConfig(
+                repo_path=path,
+                worktree_storage=entry["worktree_storage"],
+                stale_days=entry["stale_days"],
+                last_editor=entry["last_editor"],
+                last_editor_mode=entry["last_editor_mode"],
+                last_opened=entry["last_opened"],
+                editor=entry.get("editor", entry.get("last_editor", "cursor")),
+                window_mode=entry.get("window_mode", "multi"),
+                cur_open_path=entry.get("cur_open_path", None),
+            )
             for path, entry in data["repos"].items()
         }
+        return dict(
+            sorted(repos.items(), key=lambda kv: kv[1].last_opened, reverse=True)
+        )

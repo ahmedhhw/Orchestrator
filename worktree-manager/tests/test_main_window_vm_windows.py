@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
 from worktree_manager.editor_service import EditorService
-from worktree_manager.window_registry import WindowRegistry
-from worktree_manager.models import RepoConfig, WindowRecord, WorktreeModel
+from worktree_manager.models import RepoConfig, WorktreeModel
 from worktree_manager.main_window_vm import MainWindowViewModel
 
 
@@ -19,6 +18,9 @@ def store(tmp_path):
         last_editor="cursor",
         last_editor_mode="reuse",
         last_opened="2026-05-19T10:00:00",
+        editor="cursor",
+        window_mode="multi",
+        cur_open_path=None,
     ))
     return s
 
@@ -36,125 +38,133 @@ def git():
 
 
 @pytest.fixture
-def registry():
-    return WindowRegistry()
+def editor():
+    return MagicMock(spec=EditorService)
 
 
 @pytest.fixture
-def editor(store, registry):
-    return EditorService(store, window_registry=registry)
-
-
-@pytest.fixture
-def vm(store, git, editor, registry):
+def vm(store, git, editor):
     m = MainWindowViewModel(
         repo_path="/repos/proj",
         config_store=store,
         git_service=git,
         editor_service=editor,
-        window_registry=registry,
     )
     m.load_worktrees()
     return m
 
 
-def test_is_open_false_when_no_window_tracked(vm):
-    assert vm.is_open("/repos/proj-wt/feat") is False
+# --- open_worktree: multi-window mode ---
+
+def test_open_worktree_multi_calls_open_new(vm, editor):
+    vm.open_worktree("/repos/proj-wt/feat")
+    editor.open_new.assert_called_once_with("/repos/proj-wt/feat", editor="cursor")
 
 
-def test_is_open_true_when_window_tracked_and_alive(vm, registry):
-    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
-    with patch("os.kill", return_value=None):
-        assert vm.is_open("/repos/proj-wt/feat") is True
+def test_open_worktree_multi_does_not_update_cur_open_path(vm, store):
+    vm.open_worktree("/repos/proj-wt/feat")
+    assert store.get_repo("/repos/proj").cur_open_path is None
 
 
-def test_is_open_false_when_window_tracked_but_dead(vm, registry):
-    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
-    with patch("os.kill", side_effect=OSError):
-        assert vm.is_open("/repos/proj-wt/feat") is False
+# --- open_worktree: single-window mode, no prior open ---
+
+def test_open_worktree_single_no_cur_calls_open_new(vm, editor, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.window_mode = "single"
+    store.save_repo(cfg)
+    vm.open_worktree("/repos/proj-wt/feat")
+    editor.open_new.assert_called_once_with("/repos/proj-wt/feat", editor="cursor")
 
 
-def test_get_window_returns_record(vm, registry):
-    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
-    rec = vm.get_window("/repos/proj-wt/feat")
-    assert rec is not None
-    assert rec.pid == 42
+def test_open_worktree_single_no_cur_saves_cur_open_path(vm, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.window_mode = "single"
+    store.save_repo(cfg)
+    vm.open_worktree("/repos/proj-wt/feat")
+    assert store.get_repo("/repos/proj").cur_open_path == "/repos/proj-wt/feat"
 
 
-def test_get_window_returns_none_when_untracked(vm):
-    assert vm.get_window("/repos/proj-wt/feat") is None
+# --- open_worktree: single-window mode, prior open exists ---
 
-
-def test_open_worktree_without_registry_still_works(store, git):
-    editor = MagicMock(spec=EditorService)
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj",
-        config_store=store,
-        git_service=git,
-        editor_service=editor,
-    )
-    vm.load_worktrees()
-    vm.open_worktree("/repos/proj-wt/feat", editor="cursor", reuse_window=False)
-    editor.open.assert_called_once()
-
-
-def test_delete_worktree_closes_live_window(vm, registry):
-    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
-    with patch("os.kill") as mock_kill:
-        vm.delete_worktree(
-            path="/repos/proj-wt/feat",
-            branch="feature/auth",
-            also_delete_branch=False,
-        )
-    import signal
-    calls = [str(c) for c in mock_kill.call_args_list]
-    assert any(str(signal.SIGTERM) in c for c in calls)
-
-
-def test_delete_worktree_without_live_window_does_not_crash(vm):
-    vm.delete_worktree(
-        path="/repos/proj-wt/feat",
-        branch="feature/auth",
-        also_delete_branch=False,
+def test_open_worktree_single_with_cur_calls_open_replacing(vm, editor, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.window_mode = "single"
+    cfg.cur_open_path = "/repos/proj-wt/old"
+    store.save_repo(cfg)
+    vm.open_worktree("/repos/proj-wt/feat")
+    editor.open_replacing.assert_called_once_with(
+        cur_path="/repos/proj-wt/old",
+        new_path="/repos/proj-wt/feat",
+        editor="cursor",
     )
 
 
-def test_vm_without_registry_is_open_always_false(store, git):
-    editor = MagicMock(spec=EditorService)
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj",
-        config_store=store,
-        git_service=git,
-        editor_service=editor,
-    )
-    assert vm.is_open("/repos/proj-wt/feat") is False
+def test_open_worktree_single_with_cur_updates_cur_open_path(vm, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.window_mode = "single"
+    cfg.cur_open_path = "/repos/proj-wt/old"
+    store.save_repo(cfg)
+    vm.open_worktree("/repos/proj-wt/feat")
+    assert store.get_repo("/repos/proj").cur_open_path == "/repos/proj-wt/feat"
 
 
-def test_close_window_closes_registry_record(vm, registry):
-    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
-    with patch("os.kill") as mock_kill:
-        vm.close_window("/repos/proj-wt/feat")
-    import signal
-    mock_kill.assert_any_call(42, signal.SIGTERM)
+# --- set_editor / set_window_mode ---
+
+def test_set_editor_persists_immediately(vm, store):
+    vm.set_editor("vscode")
+    assert store.get_repo("/repos/proj").editor == "vscode"
 
 
-def test_close_window_removes_registry_entry(vm, registry):
-    registry.register("/repos/proj", "/repos/proj-wt/feat", pid=42, editor="cursor")
-    with patch("os.kill", return_value=None):
-        vm.close_window("/repos/proj-wt/feat")
-    assert registry.get_window("/repos/proj", "/repos/proj-wt/feat") is None
+def test_set_window_mode_persists_immediately(vm, store):
+    vm.set_window_mode("single")
+    assert store.get_repo("/repos/proj").window_mode == "single"
 
 
-def test_close_window_noop_when_no_registry(store, git):
-    editor = MagicMock(spec=EditorService)
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj",
-        config_store=store,
-        git_service=git,
-        editor_service=editor,
-    )
-    vm.close_window("/repos/proj-wt/feat")  # must not raise
+# --- cur_open_path accessor ---
+
+def test_cur_open_path_returns_none_initially(vm):
+    assert vm.cur_open_path() is None
 
 
-def test_close_window_noop_when_not_tracked(vm):
-    vm.close_window("/repos/proj-wt/feat")  # nothing registered, must not raise
+def test_cur_open_path_reflects_stored_value(vm, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.cur_open_path = "/repos/proj-wt/feat"
+    store.save_repo(cfg)
+    assert vm.cur_open_path() == "/repos/proj-wt/feat"
+
+
+# --- show_switch_label ---
+
+def test_show_switch_label_false_in_multi_mode(vm):
+    assert vm.show_switch_label("/repos/proj-wt/feat") is False
+
+
+def test_show_switch_label_false_in_single_mode_no_cur(vm, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.window_mode = "single"
+    store.save_repo(cfg)
+    assert vm.show_switch_label("/repos/proj-wt/feat") is False
+
+
+def test_show_switch_label_false_for_currently_open_path(vm, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.window_mode = "single"
+    cfg.cur_open_path = "/repos/proj-wt/feat"
+    store.save_repo(cfg)
+    assert vm.show_switch_label("/repos/proj-wt/feat") is False
+
+
+def test_show_switch_label_true_for_other_path_in_single_mode(vm, store):
+    cfg = store.get_repo("/repos/proj")
+    cfg.window_mode = "single"
+    cfg.cur_open_path = "/repos/proj-wt/old"
+    store.save_repo(cfg)
+    assert vm.show_switch_label("/repos/proj-wt/feat") is True
+
+
+# --- default_editor still works ---
+
+def test_default_editor_returns_editor_and_mode(vm):
+    editor_val, mode = vm.default_editor()
+    assert editor_val == "cursor"
+    assert mode == "reuse"

@@ -2,13 +2,6 @@ import customtkinter as ctk
 from tkinter import filedialog
 from worktree_manager.setup_settings_vm import SettingsViewModel
 
-EDITOR_OPTIONS = [
-    "cursor — reuse window",
-    "cursor — new window",
-    "vscode — reuse window",
-    "vscode — new window",
-]
-
 
 class SettingsPanel(ctk.CTkToplevel):
     def __init__(self, master, vm: SettingsViewModel):
@@ -41,15 +34,6 @@ class SettingsPanel(ctk.CTkToplevel):
         self._stale_entry.pack(side="left")
         ctk.CTkLabel(row2, text="days").pack(side="left", padx=4)
 
-        row3 = ctk.CTkFrame(self)
-        row3.pack(fill="x", padx=24, pady=4)
-        ctk.CTkLabel(row3, text="Default editor:", width=140, anchor="w").pack(side="left")
-        current = f"{self._vm.last_editor} — {self._vm.last_editor_mode} window"
-        self._editor_var = ctk.StringVar(value=current)
-        ctk.CTkOptionMenu(
-            row3, variable=self._editor_var, values=EDITOR_OPTIONS
-        ).pack(side="left")
-
         ctk.CTkButton(self, text="Save", command=self._save).pack(pady=16)
 
     def _browse(self):
@@ -59,9 +43,6 @@ class SettingsPanel(ctk.CTkToplevel):
             self._storage_entry.insert(0, path)
 
     def _save(self):
-        parts = self._editor_var.get().split(" — ")
-        editor = parts[0].strip()
-        mode = "reuse" if "reuse" in parts[1] else "new"
         try:
             stale_days = int(self._stale_entry.get())
         except ValueError:
@@ -69,7 +50,5 @@ class SettingsPanel(ctk.CTkToplevel):
         self._vm.save(
             worktree_storage=self._storage_entry.get(),
             stale_days=stale_days,
-            last_editor=editor,
-            last_editor_mode=mode,
         )
         self.destroy()

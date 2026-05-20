@@ -126,8 +126,6 @@ def test_create_dialog_smoke_new_branch_mode():
         root,
         branches=["main", "feature/payments"],
         existing_branches=[],
-        default_editor="cursor",
-        default_mode="reuse",
         on_create=lambda *a: None,
     )
     dialog.destroy()
@@ -143,8 +141,6 @@ def test_create_dialog_smoke_existing_branch_mode():
         root,
         branches=["main", "feature/payments"],
         existing_branches=["fix/auth", "chore/deps"],
-        default_editor="cursor",
-        default_mode="reuse",
         on_create=lambda *a: None,
     )
     dialog.destroy()
@@ -208,5 +204,5 @@ def test_settings_vm_save_called():
         last_opened="2026-05-19T10:00:00",
     )
     vm = SettingsViewModel(repo_path="/repos/proj", config_store=store)
-    vm.save(worktree_storage="/new", stale_days=14, last_editor="vscode", last_editor_mode="new")
+    vm.save(worktree_storage="/new", stale_days=14)
     store.save_repo.assert_called_once()

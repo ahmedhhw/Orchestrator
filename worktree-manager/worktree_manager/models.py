@@ -38,3 +38,6 @@ class RepoConfig:
     last_editor: str
     last_editor_mode: str
     last_opened: str
+    editor: str = "cursor"
+    window_mode: str = "multi"
+    cur_open_path: str | None = None

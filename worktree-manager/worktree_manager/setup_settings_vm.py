@@ -34,14 +34,9 @@ class SettingsViewModel:
         cfg = config_store.get_repo(repo_path)
         self.worktree_storage = cfg.worktree_storage
         self.stale_days = cfg.stale_days
-        self.last_editor = cfg.last_editor
-        self.last_editor_mode = cfg.last_editor_mode
 
-    def save(self, worktree_storage: str, stale_days: int,
-             last_editor: str, last_editor_mode: str) -> None:
+    def save(self, worktree_storage: str, stale_days: int) -> None:
         cfg = self._store.get_repo(self._repo_path)
         cfg.worktree_storage = worktree_storage
         cfg.stale_days = stale_days
-        cfg.last_editor = last_editor
-        cfg.last_editor_mode = last_editor_mode
         self._store.save_repo(cfg)
