@@ -287,8 +287,9 @@ def test_apply_filter_all_returns_everything(root):
     ]
     wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
     wiz._filter.set(_FILTER_ALL)
-    result = wiz._apply_filter(wiz._all_worktree)
-    assert len(result) == 3
+    result = wiz._apply_filter(wiz._all_worktree_grouped)
+    flat = result["merged"] + result["stale"] + result["healthy"]
+    assert len(flat) == 3
     wiz.destroy()
 
 
@@ -304,8 +305,9 @@ def test_apply_filter_stale_returns_only_stale(root):
     ]
     wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
     wiz._filter.set(_FILTER_STALE)
-    result = wiz._apply_filter(wiz._all_worktree)
-    assert [c.branch for c in result] == ["stale-wt"]
+    result = wiz._apply_filter(wiz._all_worktree_grouped)
+    assert [c.branch for c in result["stale"]] == ["stale-wt"]
+    assert result["merged"] == [] and result["healthy"] == []
     wiz.destroy()
 
 
@@ -321,8 +323,9 @@ def test_apply_filter_merged_returns_only_merged(root):
     ]
     wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
     wiz._filter.set(_FILTER_MERGED)
-    result = wiz._apply_filter(wiz._all_worktree)
-    assert [c.branch for c in result] == ["merged-wt"]
+    result = wiz._apply_filter(wiz._all_worktree_grouped)
+    assert [c.branch for c in result["merged"]] == ["merged-wt"]
+    assert result["stale"] == [] and result["healthy"] == []
     wiz.destroy()
 
 
@@ -335,8 +338,8 @@ def test_apply_filter_stale_excludes_merged_stale(root):
     both = CleanupCandidate("both", "/wt/b", True, True, now - 40 * 86400)
     wiz = CleanupWizard(root, candidates=[both], on_delete_selected=lambda s, b: None)
     wiz._filter.set(_FILTER_STALE)
-    result = wiz._apply_filter(wiz._all_worktree)
-    assert result == []
+    result = wiz._apply_filter(wiz._all_worktree_grouped)
+    assert result["stale"] == []
     wiz.destroy()
 
 
@@ -357,6 +360,7 @@ def test_filter_rebuild_updates_candidates(root):
 
     assert [c.branch for c in wiz._candidates] == ["stale-wt"]
     wiz.destroy()
+
 
 
 def test_filter_rebuild_clears_vars(root):
@@ -485,8 +489,14 @@ def test_worktree_candidates_have_path(root):
         CleanupCandidate("orphan-branch", None, True, False, now),
     ]
     wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
-    assert all(c.path is not None for c in wiz._all_worktree)
-    assert all(c.path is None for c in wiz._all_branch)
+    wt_all = (wiz._all_worktree_grouped["merged"] +
+               wiz._all_worktree_grouped["stale"] +
+               wiz._all_worktree_grouped["healthy"])
+    br_all = (wiz._all_branch_grouped["merged"] +
+               wiz._all_branch_grouped["stale"] +
+               wiz._all_branch_grouped["healthy"])
+    assert all(c.path is not None for c in wt_all)
+    assert all(c.path is None for c in br_all)
     wiz.destroy()
 
 
@@ -497,7 +507,7 @@ def test_empty_worktrees_does_not_crash(root):
     now = int(time.time())
     candidates = [CleanupCandidate("orphan", None, True, False, now)]
     wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
-    assert wiz._all_worktree == []
+    assert wiz._all_worktree_grouped == {"merged": [], "stale": [], "healthy": []}
     wiz.destroy()
 
 
@@ -508,5 +518,241 @@ def test_empty_branches_does_not_crash(root):
     now = int(time.time())
     candidates = [CleanupCandidate("stale-wt", "/wt/s", False, True, now - 40 * 86400)]
     wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
-    assert wiz._all_branch == []
+    assert wiz._all_branch_grouped == {"merged": [], "stale": [], "healthy": []}
+    wiz.destroy()
+
+
+# ---------------------------------------------------------------------------
+# _group_candidates — pure function (Phase 1)
+# ---------------------------------------------------------------------------
+
+def test_group_candidates_merged_goes_to_merged():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    c = CleanupCandidate("m", None, True, False, now - 5 * 86400)
+    result = _group_candidates([c])
+    assert c in result["merged"]
+    assert c not in result["stale"]
+    assert c not in result["healthy"]
+
+
+def test_group_candidates_stale_goes_to_stale():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    c = CleanupCandidate("s", None, False, True, now - 30 * 86400)
+    result = _group_candidates([c])
+    assert c in result["stale"]
+    assert c not in result["merged"]
+    assert c not in result["healthy"]
+
+
+def test_group_candidates_healthy_goes_to_healthy():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    c = CleanupCandidate("h", None, False, False, now - 2 * 86400)
+    result = _group_candidates([c])
+    assert c in result["healthy"]
+    assert c not in result["merged"]
+    assert c not in result["stale"]
+
+
+def test_group_candidates_both_merged_and_stale_goes_to_merged_only():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    c = CleanupCandidate("both", None, True, True, now - 40 * 86400)
+    result = _group_candidates([c])
+    assert c in result["merged"]
+    assert c not in result["stale"]
+    assert c not in result["healthy"]
+
+
+def test_group_candidates_stale_sorted_oldest_first():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    newer = CleanupCandidate("newer", None, False, True, now - 10 * 86400)
+    older = CleanupCandidate("older", None, False, True, now - 50 * 86400)
+    result = _group_candidates([newer, older])
+    assert result["stale"][0].branch == "older"
+    assert result["stale"][1].branch == "newer"
+
+
+def test_group_candidates_merged_sorted_by_target_then_branch():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    b = CleanupCandidate("b-branch", None, True, False, now, merged_into="main")
+    a = CleanupCandidate("a-branch", None, True, False, now, merged_into="main")
+    d = CleanupCandidate("d-branch", None, True, False, now, merged_into="develop")
+    result = _group_candidates([b, a, d])
+    names = [c.branch for c in result["merged"]]
+    assert names == ["d-branch", "a-branch", "b-branch"]
+
+
+def test_group_candidates_merged_none_target_sorts_as_main():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    no_target = CleanupCandidate("z-branch", None, True, False, now, merged_into=None)
+    develop = CleanupCandidate("a-branch", None, True, False, now, merged_into="develop")
+    result = _group_candidates([no_target, develop])
+    assert result["merged"][0].merged_into == "develop"
+    assert result["merged"][1].merged_into is None
+
+
+def test_group_candidates_healthy_preserves_insertion_order():
+    import time
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    a = CleanupCandidate("a", None, False, False, now - 5 * 86400)
+    b = CleanupCandidate("b", None, False, False, now - 1 * 86400)
+    result = _group_candidates([a, b])
+    assert result["healthy"] == [a, b]
+
+
+def test_group_candidates_empty_list_returns_empty_groups():
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    result = _group_candidates([])
+    assert result == {"merged": [], "stale": [], "healthy": []}
+
+
+def test_group_candidates_returns_all_three_keys():
+    from worktree_manager.ui.cleanup_wizard import _group_candidates
+    result = _group_candidates([])
+    assert set(result.keys()) == {"merged", "stale", "healthy"}
+
+
+# ---------------------------------------------------------------------------
+# Three-category rendering (Phase 2)
+# ---------------------------------------------------------------------------
+
+def test_section_shows_merged_label(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    c = CleanupCandidate("m", "/wt/m", True, False, now - 5 * 86400)
+    wiz = CleanupWizard(root, candidates=[c], on_delete_selected=lambda s, b: None)
+    texts = _collect_text(wiz)
+    assert any("Merged" in t for t in texts)
+    wiz.destroy()
+
+
+def test_section_shows_stale_label(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    c = CleanupCandidate("s", "/wt/s", False, True, now - 40 * 86400)
+    wiz = CleanupWizard(root, candidates=[c], on_delete_selected=lambda s, b: None)
+    texts = _collect_text(wiz)
+    assert any("Stale" in t for t in texts)
+    wiz.destroy()
+
+
+def test_section_shows_healthy_label(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    c = CleanupCandidate("h", "/wt/h", False, False, now - 2 * 86400)
+    wiz = CleanupWizard(root, candidates=[c], on_delete_selected=lambda s, b: None)
+    texts = _collect_text(wiz)
+    assert any("Healthy" in t for t in texts)
+    wiz.destroy()
+
+
+def test_section_shows_none_for_empty_stale_group(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    c = CleanupCandidate("h", "/wt/h", False, False, now - 2 * 86400)
+    wiz = CleanupWizard(root, candidates=[c], on_delete_selected=lambda s, b: None)
+    texts = _collect_text(wiz)
+    assert any("none" in t.lower() for t in texts)
+    wiz.destroy()
+
+
+def test_stale_rendered_oldest_first_in_ui(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    candidates = [
+        CleanupCandidate("newer-stale", "/wt/n", False, True, now - 10 * 86400),
+        CleanupCandidate("older-stale", "/wt/o", False, True, now - 50 * 86400),
+    ]
+    wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    texts = _collect_text(wiz)
+    combined = " ".join(texts)
+    assert combined.index("50d") < combined.index("10d")
+    wiz.destroy()
+
+
+def test_merged_rendered_sorted_by_target_then_branch_in_ui(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    candidates = [
+        CleanupCandidate("z-branch", "/wt/z", True, False, now, merged_into="main"),
+        CleanupCandidate("a-branch", "/wt/a", True, False, now, merged_into="develop"),
+    ]
+    wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    texts = _collect_text(wiz)
+    combined = " ".join(texts)
+    assert combined.index("develop") < combined.index("main")
+    wiz.destroy()
+
+
+def test_filter_stale_hides_merged_and_healthy_categories(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard, _FILTER_STALE
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    candidates = [
+        CleanupCandidate("m", "/wt/m", True, False, now - 5 * 86400),
+        CleanupCandidate("s", "/wt/s", False, True, now - 30 * 86400),
+        CleanupCandidate("h", "/wt/h", False, False, now - 2 * 86400),
+    ]
+    wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    wiz._filter.set(_FILTER_STALE)
+    wiz._rebuild_lists()
+    texts = _collect_text(wiz)
+    assert any("Stale" in t for t in texts)
+    assert not any("Merged" in t for t in texts)
+    assert not any("Healthy" in t for t in texts)
+    wiz.destroy()
+
+
+def test_filter_merged_hides_stale_and_healthy_categories(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard, _FILTER_MERGED
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    candidates = [
+        CleanupCandidate("m", "/wt/m", True, False, now - 5 * 86400),
+        CleanupCandidate("s", "/wt/s", False, True, now - 30 * 86400),
+        CleanupCandidate("h", "/wt/h", False, False, now - 2 * 86400),
+    ]
+    wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    wiz._filter.set(_FILTER_MERGED)
+    wiz._rebuild_lists()
+    texts = _collect_text(wiz)
+    assert any("Merged" in t for t in texts)
+    assert not any("Stale" in t for t in texts)
+    assert not any("Healthy" in t for t in texts)
     wiz.destroy()
