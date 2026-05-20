@@ -47,7 +47,8 @@ def worktrees():
 def vm(store, git, editor, worktrees):
     git.list_worktrees.return_value = worktrees
     git.list_feature_branches.return_value = []
-    git.is_merged_into_any.return_value = (False, None)
+    git.build_merged_map.return_value = {}
+    git.has_uncommitted_changes.return_value = False
     return MainWindowViewModel(
         repo_path="/repos/proj",
         config_store=store,
@@ -84,18 +85,48 @@ def test_cleanup_candidates_excludes_healthy(vm):
 
 
 def test_all_cleanup_candidates_includes_worktree_candidates(vm):
-    import time
-    now = int(time.time())
     vm.load_worktrees()
     vm._git.list_local_branches.return_value = []
-    # chore/deps is stale (35d), fix/old-bug is stale (40d) and merged
-    def merged_side_effect(repo, branch, targets):
-        return (True, "main") if branch == "fix/old-bug" else (False, None)
-    vm._git.is_merged_into_any.side_effect = merged_side_effect
+    vm._git.build_merged_map.return_value = {"fix/old-bug": "main"}
     candidates = vm.all_cleanup_candidates()
     branches = [c.branch for c in candidates]
     assert "chore/deps" in branches
     assert "fix/old-bug" in branches
+
+
+def test_all_cleanup_candidates_build_merged_map_called_once(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    vm.all_cleanup_candidates()
+    vm._git.build_merged_map.assert_called_once()
+
+
+def test_all_cleanup_candidates_is_merged_into_any_not_called(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    vm.all_cleanup_candidates()
+    vm._git.is_merged_into_any.assert_not_called()
+
+
+def test_all_cleanup_candidates_has_uncommitted_only_for_worktrees(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = ["main", "orphan/branch"]
+    vm._git.last_commit_ts.return_value = int(time.time()) - 2 * 86400
+    vm.all_cleanup_candidates()
+    for call in vm._git.has_uncommitted_changes.call_args_list:
+        path = call.args[0]
+        assert path is not None
+
+
+def test_all_cleanup_candidates_merged_into_field_populated(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    vm._git.build_merged_map.return_value = {"fix/old-bug": "main"}
+    candidates = vm.all_cleanup_candidates()
+    merged = [c for c in candidates if c.branch == "fix/old-bug"]
+    assert len(merged) == 1
+    assert merged[0].merged_into == "main"
+    assert merged[0].is_merged is True
 
 
 def test_all_cleanup_candidates_excludes_main_worktree(vm):
@@ -115,9 +146,7 @@ def test_all_cleanup_candidates_excludes_healthy_worktrees(vm):
 def test_all_cleanup_candidates_worktree_has_path(vm):
     vm.load_worktrees()
     vm._git.list_local_branches.return_value = []
-    def merged_side_effect(repo, branch, targets):
-        return (True, "main") if branch == "fix/old-bug" else (False, None)
-    vm._git.is_merged_into_any.side_effect = merged_side_effect
+    vm._git.build_merged_map.return_value = {"fix/old-bug": "main"}
     candidates = vm.all_cleanup_candidates()
     wt_candidates = [c for c in candidates if c.path is not None]
     assert all(c.path for c in wt_candidates)
@@ -130,7 +159,8 @@ def test_all_cleanup_candidates_includes_orphan_merged_branch(store, git, editor
     ]
     git.list_local_branches.return_value = ["main", "release/1.0"]
     git.list_feature_branches.return_value = []
-    git.is_merged_into_any.return_value = (True, "main")
+    git.build_merged_map.return_value = {"release/1.0": "main"}
+    git.has_uncommitted_changes.return_value = False
     git.last_commit_ts.return_value = now - 5 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -148,7 +178,8 @@ def test_all_cleanup_candidates_includes_orphan_stale_branch(store, git, editor)
     ]
     git.list_local_branches.return_value = ["main", "experiment/xyz"]
     git.list_feature_branches.return_value = []
-    git.is_merged_into_any.return_value = (False, None)
+    git.build_merged_map.return_value = {}
+    git.has_uncommitted_changes.return_value = False
     git.last_commit_ts.return_value = now - 40 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -166,7 +197,8 @@ def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git, edito
     ]
     git.list_local_branches.return_value = ["main", "feature/wip"]
     git.list_feature_branches.return_value = []
-    git.is_merged_into_any.return_value = (False, None)
+    git.build_merged_map.return_value = {}
+    git.has_uncommitted_changes.return_value = False
     git.last_commit_ts.return_value = now - 2 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -184,7 +216,8 @@ def test_all_cleanup_candidates_orphan_has_no_path(store, git, editor):
     ]
     git.list_local_branches.return_value = ["main", "release/1.0"]
     git.list_feature_branches.return_value = []
-    git.is_merged_into_any.return_value = (True, "main")
+    git.build_merged_map.return_value = {"release/1.0": "main"}
+    git.has_uncommitted_changes.return_value = False
     git.last_commit_ts.return_value = now - 5 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -308,7 +341,8 @@ def test_all_cleanup_candidates_includes_healthy_worktree(vm, store, git, editor
     ]
     git.list_local_branches.return_value = []
     git.list_feature_branches.return_value = []
-    git.is_merged_into_any.return_value = (False, None)
+    git.build_merged_map.return_value = {}
+    git.has_uncommitted_changes.return_value = False
     local_vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
         git_service=git, editor_service=editor,
@@ -325,7 +359,8 @@ def test_all_cleanup_candidates_excludes_protected_orphan(store, git, editor):
     ]
     git.list_local_branches.return_value = ["main", "feature/payments", "fix/thing"]
     git.list_feature_branches.return_value = ["feature/payments"]
-    git.is_merged_into_any.return_value = (True, "main")
+    git.build_merged_map.return_value = {"fix/thing": "main", "feature/payments": "main"}
+    git.has_uncommitted_changes.return_value = False
     git.last_commit_ts.return_value = now - 5 * 86400
     local_vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
@@ -344,7 +379,8 @@ def test_all_cleanup_candidates_includes_healthy_orphan(store, git, editor):
     ]
     git.list_local_branches.return_value = ["main", "hotfix/patch"]
     git.list_feature_branches.return_value = []
-    git.is_merged_into_any.return_value = (False, None)
+    git.build_merged_map.return_value = {}
+    git.has_uncommitted_changes.return_value = False
     git.last_commit_ts.return_value = now - 1 * 86400
     local_vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,

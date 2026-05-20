@@ -122,33 +122,41 @@ class MainWindowViewModel:
 
     def all_cleanup_candidates(self) -> list:
         import time
+        from concurrent.futures import ThreadPoolExecutor
         from worktree_manager.models import CleanupCandidate
+
         cfg = self._store.get_repo(self._repo_path)
         stale_threshold = int(time.time()) - cfg.stale_days * 86400
 
         feature_branches = self._git.list_feature_branches(self._repo_path)
         merge_targets = ["main"] + feature_branches
+        merged_map = self._git.build_merged_map(self._repo_path, merge_targets)
 
         worktree_branches = {wt.branch for wt in self._worktrees}
         candidates = []
 
-        for wt in self._worktrees:
-            if wt.is_main:
-                continue
-            if self.is_protected_branch(wt.branch):
-                continue
-            merged, merged_into = self._git.is_merged_into_any(
-                self._repo_path, wt.branch, merge_targets
-            )
+        worktree_wts = [
+            wt for wt in self._worktrees
+            if not wt.is_main and not self.is_protected_branch(wt.branch)
+        ]
+
+        with ThreadPoolExecutor() as executor:
+            uncommitted_results = list(executor.map(
+                lambda wt: self._git.has_uncommitted_changes(wt.path),
+                worktree_wts,
+            ))
+
+        for wt, has_uncommitted in zip(worktree_wts, uncommitted_results):
+            merged_into = merged_map.get(wt.branch)
             stale = wt.last_commit_ts > 0 and wt.last_commit_ts < stale_threshold
             candidates.append(CleanupCandidate(
                 branch=wt.branch,
                 path=wt.path,
-                is_merged=merged,
+                is_merged=merged_into is not None,
                 is_stale=stale,
                 last_commit_ts=wt.last_commit_ts,
                 merged_into=merged_into,
-                has_uncommitted=self._git.has_uncommitted_changes(wt.path),
+                has_uncommitted=has_uncommitted,
             ))
 
         for branch in self._git.list_local_branches(self._repo_path):
@@ -157,14 +165,12 @@ class MainWindowViewModel:
             if self.is_protected_branch(branch):
                 continue
             ts = self._git.last_commit_ts(self._repo_path, branch)
-            merged, merged_into = self._git.is_merged_into_any(
-                self._repo_path, branch, merge_targets
-            )
+            merged_into = merged_map.get(branch)
             stale = ts > 0 and ts < stale_threshold
             candidates.append(CleanupCandidate(
                 branch=branch,
                 path=None,
-                is_merged=merged,
+                is_merged=merged_into is not None,
                 is_stale=stale,
                 last_commit_ts=ts,
                 merged_into=merged_into,

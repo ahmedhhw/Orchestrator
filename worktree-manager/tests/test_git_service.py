@@ -163,6 +163,56 @@ def test_is_merged_into_any_empty_targets_returns_false(svc):
     assert target is None
 
 
+def test_build_merged_map_returns_branch_to_target(svc):
+    def fake_run(cmd, cwd=None):
+        if "main" in cmd:
+            return "  main\n  fix/bug\n"
+        return "  main\n"
+    with patch.object(svc, "_run", side_effect=fake_run):
+        result = svc.build_merged_map("/repos/proj", ["main", "feature/auth"])
+    assert result["fix/bug"] == "main"
+
+
+def test_build_merged_map_records_first_target_only(svc):
+    def fake_run(cmd, cwd=None):
+        if "main" in cmd:
+            return "  main\n  fix/bug\n"
+        if "feature/auth" in cmd:
+            return "  main\n  fix/bug\n  feature/auth\n"
+        return "  main\n"
+    with patch.object(svc, "_run", side_effect=fake_run):
+        result = svc.build_merged_map("/repos/proj", ["main", "feature/auth"])
+    assert result["fix/bug"] == "main"
+
+
+def test_build_merged_map_returns_empty_for_no_targets(svc):
+    result = svc.build_merged_map("/repos/proj", [])
+    assert result == {}
+
+
+def test_build_merged_map_returns_empty_when_nothing_merged(svc):
+    with patch.object(svc, "_run", return_value="  main\n"):
+        result = svc.build_merged_map("/repos/proj", ["main"])
+    assert result == {}
+
+
+def test_build_merged_map_multiple_branches(svc):
+    def fake_run(cmd, cwd=None):
+        if "main" in cmd:
+            return "  main\n  fix/a\n  fix/b\n"
+        return "  main\n"
+    with patch.object(svc, "_run", side_effect=fake_run):
+        result = svc.build_merged_map("/repos/proj", ["main", "feature/x"])
+    assert result["fix/a"] == "main"
+    assert result["fix/b"] == "main"
+
+
+def test_build_merged_map_runs_once_per_target(svc):
+    with patch.object(svc, "_run", return_value="  main\n") as mock_run:
+        svc.build_merged_map("/repos/proj", ["main", "feature/auth", "feature/pay"])
+    assert mock_run.call_count == 3
+
+
 def test_has_uncommitted_changes_returns_true_when_dirty(svc):
     with patch.object(svc, "_run", return_value="M modified_file.py\n"):
         assert svc.has_uncommitted_changes("/repos/proj-wt/fix-auth") is True

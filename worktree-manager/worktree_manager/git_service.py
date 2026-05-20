@@ -116,3 +116,14 @@ class GitService:
             if branch in merged:
                 return True, target
         return False, None
+
+    def build_merged_map(self, repo_path: str, targets: list[str]) -> dict[str, str]:
+        target_set = set(targets)
+        result: dict[str, str] = {}
+        for target in targets:
+            out = self._run(["git", "branch", "--merged", target], cwd=repo_path)
+            for line in out.splitlines():
+                branch = line.strip().lstrip("* ")
+                if branch and branch not in result and branch not in target_set:
+                    result[branch] = target
+        return result
