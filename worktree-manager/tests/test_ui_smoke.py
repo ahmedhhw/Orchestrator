@@ -147,6 +147,110 @@ def test_create_dialog_smoke_existing_branch_mode():
     root.destroy()
 
 
+def test_create_dialog_new_branch_calls_on_create_with_correct_args():
+    import customtkinter as ctk
+    from worktree_manager.ui.create_dialog import CreateDialog
+    root = ctk.CTk()
+    root.withdraw()
+    calls = []
+    dialog = CreateDialog(
+        root,
+        branches=["main", "develop"],
+        existing_branches=[],
+        on_create=lambda *a: calls.append(a),
+    )
+    dialog._mode_var.set("new")
+    dialog._on_mode_change()
+    dialog._branch_entry.insert(0, "fix/my-bug")
+    dialog._base_var.set("main")
+    dialog._create()
+    root.destroy()
+    assert len(calls) == 1
+    branch, base_branch, is_existing = calls[0]
+    assert branch == "fix/my-bug"
+    assert base_branch == "main"
+    assert is_existing is False
+
+
+def test_create_dialog_existing_branch_calls_on_create_with_correct_args():
+    import customtkinter as ctk
+    from worktree_manager.ui.create_dialog import CreateDialog
+    root = ctk.CTk()
+    root.withdraw()
+    calls = []
+    dialog = CreateDialog(
+        root,
+        branches=["main"],
+        existing_branches=["fix/auth", "chore/deps"],
+        on_create=lambda *a: calls.append(a),
+    )
+    dialog._mode_var.set("existing")
+    dialog._on_mode_change()
+    dialog._existing_var.set("fix/auth")
+    dialog._create()
+    root.destroy()
+    assert len(calls) == 1
+    branch, base_branch, is_existing = calls[0]
+    assert branch == "fix/auth"
+    assert base_branch is None
+    assert is_existing is True
+
+
+def test_create_dialog_new_branch_empty_name_does_not_call_on_create():
+    import customtkinter as ctk
+    from worktree_manager.ui.create_dialog import CreateDialog
+    root = ctk.CTk()
+    root.withdraw()
+    calls = []
+    dialog = CreateDialog(
+        root,
+        branches=["main"],
+        existing_branches=[],
+        on_create=lambda *a: calls.append(a),
+    )
+    dialog._mode_var.set("new")
+    dialog._on_mode_change()
+    dialog._create()
+    root.destroy()
+    assert calls == []
+
+
+def test_handle_create_new_branch_passes_existing_false_to_vm():
+    import customtkinter as ctk
+    from unittest.mock import MagicMock
+    from worktree_manager.ui.main_window import MainWindow
+    root = ctk.CTk()
+    root.withdraw()
+    vm = MagicMock()
+    vm.load_worktrees.return_value = []
+    vm.repo_name.return_value = "proj"
+    win = MainWindow.__new__(MainWindow)
+    win._vm = vm
+    win.refresh = MagicMock()
+    win._handle_create("fix/bug", "main", False)
+    vm.create_worktree.assert_called_once_with(branch="fix/bug", base_branch="main", existing=False)
+    win.refresh.assert_called_once()
+    root.destroy()
+
+
+def test_handle_create_existing_branch_passes_existing_true_to_vm():
+    import customtkinter as ctk
+    from unittest.mock import MagicMock
+    from worktree_manager.ui.main_window import MainWindow
+    root = ctk.CTk()
+    root.withdraw()
+    vm = MagicMock()
+    vm.load_worktrees.return_value = []
+    vm.repo_name.return_value = "proj"
+    win = MainWindow.__new__(MainWindow)
+    win._vm = vm
+    win.refresh = MagicMock()
+    win._handle_create("fix/auth", None, True)
+    vm.create_worktree.assert_called_once_with(branch="fix/auth", base_branch=None, existing=True)
+    win.refresh.assert_called_once()
+    root.destroy()
+
+
 def test_main_window_refresh_smoke_with_checked_out_branch():
     import customtkinter as ctk
     import time

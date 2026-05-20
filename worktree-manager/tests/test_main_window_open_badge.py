@@ -100,6 +100,17 @@ def test_open_button_says_open_when_no_window(root):
     win.destroy()
 
 
+def test_open_button_says_focus_when_that_worktree_is_open(root):
+    from worktree_manager.ui.main_window import MainWindow
+    vm = _make_vm(cur_open_path="/repos/proj-wt/feat")
+    win = MainWindow(root, vm=vm, repo_name="proj", on_settings=MagicMock(), on_cleanup=MagicMock())
+    buttons = _collect_buttons(win)
+    labels = [getattr(b, "_text", "") for b in buttons]
+    assert "Focus" in labels
+    assert "Open" not in labels
+    win.destroy()
+
+
 def test_open_delete_passes_none_live_window_to_dialog(root):
     from worktree_manager.ui.main_window import MainWindow
     vm = _make_vm(cur_open_path="/repos/proj-wt/feat")

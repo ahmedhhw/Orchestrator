@@ -119,7 +119,12 @@ class MainWindow(ctk.CTkFrame):
                 command=lambda w=wt: self._open_delete(w)
             ).pack(side="right", padx=(0, 4))
 
-        btn_label = "Switch" if self._vm.show_switch_label(wt.path) else "Open"
+        if cur == wt.path:
+            btn_label = "Focus"
+        elif self._vm.show_switch_label(wt.path):
+            btn_label = "Switch"
+        else:
+            btn_label = "Open"
         ctk.CTkButton(
             row, text=btn_label, width=55,
             command=lambda p=wt.path: self._open_worktree(p),
@@ -143,7 +148,7 @@ class MainWindow(ctk.CTkFrame):
         )
 
     def _handle_create(self, branch, base_branch, is_existing):
-        self._vm.create_worktree(branch=branch, base_branch=base_branch)
+        self._vm.create_worktree(branch=branch, base_branch=base_branch, existing=is_existing)
         self.refresh()
 
     def _open_delete(self, wt: WorktreeModel):
