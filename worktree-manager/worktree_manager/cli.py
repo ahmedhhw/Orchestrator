@@ -86,7 +86,7 @@ class App:
         if self._sidebar_frame:
             self._sidebar_frame.destroy()
 
-        sidebar = ctk.CTkFrame(self._root, width=180, corner_radius=0)
+        sidebar = ctk.CTkFrame(self._root, width=220, corner_radius=0)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
         self._sidebar_frame = sidebar
@@ -106,6 +106,7 @@ class App:
                 fg_color=("gray30" if is_active else "transparent"),
                 hover_color="gray25",
                 text_color=("white" if is_active else ("gray10", "gray90")),
+                wraplength=196,
                 command=lambda p=path: self._switch_repo(p),
             )
             btn.pack(fill="x", padx=4, pady=1)
