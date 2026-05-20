@@ -127,3 +127,72 @@ def test_cleanup_wizard_smoke_with_healthy_and_stale(root):
     ]
     wiz = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
     wiz.destroy()
+
+
+def test_uncommitted_worktree_is_unchecked_and_disabled(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    c = CleanupCandidate(
+        branch="wip/dirty", path="/wt/wip-dirty", is_merged=False, is_stale=True,
+        last_commit_ts=now - 40 * 86400, has_uncommitted=True,
+    )
+    wiz = CleanupWizard(root, candidates=[c], on_delete_selected=MagicMock())
+    idx = next(i for i, cand in enumerate(wiz._candidates) if cand.branch == "wip/dirty")
+    assert wiz._vars[idx].get() is False
+    wiz.destroy()
+
+
+def test_uncommitted_worktree_excluded_from_delete_selected(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    dirty = CleanupCandidate(
+        branch="wip/dirty", path="/wt/wip-dirty", is_merged=False, is_stale=True,
+        last_commit_ts=now - 40 * 86400, has_uncommitted=True,
+    )
+    clean = CleanupCandidate(
+        branch="old/clean", path="/wt/old-clean", is_merged=True, is_stale=False,
+        last_commit_ts=now - 5 * 86400, has_uncommitted=False,
+    )
+    deleted = []
+    wiz = CleanupWizard(root, candidates=[dirty, clean],
+                        on_delete_selected=lambda s, b: deleted.extend(s))
+    wiz._delete_selected()
+    assert all(c.branch != "wip/dirty" for c in deleted)
+    assert any(c.branch == "old/clean" for c in deleted)
+    wiz.destroy()
+
+
+def test_uncommitted_worktree_shows_warning_label(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    c = CleanupCandidate(
+        branch="wip/dirty", path="/wt/wip-dirty", is_merged=False, is_stale=True,
+        last_commit_ts=now - 40 * 86400, has_uncommitted=True,
+    )
+    wiz = CleanupWizard(root, candidates=[c], on_delete_selected=MagicMock())
+    texts = _collect_text(wiz)
+    assert any("uncommitted" in t.lower() for t in texts)
+    wiz.destroy()
+
+
+def test_clean_worktree_is_checked_and_has_no_warning(root):
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    from worktree_manager.models import CleanupCandidate
+    import time
+    now = int(time.time())
+    c = CleanupCandidate(
+        branch="old/clean", path="/wt/old-clean", is_merged=True, is_stale=False,
+        last_commit_ts=now - 5 * 86400, has_uncommitted=False,
+    )
+    wiz = CleanupWizard(root, candidates=[c], on_delete_selected=MagicMock())
+    idx = next(i for i, cand in enumerate(wiz._candidates) if cand.branch == "old/clean")
+    assert wiz._vars[idx].get() is True
+    texts = _collect_text(wiz)
+    assert not any("uncommitted" in t.lower() for t in texts)
+    wiz.destroy()

@@ -28,6 +28,7 @@ class CleanupCandidate:
     is_stale: bool
     last_commit_ts: int
     merged_into: str | None = None
+    has_uncommitted: bool = False
 
 
 @dataclass

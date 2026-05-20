@@ -109,12 +109,22 @@ class CleanupWizard(ctk.CTkToplevel):
             ).pack(anchor="w", padx=24, pady=(4, 2))
 
     def _add_item(self, parent, c: CleanupCandidate, pre_checked: bool):
-        var = ctk.BooleanVar(value=pre_checked)
+        blocked = c.has_uncommitted
+        var = ctk.BooleanVar(value=False if blocked else pre_checked)
         self._vars.append(var)
         self._candidates.append(c)
-        ctk.CTkCheckBox(
-            parent, text=f"{c.branch}  ({_reason(c)})", variable=var
-        ).pack(anchor="w", padx=4, pady=2)
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        cb = ctk.CTkCheckBox(
+            row, text=f"{c.branch}  ({_reason(c)})", variable=var
+        )
+        cb.pack(side="left", padx=4)
+        if blocked:
+            cb.configure(state="disabled")
+            ctk.CTkLabel(
+                row, text="⚠ uncommitted", text_color="orange",
+                font=ctk.CTkFont(size=11),
+            ).pack(side="left", padx=(6, 0))
 
     def _select_all(self):
         for v in self._vars:

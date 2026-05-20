@@ -148,6 +148,7 @@ class MainWindowViewModel:
                 is_stale=stale,
                 last_commit_ts=wt.last_commit_ts,
                 merged_into=merged_into,
+                has_uncommitted=self._git.has_uncommitted_changes(wt.path),
             ))
 
         for branch in self._git.list_local_branches(self._repo_path):
