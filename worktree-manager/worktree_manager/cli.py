@@ -150,13 +150,8 @@ class App:
         )
 
     def _show_main(self, repo_path: str):
-        from datetime import datetime, timezone
         from worktree_manager.main_window_vm import MainWindowViewModel
         from worktree_manager.ui.main_window import MainWindow
-
-        cfg = self._store.get_repo(repo_path)
-        cfg.last_opened = datetime.now(timezone.utc).isoformat()
-        self._store.save_repo(cfg)
 
         self._clear_main()
         self._show_sidebar(repo_path)
