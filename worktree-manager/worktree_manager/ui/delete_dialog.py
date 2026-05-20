@@ -9,7 +9,7 @@ class DeleteDialog(ctk.CTkToplevel):
                  has_uncommitted: bool = False):
         super().__init__(master)
         self.title("Delete Worktree")
-        self.geometry("420x300")
+        self.geometry("420x320")
         self.resizable(False, False)
         self._wt = wt
         self._on_delete = on_delete
@@ -29,6 +29,14 @@ class DeleteDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             self, text=f"Path:    {self._wt.path}", anchor="w", wraplength=340
         ).pack(fill="x", padx=24, pady=(0, 8))
+
+        if self._has_uncommitted:
+            ctk.CTkLabel(
+                self,
+                text="⚠ Unstaged or uncommitted changes detected.",
+                text_color="orange",
+                justify="center",
+            ).pack(pady=(0, 8), padx=24)
 
         if self._live_window is not None:
             editor_name = self._live_window.editor.title()
@@ -62,20 +70,12 @@ class DeleteDialog(ctk.CTkToplevel):
         ).pack(side="right")
 
     def _delete(self):
-        if self._also_branch.get() and self._has_uncommitted:
+        if self._has_uncommitted:
             mb.showerror(
                 "Cannot delete branch",
                 f'"{self._wt.branch}" has uncommitted changes.\n\n'
                 "Commit or discard changes before deleting.",
             )
             return
-        if self._has_uncommitted:
-            confirmed = mb.askyesno(
-                "Uncommitted changes",
-                f'"{self._wt.branch}" has uncommitted changes that will be lost.\n\n'
-                "Are you sure you want to delete this worktree?",
-            )
-            if not confirmed:
-                return
         self._on_delete(self._wt, self._also_branch.get())
         self.destroy()

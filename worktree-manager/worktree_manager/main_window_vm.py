@@ -89,6 +89,12 @@ class MainWindowViewModel:
             return False
         return self._git.has_uncommitted_changes(path)
 
+    def has_uncommitted_changes(self, path: str) -> bool:
+        import os
+        if not os.path.isdir(path):
+            return False
+        return self._git.has_uncommitted_changes(path)
+
     def create_worktree(self, branch: str, base_branch: str | None, existing: bool = False) -> None:
         path = self.worktree_path_for_branch(branch)
         if existing:

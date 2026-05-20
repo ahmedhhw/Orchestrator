@@ -153,7 +153,10 @@ class MainWindow(ctk.CTkFrame):
 
     def _open_delete(self, wt: WorktreeModel):
         from worktree_manager.ui.delete_dialog import DeleteDialog
-        DeleteDialog(self, wt=wt, on_delete=self._handle_delete, live_window=None)
+        has_uncommitted = self._vm.has_uncommitted_changes(wt.path)
+        print(f"[debug] has_uncommitted_changes({wt.path!r}) = {has_uncommitted}")
+        DeleteDialog(self, wt=wt, on_delete=self._handle_delete,
+                     live_window=None, has_uncommitted=has_uncommitted)
 
     def _handle_delete(self, wt, also_delete_branch):
         self._vm.delete_worktree(
