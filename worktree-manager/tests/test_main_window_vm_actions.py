@@ -91,14 +91,87 @@ def test_list_local_branches(vm, git):
 
 
 def test_cleanup_deletes_selected(vm, git):
+    from worktree_manager.models import CleanupCandidate
     now = int(time.time())
-    stale_wt = WorktreeModel(
-        "/repos/proj-wt/chore-deps", "chore/deps", False, now - 35 * 86400, False, True
+    stale_candidate = CleanupCandidate(
+        branch="chore/deps", path="/repos/proj-wt/chore-deps",
+        is_merged=False, is_stale=True, last_commit_ts=now - 35 * 86400,
     )
-    vm.delete_cleanup_candidates([stale_wt], also_delete_branches=True)
+    vm.delete_cleanup_candidates([stale_candidate], also_delete_branches=True)
     git.delete_worktree.assert_called_once_with(
         repo_path="/repos/proj", worktree_path="/repos/proj-wt/chore-deps"
     )
     git.delete_branch.assert_called_once_with(
         repo_path="/repos/proj", branch="chore/deps"
+    )
+
+
+def test_delete_cleanup_candidate_worktree_with_branch(store, git, editor):
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main"]
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    vm.load_worktrees()
+    candidate = CleanupCandidate(
+        branch="chore/deps", path="/repos/proj-wt/chore-deps",
+        is_merged=False, is_stale=True, last_commit_ts=now - 35 * 86400,
+    )
+    vm.delete_cleanup_candidates([candidate], also_delete_branches=True)
+    git.delete_worktree.assert_called_once_with(
+        repo_path="/repos/proj", worktree_path="/repos/proj-wt/chore-deps"
+    )
+    git.delete_branch.assert_called_once_with(
+        repo_path="/repos/proj", branch="chore/deps"
+    )
+
+
+def test_delete_cleanup_candidate_worktree_without_branch(store, git, editor):
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main"]
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    vm.load_worktrees()
+    candidate = CleanupCandidate(
+        branch="chore/deps", path="/repos/proj-wt/chore-deps",
+        is_merged=False, is_stale=True, last_commit_ts=now - 35 * 86400,
+    )
+    vm.delete_cleanup_candidates([candidate], also_delete_branches=False)
+    git.delete_worktree.assert_called_once_with(
+        repo_path="/repos/proj", worktree_path="/repos/proj-wt/chore-deps"
+    )
+    git.delete_branch.assert_not_called()
+
+
+def test_delete_cleanup_candidate_orphan_branch_always_deletes_branch(store, git, editor):
+    from worktree_manager.models import CleanupCandidate
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main"]
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    vm.load_worktrees()
+    candidate = CleanupCandidate(
+        branch="release/1.0", path=None,
+        is_merged=True, is_stale=False, last_commit_ts=now - 5 * 86400,
+    )
+    vm.delete_cleanup_candidates([candidate], also_delete_branches=False)
+    git.delete_worktree.assert_not_called()
+    git.delete_branch.assert_called_once_with(
+        repo_path="/repos/proj", branch="release/1.0"
     )

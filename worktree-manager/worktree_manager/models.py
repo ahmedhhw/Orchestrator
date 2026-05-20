@@ -12,6 +12,15 @@ class WorktreeModel:
 
 
 @dataclass
+class CleanupCandidate:
+    branch: str
+    path: str | None
+    is_merged: bool
+    is_stale: bool
+    last_commit_ts: int
+
+
+@dataclass
 class RepoConfig:
     repo_path: str
     worktree_storage: str

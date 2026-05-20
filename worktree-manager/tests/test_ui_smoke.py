@@ -34,6 +34,39 @@ def test_repo_setup_vm_default_path():
     assert vm.default_storage_path().endswith("myrepo-worktrees")
 
 
+def test_cleanup_wizard_smoke_mixed(tmp_path):
+    import customtkinter as ctk
+    import time
+    from worktree_manager.models import CleanupCandidate
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    now = int(time.time())
+    root = ctk.CTk()
+    root.withdraw()
+    candidates = [
+        CleanupCandidate("chore/deps", "/wt/chore-deps", False, True, now - 35 * 86400),
+        CleanupCandidate("release/1.0", None, True, False, now - 5 * 86400),
+    ]
+    wizard = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    wizard.destroy()
+    root.destroy()
+
+
+def test_cleanup_wizard_smoke_orphans_only(tmp_path):
+    import customtkinter as ctk
+    import time
+    from worktree_manager.models import CleanupCandidate
+    from worktree_manager.ui.cleanup_wizard import CleanupWizard
+    now = int(time.time())
+    root = ctk.CTk()
+    root.withdraw()
+    candidates = [
+        CleanupCandidate("release/1.0", None, True, False, now - 5 * 86400),
+    ]
+    wizard = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    wizard.destroy()
+    root.destroy()
+
+
 def test_settings_vm_save_called():
     from worktree_manager.config_store import ConfigStore
     from worktree_manager.models import RepoConfig

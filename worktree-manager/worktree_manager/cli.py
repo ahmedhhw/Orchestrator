@@ -111,9 +111,11 @@ class App:
         SettingsPanel(self._root, vm=vm)
 
     def _show_cleanup(self, main_vm):
+        import tkinter.messagebox as mb
         from worktree_manager.ui.cleanup_wizard import CleanupWizard
-        candidates = main_vm.cleanup_candidates()
+        candidates = main_vm.all_cleanup_candidates()
         if not candidates:
+            mb.showinfo("Cleanup", "Nothing to clean up.")
             return
 
         def _on_delete(selected, also_branches):

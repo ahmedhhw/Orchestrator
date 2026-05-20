@@ -44,6 +44,34 @@ def test_repo_config_defaults():
     assert cfg.last_editor_mode == "reuse"
 
 
+def test_cleanup_candidate_worktree():
+    from worktree_manager.models import CleanupCandidate
+    c = CleanupCandidate(
+        branch="chore/deps",
+        path="/repos/proj-wt/chore-deps",
+        is_merged=False,
+        is_stale=True,
+        last_commit_ts=1_700_000_000,
+    )
+    assert c.branch == "chore/deps"
+    assert c.path == "/repos/proj-wt/chore-deps"
+    assert c.is_stale is True
+    assert c.is_merged is False
+
+
+def test_cleanup_candidate_orphan_branch():
+    from worktree_manager.models import CleanupCandidate
+    c = CleanupCandidate(
+        branch="release/1.0",
+        path=None,
+        is_merged=True,
+        is_stale=False,
+        last_commit_ts=1_700_000_000,
+    )
+    assert c.path is None
+    assert c.is_merged is True
+
+
 def test_repo_config_vscode_editor():
     cfg = RepoConfig(
         repo_path="/repos/proj",

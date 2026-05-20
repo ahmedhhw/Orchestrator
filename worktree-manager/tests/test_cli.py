@@ -37,3 +37,40 @@ def test_resolve_repo_path_none_returns_none():
     git = MagicMock(spec=GitService)
     result = resolve_repo_path(None, git)
     assert result is None
+
+
+def _make_vm(candidates):
+    vm = MagicMock()
+    vm.all_cleanup_candidates.return_value = candidates
+    return vm
+
+
+def test_show_cleanup_opens_wizard_when_candidates_exist():
+    from worktree_manager.models import CleanupCandidate
+    import worktree_manager.cli as cli_mod
+    from unittest.mock import patch
+    vm = _make_vm([
+        CleanupCandidate("chore/deps", "/wt/chore-deps", False, True, 0)
+    ])
+    with patch("worktree_manager.ui.cleanup_wizard.CleanupWizard") as MockWizard:
+        with patch("tkinter.messagebox.showinfo") as mock_info:
+            app = object.__new__(cli_mod.App)
+            app._root = MagicMock()
+            app._current_frame = MagicMock()
+            app._show_cleanup(vm)
+    MockWizard.assert_called_once()
+    mock_info.assert_not_called()
+
+
+def test_show_cleanup_shows_messagebox_when_empty():
+    import worktree_manager.cli as cli_mod
+    from unittest.mock import patch
+    vm = _make_vm([])
+    with patch("worktree_manager.ui.cleanup_wizard.CleanupWizard") as MockWizard:
+        with patch("tkinter.messagebox.showinfo") as mock_info:
+            app = object.__new__(cli_mod.App)
+            app._root = MagicMock()
+            app._current_frame = MagicMock()
+            app._show_cleanup(vm)
+    MockWizard.assert_not_called()
+    mock_info.assert_called_once()

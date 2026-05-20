@@ -81,6 +81,117 @@ def test_cleanup_candidates_excludes_healthy(vm):
     assert "feature/auth" not in branches
 
 
+def test_all_cleanup_candidates_includes_worktree_candidates(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    candidates = vm.all_cleanup_candidates()
+    branches = [c.branch for c in candidates]
+    assert "chore/deps" in branches
+    assert "fix/old-bug" in branches
+
+
+def test_all_cleanup_candidates_excludes_main_worktree(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    candidates = vm.all_cleanup_candidates()
+    assert all(c.branch != "main" for c in candidates)
+
+
+def test_all_cleanup_candidates_excludes_healthy_worktrees(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    candidates = vm.all_cleanup_candidates()
+    assert all(c.branch != "feature/auth" for c in candidates)
+
+
+def test_all_cleanup_candidates_worktree_has_path(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = []
+    candidates = vm.all_cleanup_candidates()
+    wt_candidates = [c for c in candidates if c.path is not None]
+    assert all(c.path for c in wt_candidates)
+
+
+def test_all_cleanup_candidates_includes_orphan_merged_branch(store, git, editor):
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main", "release/1.0"]
+    git.is_merged.return_value = True
+    git.last_commit_ts.return_value = now - 5 * 86400
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    vm.load_worktrees()
+    candidates = vm.all_cleanup_candidates()
+    assert "release/1.0" in [c.branch for c in candidates]
+
+
+def test_all_cleanup_candidates_includes_orphan_stale_branch(store, git, editor):
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main", "experiment/xyz"]
+    git.is_merged.return_value = False
+    git.last_commit_ts.return_value = now - 40 * 86400
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    vm.load_worktrees()
+    candidates = vm.all_cleanup_candidates()
+    assert "experiment/xyz" in [c.branch for c in candidates]
+
+
+def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git, editor):
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main", "feature/wip"]
+    git.is_merged.return_value = False
+    git.last_commit_ts.return_value = now - 2 * 86400
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    vm.load_worktrees()
+    candidates = vm.all_cleanup_candidates()
+    assert all(c.branch != "feature/wip" for c in candidates)
+
+
+def test_all_cleanup_candidates_orphan_has_no_path(store, git, editor):
+    now = int(time.time())
+    git.list_worktrees.return_value = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+    ]
+    git.list_local_branches.return_value = ["main", "release/1.0"]
+    git.is_merged.return_value = True
+    git.last_commit_ts.return_value = now - 5 * 86400
+    vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store,
+        git_service=git, editor_service=editor,
+    )
+    vm.load_worktrees()
+    candidates = vm.all_cleanup_candidates()
+    orphans = [c for c in candidates if c.branch == "release/1.0"]
+    assert len(orphans) == 1
+    assert orphans[0].path is None
+
+
+def test_all_cleanup_candidates_excludes_branch_already_in_worktree(vm):
+    vm.load_worktrees()
+    vm._git.list_local_branches.return_value = [
+        "main", "feature/auth", "chore/deps", "fix/old-bug"
+    ]
+    candidates = vm.all_cleanup_candidates()
+    matching = [c for c in candidates if c.branch == "chore/deps"]
+    assert len(matching) == 1
+
+
 def test_branch_slug_simple(vm):
     assert vm.branch_to_folder_name("feature/auth") == "feature-auth"
 
