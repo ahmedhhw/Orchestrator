@@ -177,13 +177,13 @@ class CleanupWizard(ctk.CTkToplevel):
             insert_before=self._btn_frame,
         )
         ctk.CTkButton(
-            self._btn_frame, text="Select All", fg_color="gray", command=self._select_all
+            self._btn_frame, text="Select All", fg_color="gray", text_color=("black", "white"), command=self._select_all
         ).pack(side="left", padx=(0, 4))
         ctk.CTkButton(
-            self._btn_frame, text="Deselect All", fg_color="gray", command=self._deselect_all
+            self._btn_frame, text="Deselect All", fg_color="gray", text_color=("black", "white"), command=self._deselect_all
         ).pack(side="left")
         ctk.CTkButton(
-            self._btn_frame, text="Cancel", fg_color="gray", command=self.destroy
+            self._btn_frame, text="Cancel", fg_color="gray", text_color=("black", "white"), command=self.destroy
         ).pack(side="left", padx=8)
         ctk.CTkButton(
             self._btn_frame, text="Delete", fg_color="#c0392b", command=self._delete_selected

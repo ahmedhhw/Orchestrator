@@ -61,7 +61,7 @@ class DeleteDialog(ctk.CTkToplevel):
         btns = ctk.CTkFrame(self)
         btns.pack(fill="x", padx=24, pady=16)
         ctk.CTkButton(
-            btns, text="Cancel", fg_color="gray", command=self.destroy
+            btns, text="Cancel", fg_color="gray", text_color=("black", "white"), command=self.destroy
         ).pack(side="left")
 
         confirm_label = "Delete & Close" if self._live_window is not None else "Delete"

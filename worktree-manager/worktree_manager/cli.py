@@ -31,14 +31,20 @@ class App:
         self._root = ctk.CTk()
         self._root.title("Git Worktree Manager")
         self._root.geometry("900x520")
+        self._root.minsize(700, 400)
 
         self._store = ConfigStore()
         self._git = GitService()
         self._editor = EditorService(self._store)
         self._current_frame = None
         self._sidebar_frame = None
+        self._cc_panel = None
+
+        from worktree_manager.command_center_vm import CommandCenterViewModel
+        self._cc_vm = CommandCenterViewModel(config_store=self._store, git_service=self._git)
 
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._root.bind_all("<Command-k>", lambda e: self._open_command_palette())
 
         if repo_path:
             self._load_repo(repo_path)
@@ -121,6 +127,12 @@ class App:
             command=self._pick_and_add_repo,
         ).pack(fill="x", padx=4, pady=(8, 4))
 
+        ctk.CTkButton(
+            sidebar, text="⊞ Command Center", fg_color="transparent",
+            border_width=1, text_color=("gray10", "gray90"),
+            command=self._show_command_center,
+        ).pack(fill="x", padx=4, pady=(0, 4))
+
     def _pick_and_add_repo(self):
         from tkinter import filedialog
         import tkinter.messagebox as mb
@@ -180,6 +192,26 @@ class App:
         from worktree_manager.ui.settings_panel import SettingsPanel
         vm = SettingsViewModel(repo_path=repo_path, config_store=self._store)
         SettingsPanel(self._root, vm=vm)
+
+    def _show_command_center(self) -> None:
+        from worktree_manager.ui.command_center_panel import CommandCenterPanel
+        self._clear_main()
+        if self._cc_panel is None or not self._cc_panel.winfo_exists():
+            self._cc_panel = CommandCenterPanel(
+                self._root, vm=self._cc_vm,
+                on_close=self._close_command_center,
+            )
+        self._cc_panel.pack(side="left", fill="both", expand=True)
+        self._current_frame = self._cc_panel
+
+    def _close_command_center(self) -> None:
+        if self._cc_panel:
+            self._cc_panel.pack_forget()
+        self._show_empty_main()
+
+    def _open_command_palette(self) -> None:
+        from worktree_manager.ui.command_palette import CommandPalette
+        CommandPalette(self._root, vm=self._cc_vm)
 
     def _show_cleanup(self, main_vm):
         import tkinter.messagebox as mb

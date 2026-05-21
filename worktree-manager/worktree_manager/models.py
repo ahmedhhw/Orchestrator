@@ -32,6 +32,12 @@ class CleanupCandidate:
 
 
 @dataclass
+class SavedCommand:
+    name: str
+    command: str
+
+
+@dataclass
 class RepoConfig:
     repo_path: str
     worktree_storage: str
@@ -42,3 +48,4 @@ class RepoConfig:
     editor: str = "cursor"
     window_mode: str = "multi"
     cur_open_path: str | None = None
+    commands: list = field(default_factory=list)

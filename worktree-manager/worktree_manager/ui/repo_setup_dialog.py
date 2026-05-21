@@ -30,7 +30,7 @@ class RepoSetupDialog(ctk.CTkToplevel):
         btns = ctk.CTkFrame(self)
         btns.pack(fill="x", padx=24, pady=16)
         ctk.CTkButton(
-            btns, text="Cancel", fg_color="gray", command=self.destroy
+            btns, text="Cancel", fg_color="gray", text_color=("black", "white"), command=self.destroy
         ).pack(side="left")
         ctk.CTkButton(btns, text="Confirm", command=self._confirm).pack(side="right")
 
