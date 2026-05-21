@@ -25,11 +25,22 @@ class ManageCommandsDialog(ctk.CTkToplevel):
         top.pack(fill="x", padx=24, pady=(20, 8))
         ctk.CTkLabel(top, text="Manage Commands",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+        ctk.CTkButton(top, text="+ Add Command", width=120,
+                      command=self._open_add_command_dialog).pack(side="right")
 
         repo_row = ctk.CTkFrame(self, fg_color="transparent")
         repo_row.pack(fill="x", padx=24, pady=(0, 8))
         ctk.CTkLabel(repo_row, text="Repository:", width=80, anchor="w").pack(side="left")
-        self._repo_var = ctk.StringVar(value=display_names[0] if display_names else "")
+        last_used = (
+            self._vm.get_last_used_repo() if hasattr(self._vm, "get_last_used_repo") else None
+        )
+        if last_used and last_used in self._repo_paths:
+            default_name = Path(last_used).name
+        elif display_names:
+            default_name = display_names[0]
+        else:
+            default_name = ""
+        self._repo_var = ctk.StringVar(value=default_name)
         ctk.CTkOptionMenu(
             repo_row, variable=self._repo_var, values=display_names,
             command=self._on_repo_changed, width=220,
@@ -53,6 +64,8 @@ class ManageCommandsDialog(ctk.CTkToplevel):
 
     def _on_repo_changed(self, _: str) -> None:
         self._editing_name = None
+        if hasattr(self._vm, "set_last_used_repo"):
+            self._vm.set_last_used_repo(self._current_repo_path())
         self._refresh_list()
 
     def _current_repo_path(self) -> str:
@@ -193,6 +206,13 @@ class ManageCommandsDialog(ctk.CTkToplevel):
     def _delete(self, name: str) -> None:
         self._vm.delete_command(self._current_repo_path(), name)
         self._refresh_list()
+
+    def _open_add_command_dialog(self) -> None:
+        from worktree_manager.ui.add_command_dialog import AddCommandDialog
+        def _on_saved():
+            self._refresh_list()
+        AddCommandDialog(self, vm=self._vm, initial_repo=self._current_repo_path(),
+                         on_saved=_on_saved)
 
     def _on_close(self) -> None:
         if self._editing_name is not None:

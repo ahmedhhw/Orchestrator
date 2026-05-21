@@ -44,7 +44,6 @@ class App:
         self._cc_vm = CommandCenterViewModel(config_store=self._store, git_service=self._git)
 
         self._root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._root.bind_all("<Command-k>", lambda e: self._open_command_palette())
 
         if repo_path:
             self._load_repo(repo_path)
@@ -209,9 +208,6 @@ class App:
             self._cc_panel.pack_forget()
         self._show_empty_main()
 
-    def _open_command_palette(self) -> None:
-        from worktree_manager.ui.command_palette import CommandPalette
-        CommandPalette(self._root, vm=self._cc_vm)
 
     def _show_cleanup(self, main_vm):
         import tkinter.messagebox as mb

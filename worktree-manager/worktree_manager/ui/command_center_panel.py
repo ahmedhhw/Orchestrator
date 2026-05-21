@@ -25,8 +25,19 @@ class CommandCenterPanel(ctk.CTkFrame):
         ).pack(side="left")
         ctk.CTkButton(toolbar, text="×", width=32, command=self.trigger_close).pack(side="right", padx=2)
         ctk.CTkButton(toolbar, text="+ Launch", command=self._open_launch_dialog).pack(side="right", padx=2)
-        ctk.CTkButton(toolbar, text="+ Add Command", command=self._open_add_command_dialog).pack(side="right", padx=2)
         ctk.CTkButton(toolbar, text="⚙ Commands", command=self._open_manage_commands_dialog).pack(side="right", padx=2)
+
+        search_bar = ctk.CTkFrame(self, corner_radius=0)
+        search_bar.pack(fill="x", padx=8, pady=(0, 4))
+        self._search_var = ctk.StringVar()
+        self._search_var.trace_add("write", self._on_search_changed)
+        self._search_entry = ctk.CTkEntry(
+            search_bar,
+            placeholder_text="Filter running commands by name or repo…",
+            textvariable=self._search_var,
+        )
+        self._search_entry.pack(fill="x", padx=2, pady=4)
+        self._search_entry.bind("<Escape>", lambda e: self._search_var.set(""))
 
         self._scroll = ctk.CTkScrollableFrame(self)
         self._scroll.pack(fill="both", expand=True, padx=8, pady=4)
@@ -39,11 +50,41 @@ class CommandCenterPanel(ctk.CTkFrame):
         )
         self._empty_label.pack(pady=40)
 
+        self._no_match_label = ctk.CTkLabel(
+            self._scroll,
+            text="",
+            text_color="gray",
+            justify="center",
+        )
+
     def _wire_vm(self):
         self._vm.on_run_added = self._on_run_added
         self._vm.on_output = self._on_output
         self._vm.on_status_changed = self._on_status_changed
         self._vm.on_run_id_changed = self._on_run_id_changed
+
+    def _on_search_changed(self, *_) -> None:
+        term = self._search_var.get().strip().lower()
+        visible = 0
+        for run_id, pane in self._panes.items():
+            handle = self._vm.get_run(run_id)
+            if not handle:
+                continue
+            match = (not term
+                     or term in handle.cmd_name.lower()
+                     or term in handle.repo_name.lower())
+            if match:
+                pane.pack(fill="x", pady=4)
+                visible += 1
+            else:
+                pane.pack_forget()
+        if term and visible == 0 and self._panes:
+            self._no_match_label.configure(
+                text=f'No running commands match "{self._search_var.get()}".'
+            )
+            self._no_match_label.pack(pady=20)
+        else:
+            self._no_match_label.pack_forget()
 
     def _restore_existing_runs(self):
         for handle in self._vm.all_runs():
@@ -72,9 +113,17 @@ class CommandCenterPanel(ctk.CTkFrame):
             on_restart=lambda: self._do_restart(handle.run_id),
             on_remove=lambda: self.remove_pane(handle.run_id),
         )
-        pane.pack(fill="x", pady=4)
         self._panes[handle.run_id] = pane
         self._empty_label.pack_forget()
+        self._no_match_label.pack_forget()
+        term = self._search_var.get().strip().lower()
+        visible = (not term
+                   or term in handle.cmd_name.lower()
+                   or term in handle.repo_name.lower())
+        if visible:
+            pane.pack(fill="x", pady=4)
+        # re-run full filter to update no-match label accurately
+        self._on_search_changed()
 
     def remove_pane(self, run_id: str) -> None:
         self._vm.stop(run_id)
@@ -88,6 +137,9 @@ class CommandCenterPanel(ctk.CTkFrame):
             self._maximized_id = None
         if not self._panes:
             self._empty_label.pack(pady=40)
+            self._no_match_label.pack_forget()
+        else:
+            self._on_search_changed()
 
     def _on_run_id_changed(self, old_id: str, new_id: str) -> None:
         pane = self._panes.pop(old_id, None)
@@ -177,10 +229,6 @@ class CommandCenterPanel(ctk.CTkFrame):
 
     def empty_state_visible(self) -> bool:
         return self._empty_label.winfo_ismapped()
-
-    def _open_add_command_dialog(self) -> None:
-        from worktree_manager.ui.add_command_dialog import AddCommandDialog
-        AddCommandDialog(self, vm=self._vm)
 
     def _open_launch_dialog(self) -> None:
         from worktree_manager.ui.launch_dialog import LaunchDialog

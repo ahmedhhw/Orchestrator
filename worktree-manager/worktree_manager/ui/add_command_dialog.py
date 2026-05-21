@@ -3,15 +3,16 @@ import customtkinter as ctk
 
 
 class AddCommandDialog(ctk.CTkToplevel):
-    def __init__(self, master, vm):
+    def __init__(self, master, vm, initial_repo: str | None = None, on_saved=None):
         super().__init__(master)
         self.title("Add Saved Command")
         self.resizable(False, False)
         self._vm = vm
-        self._build()
+        self._on_saved = on_saved
+        self._build(initial_repo)
         self.grab_set()
 
-    def _build(self):
+    def _build(self, initial_repo: str | None):
         ctk.CTkLabel(self, text="Add Saved Command",
                      font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(16, 8), padx=24, anchor="w")
 
@@ -20,10 +21,20 @@ class AddCommandDialog(ctk.CTkToplevel):
         self._repo_map = {Path(p).name: p for p in repo_paths}
         display_names = [Path(p).name for p in repo_paths]
 
+        # Determine initial selection: explicit arg → last used → first available
+        last_used = initial_repo or (
+            self._vm.get_last_used_repo() if hasattr(self._vm, "get_last_used_repo") else None
+        )
+        default_name = ""
+        if last_used and last_used in repo_paths:
+            default_name = Path(last_used).name
+        elif display_names:
+            default_name = display_names[0]
+
         row1 = ctk.CTkFrame(self)
         row1.pack(fill="x", padx=24, pady=4)
         ctk.CTkLabel(row1, text="Repo:", width=70, anchor="w").pack(side="left")
-        self._repo_var = ctk.StringVar(value=display_names[0] if display_names else "")
+        self._repo_var = ctk.StringVar(value=default_name)
         ctk.CTkOptionMenu(row1, variable=self._repo_var, values=display_names, width=200,
                           fg_color=("gray85", "gray25"), button_color=("gray70", "gray35"),
                           button_hover_color=("gray60", "gray45"),
@@ -70,6 +81,10 @@ class AddCommandDialog(ctk.CTkToplevel):
         if not name or not cmd or not repo_path:
             return
         self._vm.save_command(repo_path, name, cmd)
+        if hasattr(self._vm, "set_last_used_repo"):
+            self._vm.set_last_used_repo(repo_path)
+        if self._on_saved:
+            self._on_saved()
         self.destroy()
 
     def trigger_cancel(self) -> None:

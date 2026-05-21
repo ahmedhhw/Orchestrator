@@ -90,6 +90,12 @@ class CommandCenterViewModel:
 
     # --- repo / worktree helpers ---
 
+    def get_last_used_repo(self) -> str | None:
+        return self._store.get_ui_pref("last_used_repo")
+
+    def set_last_used_repo(self, repo_path: str) -> None:
+        self._store.set_ui_pref("last_used_repo", repo_path)
+
     def all_repos(self) -> dict:
         return self._store.all_repos()
 

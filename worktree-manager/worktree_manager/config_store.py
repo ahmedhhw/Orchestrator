@@ -82,6 +82,15 @@ class ConfigStore:
             entry["cur_open_path"] = None
         self._save_raw(data)
 
+    def get_ui_pref(self, key: str, default=None):
+        data = self._load_raw()
+        return data.get("ui", {}).get(key, default)
+
+    def set_ui_pref(self, key: str, value) -> None:
+        data = self._load_raw()
+        data.setdefault("ui", {})[key] = value
+        self._save_raw(data)
+
     def all_repos(self) -> dict:
         data = self._load_raw()
         repos = {

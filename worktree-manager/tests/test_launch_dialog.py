@@ -74,12 +74,12 @@ def test_launch_calls_vm_launch(dialog, vm):
 
 def test_launch_with_no_command_does_not_call_vm(root, vm):
     from worktree_manager.ui.launch_dialog import LaunchDialog
-    # Use a vm that returns no saved commands so the cmd_var is empty
     empty_vm = MagicMock()
     empty_vm.all_repos.return_value = {"/repos/proj": MagicMock()}
     empty_vm.saved_commands.return_value = []
     empty_vm.list_worktrees.return_value = []
     d = LaunchDialog(root, vm=empty_vm)
+    # no commands → no selection → launch is a no-op
     d.trigger_launch()
     empty_vm.launch.assert_not_called()
 

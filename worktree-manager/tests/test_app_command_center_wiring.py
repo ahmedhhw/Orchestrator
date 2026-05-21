@@ -86,6 +86,3 @@ def test_close_command_center_returns_to_empty_main(app):
     assert not isinstance(app._current_frame, CommandCenterPanel)
 
 
-def test_cmd_k_binding_exists(app):
-    bindings = app._root.bind_all("<Command-k>")
-    assert bindings  # non-empty string means binding exists
