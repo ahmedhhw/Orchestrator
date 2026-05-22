@@ -3,8 +3,7 @@ import time
 from unittest.mock import MagicMock
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
-from worktree_manager.editor_service import EditorService
-from worktree_manager.models import RepoConfig, WorktreeModel
+from worktree_manager.models import RepoConfig, WorktreeModel, CleanupCandidate
 from worktree_manager.main_window_vm import MainWindowViewModel
 
 
@@ -28,12 +27,7 @@ def git():
 
 
 @pytest.fixture
-def editor():
-    return MagicMock(spec=EditorService)
-
-
-@pytest.fixture
-def vm(store, git, editor):
+def vm(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -44,7 +38,6 @@ def vm(store, git, editor):
         repo_path="/repos/proj",
         config_store=store,
         git_service=git,
-        editor_service=editor,
     )
     m.load_worktrees()
     return m
@@ -84,80 +77,26 @@ def test_delete_worktree_with_branch(vm, git):
     )
 
 
-def test_delete_worktree_clears_cur_open_path_when_focused(store, git, editor):
-    cfg = store.get_repo("/repos/proj")
-    cfg.cur_open_path = "/repos/proj-wt/feature-auth"
-    store.save_repo(cfg)
-
-    now = int(time.time())
-    git.list_worktrees.return_value = [
-        WorktreeModel("/repos/proj", "main", True, now, False, False),
-        WorktreeModel("/repos/proj-wt/feature-auth", "feature/auth", False, now - 3600, False, False),
-    ]
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj",
-        config_store=store,
-        git_service=git,
-        editor_service=editor,
-    )
-    vm.load_worktrees()
-    vm.delete_worktree(
-        path="/repos/proj-wt/feature-auth",
-        branch="feature/auth",
-        also_delete_branch=False,
-    )
-    assert store.get_repo("/repos/proj").cur_open_path is None
-
-
-def test_delete_worktree_does_not_clear_cur_open_path_for_other(store, git, editor):
-    cfg = store.get_repo("/repos/proj")
-    cfg.cur_open_path = "/repos/proj-wt/feature-other"
-    store.save_repo(cfg)
-
-    now = int(time.time())
-    git.list_worktrees.return_value = [
-        WorktreeModel("/repos/proj", "main", True, now, False, False),
-        WorktreeModel("/repos/proj-wt/feature-auth", "feature/auth", False, now - 3600, False, False),
-    ]
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj",
-        config_store=store,
-        git_service=git,
-        editor_service=editor,
-    )
-    vm.load_worktrees()
-    vm.delete_worktree(
-        path="/repos/proj-wt/feature-auth",
-        branch="feature/auth",
-        also_delete_branch=False,
-    )
-    assert store.get_repo("/repos/proj").cur_open_path == "/repos/proj-wt/feature-other"
-
-
 def test_list_local_branches(vm, git):
     branches = vm.list_local_branches()
     assert "main" in branches
     assert "feature/auth" in branches
 
 
-def test_cleanup_deletes_selected(vm, git):
-    from worktree_manager.models import CleanupCandidate
+def test_cleanup_deletes_branch_only(vm, git):
     now = int(time.time())
     stale_candidate = CleanupCandidate(
         branch="chore/deps", path="/repos/proj-wt/chore-deps",
         is_merged=False, is_stale=True, last_commit_ts=now - 35 * 86400,
     )
-    vm.delete_cleanup_candidates([stale_candidate], also_delete_branches=True)
-    git.delete_worktree.assert_called_once_with(
-        repo_path="/repos/proj", worktree_path="/repos/proj-wt/chore-deps"
-    )
+    vm.delete_cleanup_candidates([stale_candidate])
+    git.delete_worktree.assert_not_called()
     git.delete_branch.assert_called_once_with(
         repo_path="/repos/proj", branch="chore/deps"
     )
 
 
-def test_delete_cleanup_candidate_worktree_with_branch(store, git, editor):
-    from worktree_manager.models import CleanupCandidate
+def test_cleanup_deletes_branch_for_path_none_candidate(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -165,48 +104,21 @@ def test_delete_cleanup_candidate_worktree_with_branch(store, git, editor):
     git.list_local_branches.return_value = ["main"]
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     vm.load_worktrees()
     candidate = CleanupCandidate(
-        branch="chore/deps", path="/repos/proj-wt/chore-deps",
-        is_merged=False, is_stale=True, last_commit_ts=now - 35 * 86400,
+        branch="orphan/branch", path=None,
+        is_merged=True, is_stale=False, last_commit_ts=now - 5 * 86400,
     )
-    vm.delete_cleanup_candidates([candidate], also_delete_branches=True)
-    git.delete_worktree.assert_called_once_with(
-        repo_path="/repos/proj", worktree_path="/repos/proj-wt/chore-deps"
-    )
+    vm.delete_cleanup_candidates([candidate])
+    git.delete_worktree.assert_not_called()
     git.delete_branch.assert_called_once_with(
-        repo_path="/repos/proj", branch="chore/deps"
+        repo_path="/repos/proj", branch="orphan/branch"
     )
-
-
-def test_delete_cleanup_candidate_worktree_without_branch(store, git, editor):
-    from worktree_manager.models import CleanupCandidate
-    now = int(time.time())
-    git.list_worktrees.return_value = [
-        WorktreeModel("/repos/proj", "main", True, now, False, False),
-    ]
-    git.list_local_branches.return_value = ["main"]
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
-    )
-    vm.load_worktrees()
-    candidate = CleanupCandidate(
-        branch="chore/deps", path="/repos/proj-wt/chore-deps",
-        is_merged=False, is_stale=True, last_commit_ts=now - 35 * 86400,
-    )
-    vm.delete_cleanup_candidates([candidate], also_delete_branches=False)
-    git.delete_worktree.assert_called_once_with(
-        repo_path="/repos/proj", worktree_path="/repos/proj-wt/chore-deps"
-    )
-    git.delete_branch.assert_not_called()
 
 
 def _make_vm(tmp_path, worktrees, branches, feature_branches=None):
-    from worktree_manager.config_store import ConfigStore
-    from worktree_manager.models import RepoConfig
     s = ConfigStore(tmp_path / "config.json")
     s.save_repo(RepoConfig(
         repo_path="/repos/proj",
@@ -223,12 +135,10 @@ def _make_vm(tmp_path, worktrees, branches, feature_branches=None):
     git.last_commit_ts.return_value = 0
     git.build_merged_map.return_value = {}
     git.has_uncommitted_changes.return_value = False
-    editor = MagicMock(spec=EditorService)
     vm = MainWindowViewModel(
         repo_path="/repos/proj",
         config_store=s,
         git_service=git,
-        editor_service=editor,
     )
     vm.load_worktrees()
     return vm, git
@@ -285,66 +195,7 @@ def test_cleanup_candidates_not_merged_when_not_in_any_target(tmp_path):
     assert fix_candidate.merged_into is None
 
 
-def test_open_worktree_focus_calls_focus_not_open_replacing(store, git, editor):
-    store.save_repo(RepoConfig(
-        repo_path="/repos/proj",
-        worktree_storage="/repos/proj-wt",
-        stale_days=30,
-        last_editor="vscode",
-        last_editor_mode="reuse",
-        last_opened="2026-05-20T10:00:00",
-        editor="vscode",
-        window_mode="single",
-        cur_open_path="/repos/proj-wt/feature-auth",
-    ))
-    now = int(time.time())
-    git.list_worktrees.return_value = [
-        WorktreeModel("/repos/proj", "main", True, now, False, False),
-        WorktreeModel("/repos/proj-wt/feature-auth", "feature/auth", False, now - 3600, False, False),
-    ]
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
-    )
-    vm.load_worktrees()
-    vm.open_worktree("/repos/proj-wt/feature-auth")
-    editor.focus.assert_called_once_with("/repos/proj-wt/feature-auth", editor="vscode")
-    editor.open_replacing.assert_not_called()
-
-
-def test_open_worktree_switch_calls_open_replacing_with_r(store, git, editor):
-    store.save_repo(RepoConfig(
-        repo_path="/repos/proj",
-        worktree_storage="/repos/proj-wt",
-        stale_days=30,
-        last_editor="vscode",
-        last_editor_mode="reuse",
-        last_opened="2026-05-20T10:00:00",
-        editor="vscode",
-        window_mode="single",
-        cur_open_path="/repos/proj-wt/feature-auth",
-    ))
-    now = int(time.time())
-    git.list_worktrees.return_value = [
-        WorktreeModel("/repos/proj", "main", True, now, False, False),
-        WorktreeModel("/repos/proj-wt/feature-auth", "feature/auth", False, now - 3600, False, False),
-    ]
-    vm = MainWindowViewModel(
-        repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
-    )
-    vm.load_worktrees()
-    vm.open_worktree("/repos/proj-wt/fix-bug")
-    editor.open_replacing.assert_called_once_with(
-        cur_path="/repos/proj-wt/feature-auth",
-        new_path="/repos/proj-wt/fix-bug",
-        editor="vscode",
-    )
-    editor.focus.assert_not_called()
-
-
-def test_delete_cleanup_candidate_orphan_branch_always_deletes_branch(store, git, editor):
-    from worktree_manager.models import CleanupCandidate
+def test_delete_cleanup_candidate_orphan_branch_always_deletes_branch(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -352,7 +203,7 @@ def test_delete_cleanup_candidate_orphan_branch_always_deletes_branch(store, git
     git.list_local_branches.return_value = ["main"]
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     vm.load_worktrees()
     candidate = CleanupCandidate(

@@ -34,7 +34,7 @@ def test_repo_setup_vm_default_path():
     assert vm.default_storage_path().endswith("myrepo-worktrees")
 
 
-def test_cleanup_wizard_smoke_mixed(tmp_path):
+def test_cleanup_wizard_smoke_branch_candidates(tmp_path):
     import customtkinter as ctk
     import time
     from worktree_manager.models import CleanupCandidate
@@ -43,26 +43,20 @@ def test_cleanup_wizard_smoke_mixed(tmp_path):
     root = ctk.CTk()
     root.withdraw()
     candidates = [
-        CleanupCandidate("chore/deps", "/wt/chore-deps", False, True, now - 35 * 86400),
         CleanupCandidate("release/1.0", None, True, False, now - 5 * 86400),
+        CleanupCandidate("chore/old", None, False, True, now - 35 * 86400),
     ]
-    wizard = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    wizard = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s: None)
     wizard.destroy()
     root.destroy()
 
 
-def test_cleanup_wizard_smoke_orphans_only(tmp_path):
+def test_cleanup_wizard_smoke_empty(tmp_path):
     import customtkinter as ctk
-    import time
-    from worktree_manager.models import CleanupCandidate
     from worktree_manager.ui.cleanup_wizard import CleanupWizard
-    now = int(time.time())
     root = ctk.CTk()
     root.withdraw()
-    candidates = [
-        CleanupCandidate("release/1.0", None, True, False, now - 5 * 86400),
-    ]
-    wizard = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s, b: None)
+    wizard = CleanupWizard(root, candidates=[], on_delete_selected=lambda s: None)
     wizard.destroy()
     root.destroy()
 
@@ -251,7 +245,7 @@ def test_handle_create_existing_branch_passes_existing_true_to_vm():
     root.destroy()
 
 
-def test_main_window_refresh_smoke_with_checked_out_branch():
+def test_main_window_refresh_smoke_with_branch_dropdown():
     import customtkinter as ctk
     import time
     from unittest.mock import MagicMock
@@ -260,7 +254,6 @@ def test_main_window_refresh_smoke_with_checked_out_branch():
     from worktree_manager.ui.main_window import MainWindow
     from worktree_manager.config_store import ConfigStore
     from worktree_manager.git_service import GitService
-    from worktree_manager.editor_service import EditorService
 
     now = int(time.time())
     root = ctk.CTk()
@@ -280,13 +273,12 @@ def test_main_window_refresh_smoke_with_checked_out_branch():
         WorktreeModel("/repos/proj", "main", True, now, False, False),
         WorktreeModel("/repos/proj-wt/fix-auth", "fix/auth", False, now - 3600, False, False),
     ]
+    git.list_local_branches.return_value = ["main", "fix/auth", "hotfix/2.1"]
     git.list_feature_branches.return_value = []
-    git.checked_out_branch.return_value = "hotfix/2.1"
-    editor = MagicMock(spec=EditorService)
 
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     window = MainWindow(root, vm=vm, repo_name="proj", on_settings=lambda: None, on_cleanup=lambda: None)
     window.destroy()

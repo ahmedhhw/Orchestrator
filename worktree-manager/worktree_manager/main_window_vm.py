@@ -1,7 +1,8 @@
+import time
+from concurrent.futures import ThreadPoolExecutor
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
-from worktree_manager.editor_service import EditorService
-from worktree_manager.models import WorktreeModel
+from worktree_manager.models import WorktreeModel, CleanupCandidate
 
 
 class MainWindowViewModel:
@@ -10,12 +11,10 @@ class MainWindowViewModel:
         repo_path: str,
         config_store: ConfigStore,
         git_service: GitService,
-        editor_service: EditorService,
     ):
         self._repo_path = repo_path
         self._store = config_store
         self._git = git_service
-        self._editor = editor_service
         self._worktrees: list = []
 
     def load_worktrees(self) -> list:
@@ -32,52 +31,6 @@ class MainWindowViewModel:
     def worktree_path_for_branch(self, branch: str) -> str:
         cfg = self._store.get_repo(self._repo_path)
         return cfg.worktree_storage + "/" + self.branch_to_folder_name(branch)
-
-    def open_worktree(self, path: str) -> None:
-        cfg = self._store.get_repo(self._repo_path)
-        editor = cfg.editor
-        if cfg.window_mode == "single":
-            if cfg.cur_open_path == path:
-                self._editor.focus(path, editor=editor)
-                return
-            elif cfg.cur_open_path:
-                self._editor.open_replacing(
-                    cur_path=cfg.cur_open_path,
-                    new_path=path,
-                    editor=editor,
-                )
-            else:
-                self._editor.open_new(path, editor=editor)
-            cfg.cur_open_path = path
-            self._store.save_repo(cfg)
-        else:
-            self._editor.open_new(path, editor=editor)
-
-    def set_editor(self, editor: str) -> None:
-        cfg = self._store.get_repo(self._repo_path)
-        cfg.editor = editor
-        self._store.save_repo(cfg)
-
-    def set_window_mode(self, mode: str) -> None:
-        cfg = self._store.get_repo(self._repo_path)
-        cfg.window_mode = mode
-        self._store.save_repo(cfg)
-
-    def cur_open_path(self) -> str | None:
-        cfg = self._store.get_repo(self._repo_path)
-        return cfg.cur_open_path
-
-    def show_switch_label(self, path: str) -> bool:
-        cfg = self._store.get_repo(self._repo_path)
-        if cfg.window_mode != "single":
-            return False
-        if not cfg.cur_open_path:
-            return False
-        return cfg.cur_open_path != path
-
-    def default_editor(self) -> tuple:
-        cfg = self._store.get_repo(self._repo_path)
-        return cfg.last_editor, cfg.last_editor_mode
 
     def is_protected_branch(self, branch: str) -> bool:
         return branch == "main" or branch.startswith("feature/")
@@ -115,16 +68,8 @@ class MainWindowViewModel:
         self._git.delete_worktree(repo_path=self._repo_path, worktree_path=path)
         if also_delete_branch:
             self._git.delete_branch(repo_path=self._repo_path, branch=branch)
-        cfg = self._store.get_repo(self._repo_path)
-        if cfg.cur_open_path == path:
-            cfg.cur_open_path = None
-            self._store.save_repo(cfg)
 
     def all_cleanup_candidates(self) -> list:
-        import time
-        from concurrent.futures import ThreadPoolExecutor
-        from worktree_manager.models import CleanupCandidate
-
         cfg = self._store.get_repo(self._repo_path)
         stale_threshold = int(time.time()) - cfg.stale_days * 86400
 
@@ -182,15 +127,19 @@ class MainWindowViewModel:
         return self._git.list_local_branches(self._repo_path)
 
     def list_available_branches(self) -> list:
-        """Local branches not already checked out as a worktree."""
         checked_out = {wt.branch for wt in self._worktrees}
         return [b for b in self._git.list_local_branches(self._repo_path) if b not in checked_out]
 
-    def delete_cleanup_candidates(self, candidates: list, also_delete_branches: bool) -> None:
+    def list_branches_with_checkout_status(self) -> list[tuple[str, bool]]:
+        checked_out = {wt.branch for wt in self._worktrees}
+        all_branches = self._git.list_local_branches(self._repo_path)
+        return [(b, b in checked_out) for b in all_branches]
+
+    def switch_branch(self, worktree_path: str, new_branch: str) -> None:
+        if self._git.has_uncommitted_changes(worktree_path):
+            raise ValueError("uncommitted changes")
+        self._git.checkout_branch(worktree_path, new_branch)
+
+    def delete_cleanup_candidates(self, candidates: list, also_delete_branches: bool = True) -> None:
         for c in candidates:
-            if c.path is not None:
-                self._git.delete_worktree(repo_path=self._repo_path, worktree_path=c.path)
-                if also_delete_branches:
-                    self._git.delete_branch(repo_path=self._repo_path, branch=c.branch)
-            else:
-                self._git.delete_branch(repo_path=self._repo_path, branch=c.branch)
+            self._git.delete_branch(repo_path=self._repo_path, branch=c.branch)

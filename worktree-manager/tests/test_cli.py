@@ -45,12 +45,13 @@ def _make_vm(candidates):
     return vm
 
 
-def test_show_cleanup_opens_wizard_when_candidates_exist():
+def test_show_cleanup_opens_wizard_when_branch_candidates_exist():
     from worktree_manager.models import CleanupCandidate
     import worktree_manager.cli as cli_mod
     from unittest.mock import patch
+    # path=None means branch-only candidate
     vm = _make_vm([
-        CleanupCandidate("chore/deps", "/wt/chore-deps", False, True, 0)
+        CleanupCandidate("chore/deps", None, False, True, 0)
     ])
     with patch("worktree_manager.ui.cleanup_wizard.CleanupWizard") as MockWizard:
         with patch("tkinter.messagebox.showinfo") as mock_info:
@@ -60,6 +61,22 @@ def test_show_cleanup_opens_wizard_when_candidates_exist():
             app._show_cleanup(vm)
     MockWizard.assert_called_once()
     mock_info.assert_not_called()
+
+
+def test_show_cleanup_shows_wizard_for_worktree_branch_candidates():
+    import worktree_manager.cli as cli_mod
+    from unittest.mock import patch
+    from worktree_manager.models import CleanupCandidate
+    # Worktree candidates (path set) are now shown in the wizard
+    vm = _make_vm([
+        CleanupCandidate("chore/deps", "/wt/chore-deps", False, True, 0)
+    ])
+    with patch("worktree_manager.ui.cleanup_wizard.CleanupWizard") as MockWizard:
+        app = object.__new__(cli_mod.App)
+        app._root = MagicMock()
+        app._current_frame = MagicMock()
+        app._show_cleanup(vm)
+    MockWizard.assert_called_once()
 
 
 def test_show_cleanup_shows_messagebox_when_empty():
@@ -102,13 +119,12 @@ def test_show_main_creates_vm_with_correct_services():
     store.all_repos.return_value = {"/repos/proj": store.get_repo.return_value}
     captured = {}
 
-    def fake_vm_init(self, repo_path, config_store, git_service, editor_service):
+    def fake_vm_init(self, repo_path, config_store, git_service):
         captured["repo_path"] = repo_path
         captured["config_store"] = config_store
         self._repo_path = repo_path
         self._store = config_store
         self._git = git_service
-        self._editor = editor_service
         self._worktrees = []
 
     with patch("worktree_manager.main_window_vm.MainWindowViewModel.__init__", fake_vm_init), \
@@ -120,7 +136,6 @@ def test_show_main_creates_vm_with_correct_services():
         app._root = MagicMock()
         app._store = store
         app._git = MagicMock()
-        app._editor = MagicMock()
         app._current_frame = None
         app._sidebar_frame = None
         app._show_main("/repos/proj")
@@ -150,15 +165,6 @@ def test_app_shows_empty_main_when_no_repo_path():
     app._show_empty_main()
     assert "sidebar" in shown
 
-
-def test_on_close_clears_open_paths_and_destroys_window():
-    import worktree_manager.cli as cli_mod
-    app = object.__new__(cli_mod.App)
-    app._store = MagicMock()
-    app._root = MagicMock()
-    app._on_close()
-    app._store.clear_all_open_paths.assert_called_once()
-    app._root.destroy.assert_called_once()
 
 
 def test_show_landing_is_noop(tmp_path):

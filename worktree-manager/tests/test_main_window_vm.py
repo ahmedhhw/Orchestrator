@@ -3,7 +3,6 @@ import time
 from unittest.mock import MagicMock
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
-from worktree_manager.editor_service import EditorService
 from worktree_manager.models import RepoConfig, WorktreeModel
 from worktree_manager.main_window_vm import MainWindowViewModel
 
@@ -28,11 +27,6 @@ def git():
 
 
 @pytest.fixture
-def editor():
-    return MagicMock(spec=EditorService)
-
-
-@pytest.fixture
 def worktrees():
     now = int(time.time())
     return [
@@ -44,7 +38,7 @@ def worktrees():
 
 
 @pytest.fixture
-def vm(store, git, editor, worktrees):
+def vm(store, git, worktrees):
     git.list_worktrees.return_value = worktrees
     git.list_feature_branches.return_value = []
     git.build_merged_map.return_value = {}
@@ -53,7 +47,6 @@ def vm(store, git, editor, worktrees):
         repo_path="/repos/proj",
         config_store=store,
         git_service=git,
-        editor_service=editor,
     )
 
 
@@ -152,7 +145,7 @@ def test_all_cleanup_candidates_worktree_has_path(vm):
     assert all(c.path for c in wt_candidates)
 
 
-def test_all_cleanup_candidates_includes_orphan_merged_branch(store, git, editor):
+def test_all_cleanup_candidates_includes_orphan_merged_branch(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -164,14 +157,14 @@ def test_all_cleanup_candidates_includes_orphan_merged_branch(store, git, editor
     git.last_commit_ts.return_value = now - 5 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     vm.load_worktrees()
     candidates = vm.all_cleanup_candidates()
     assert "release/1.0" in [c.branch for c in candidates]
 
 
-def test_all_cleanup_candidates_includes_orphan_stale_branch(store, git, editor):
+def test_all_cleanup_candidates_includes_orphan_stale_branch(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -183,14 +176,14 @@ def test_all_cleanup_candidates_includes_orphan_stale_branch(store, git, editor)
     git.last_commit_ts.return_value = now - 40 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     vm.load_worktrees()
     candidates = vm.all_cleanup_candidates()
     assert "experiment/xyz" in [c.branch for c in candidates]
 
 
-def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git, editor):
+def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -202,14 +195,14 @@ def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git, edito
     git.last_commit_ts.return_value = now - 2 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     vm.load_worktrees()
     candidates = vm.all_cleanup_candidates()
     assert all(c.branch != "feature/wip" for c in candidates)
 
 
-def test_all_cleanup_candidates_orphan_has_no_path(store, git, editor):
+def test_all_cleanup_candidates_orphan_has_no_path(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -221,7 +214,7 @@ def test_all_cleanup_candidates_orphan_has_no_path(store, git, editor):
     git.last_commit_ts.return_value = now - 5 * 86400
     vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     vm.load_worktrees()
     candidates = vm.all_cleanup_candidates()
@@ -251,17 +244,6 @@ def test_branch_slug_multiple_slashes(vm):
 def test_worktree_path_for_branch(vm):
     path = vm.worktree_path_for_branch("feature/auth")
     assert path == "/repos/proj-wt/feature-auth"
-
-
-def test_open_worktree_delegates_to_editor(vm, editor):
-    vm.open_worktree("/repos/proj-wt/feat")
-    editor.open_new.assert_called_once_with("/repos/proj-wt/feat", editor="cursor")
-
-
-def test_default_editor_from_config(vm):
-    ed, mode = vm.default_editor()
-    assert ed == "cursor"
-    assert mode == "reuse"
 
 
 # Phase 2 — is_protected_branch, has_uncommitted_changes_for_branch, create_worktree
@@ -333,7 +315,7 @@ def test_all_cleanup_candidates_excludes_protected_worktree(vm):
     assert all(c.branch != "main" for c in candidates)
 
 
-def test_all_cleanup_candidates_includes_healthy_worktree(vm, store, git, editor):
+def test_all_cleanup_candidates_includes_healthy_worktree(vm, store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -345,14 +327,14 @@ def test_all_cleanup_candidates_includes_healthy_worktree(vm, store, git, editor
     git.has_uncommitted_changes.return_value = False
     local_vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     local_vm.load_worktrees()
     candidates = local_vm.all_cleanup_candidates()
     assert any(c.branch == "wip/thing" for c in candidates)
 
 
-def test_all_cleanup_candidates_excludes_protected_orphan(store, git, editor):
+def test_all_cleanup_candidates_excludes_protected_orphan(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -364,7 +346,7 @@ def test_all_cleanup_candidates_excludes_protected_orphan(store, git, editor):
     git.last_commit_ts.return_value = now - 5 * 86400
     local_vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     local_vm.load_worktrees()
     candidates = local_vm.all_cleanup_candidates()
@@ -372,7 +354,7 @@ def test_all_cleanup_candidates_excludes_protected_orphan(store, git, editor):
     assert all(c.branch != "main" for c in candidates)
 
 
-def test_all_cleanup_candidates_includes_healthy_orphan(store, git, editor):
+def test_all_cleanup_candidates_includes_healthy_orphan(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -384,7 +366,7 @@ def test_all_cleanup_candidates_includes_healthy_orphan(store, git, editor):
     git.last_commit_ts.return_value = now - 1 * 86400
     local_vm = MainWindowViewModel(
         repo_path="/repos/proj", config_store=store,
-        git_service=git, editor_service=editor,
+        git_service=git,
     )
     local_vm.load_worktrees()
     candidates = local_vm.all_cleanup_candidates()

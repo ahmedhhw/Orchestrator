@@ -26,7 +26,6 @@ class App:
         import customtkinter as ctk
         from worktree_manager.config_store import ConfigStore
         from worktree_manager.git_service import GitService
-        from worktree_manager.editor_service import EditorService
         self._ctk = ctk
         self._root = ctk.CTk()
         self._root.title("Git Worktree Manager")
@@ -35,15 +34,13 @@ class App:
 
         self._store = ConfigStore()
         self._git = GitService()
-        self._editor = EditorService(self._store)
         self._current_frame = None
         self._sidebar_frame = None
         self._cc_panel = None
+        self._active_repo_path = None
 
         from worktree_manager.command_center_vm import CommandCenterViewModel
         self._cc_vm = CommandCenterViewModel(config_store=self._store, git_service=self._git)
-
-        self._root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         if repo_path:
             self._load_repo(repo_path)
@@ -52,10 +49,6 @@ class App:
 
     def run(self):
         self._root.mainloop()
-
-    def _on_close(self):
-        self._store.clear_all_open_paths()
-        self._root.destroy()
 
     def _clear_main(self):
         if self._current_frame:
@@ -114,7 +107,6 @@ class App:
                 command=lambda p=path: self._switch_repo(p),
             )
             btn.pack(fill="x", padx=4, pady=1)
-            # Make the internal label wrap long repo names
             try:
                 btn._text_label.configure(wraplength=196)
             except Exception:
@@ -131,6 +123,12 @@ class App:
             border_width=1, text_color=("gray10", "gray90"),
             command=self._show_command_center,
         ).pack(fill="x", padx=4, pady=(0, 4))
+
+        ctk.CTkButton(
+            sidebar, text="↻ Refresh", fg_color="transparent",
+            border_width=1, text_color=("gray10", "gray90"),
+            command=self._refresh,
+        ).pack(fill="x", padx=4, pady=(0, 12), side="bottom")
 
     def _pick_and_add_repo(self):
         from tkinter import filedialog
@@ -169,6 +167,7 @@ class App:
         from worktree_manager.main_window_vm import MainWindowViewModel
         from worktree_manager.ui.main_window import MainWindow
 
+        self._active_repo_path = repo_path
         self._clear_main()
         self._show_sidebar(repo_path)
 
@@ -176,7 +175,6 @@ class App:
             repo_path=repo_path,
             config_store=self._store,
             git_service=self._git,
-            editor_service=self._editor,
         )
         repo_name = Path(repo_path).name
         self._current_frame = MainWindow(
@@ -185,6 +183,12 @@ class App:
             on_cleanup=lambda: self._show_cleanup(vm),
         )
         self._current_frame.pack(side="left", fill="both", expand=True)
+
+    def _refresh(self):
+        if self._active_repo_path:
+            self._show_main(self._active_repo_path)
+        elif self._current_frame is self._cc_panel:
+            self._show_command_center()
 
     def _show_settings(self, repo_path: str):
         from worktree_manager.setup_settings_vm import SettingsViewModel
@@ -208,17 +212,17 @@ class App:
             self._cc_panel.pack_forget()
         self._show_empty_main()
 
-
     def _show_cleanup(self, main_vm):
         import tkinter.messagebox as mb
         from worktree_manager.ui.cleanup_wizard import CleanupWizard
         candidates = main_vm.all_cleanup_candidates()
         if not candidates:
-            mb.showinfo("Cleanup", "Nothing to clean up.")
+            mb.showinfo("Cleanup", "No branches to clean up.")
             return
 
-        def _on_delete(selected, also_branches):
-            main_vm.delete_cleanup_candidates(selected, also_branches)
+        def _on_delete(selected_pairs):
+            selected = [c for c, _ in selected_pairs]
+            main_vm.delete_cleanup_candidates(selected, also_delete_branches=True)
             if self._current_frame and hasattr(self._current_frame, "refresh"):
                 self._current_frame.refresh()
 
@@ -241,8 +245,6 @@ def main():
 
 
 if __name__ == "__main__":
-    # When running the script directly from the checkout, ensure the package
-    # root is on sys.path so `import worktree_manager` works.
     repo_root = Path(__file__).resolve().parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))

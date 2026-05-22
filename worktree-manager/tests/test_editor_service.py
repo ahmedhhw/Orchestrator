@@ -20,9 +20,6 @@ def store(config_path):
         last_editor="cursor",
         last_editor_mode="reuse",
         last_opened="2026-05-19T10:00:00",
-        editor="cursor",
-        window_mode="multi",
-        cur_open_path=None,
     ))
     return s
 

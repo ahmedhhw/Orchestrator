@@ -43,8 +43,6 @@ def settings_store(tmp_path):
         last_editor="cursor",
         last_editor_mode="reuse",
         last_opened="2026-05-19T10:00:00",
-        editor="vscode",
-        window_mode="single",
     ))
     return s
 
@@ -63,11 +61,10 @@ def test_settings_save_persists(settings_store):
     assert cfg.stale_days == 60
 
 
-def test_settings_vm_save_does_not_touch_editor_or_window_mode(settings_store):
+def test_settings_vm_save_does_not_touch_last_editor(settings_store):
     vm = SettingsViewModel("/repos/proj", settings_store)
     vm.save(worktree_storage="/new/path", stale_days=14)
     saved = settings_store.get_repo("/repos/proj")
     assert saved.worktree_storage == "/new/path"
     assert saved.stale_days == 14
-    assert saved.editor == "vscode"
-    assert saved.window_mode == "single"
+    assert saved.last_editor == "cursor"

@@ -95,6 +95,9 @@ class GitService:
         except subprocess.CalledProcessError:
             return "(detached)"
 
+    def checkout_branch(self, worktree_path: str, branch: str) -> None:
+        self._run(["git", "checkout", branch], cwd=worktree_path)
+
     def create_worktree_from_existing(
         self, repo_path: str, worktree_path: str, branch: str
     ) -> None:

@@ -31,9 +31,6 @@ class ConfigStore:
             last_editor=entry["last_editor"],
             last_editor_mode=entry["last_editor_mode"],
             last_opened=entry["last_opened"],
-            editor=entry.get("editor", entry.get("last_editor", "cursor")),
-            window_mode=entry.get("window_mode", "multi"),
-            cur_open_path=entry.get("cur_open_path", None),
             commands=[
                 SavedCommand(name=c["name"], command=c["command"])
                 for c in entry.get("commands", [])
@@ -70,16 +67,7 @@ class ConfigStore:
             "last_editor": cfg.last_editor,
             "last_editor_mode": cfg.last_editor_mode,
             "last_opened": cfg.last_opened,
-            "editor": cfg.editor,
-            "window_mode": cfg.window_mode,
-            "cur_open_path": cfg.cur_open_path,
         }
-        self._save_raw(data)
-
-    def clear_all_open_paths(self) -> None:
-        data = self._load_raw()
-        for entry in data["repos"].values():
-            entry["cur_open_path"] = None
         self._save_raw(data)
 
     def get_ui_pref(self, key: str, default=None):
@@ -101,9 +89,6 @@ class ConfigStore:
                 last_editor=entry["last_editor"],
                 last_editor_mode=entry["last_editor_mode"],
                 last_opened=entry["last_opened"],
-                editor=entry.get("editor", entry.get("last_editor", "cursor")),
-                window_mode=entry.get("window_mode", "multi"),
-                cur_open_path=entry.get("cur_open_path", None),
                 commands=[
                     SavedCommand(name=c["name"], command=c["command"])
                     for c in entry.get("commands", [])
