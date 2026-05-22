@@ -77,7 +77,7 @@ class MainWindowViewModel:
         merge_targets = ["main"] + feature_branches
         merged_map = self._git.build_merged_map(self._repo_path, merge_targets)
 
-        worktree_branches = {wt.branch for wt in self._worktrees}
+        non_main_worktree_branches = {wt.branch for wt in self._worktrees if not wt.is_main}
         candidates = []
 
         worktree_wts = [
@@ -104,14 +104,21 @@ class MainWindowViewModel:
                 has_uncommitted=has_uncommitted,
             ))
 
+        main_wt = next((wt for wt in self._worktrees if wt.is_main), None)
+        main_branch = main_wt.branch if main_wt else None
+
         for branch in self._git.list_local_branches(self._repo_path):
-            if branch in worktree_branches:
+            if branch in non_main_worktree_branches:
                 continue
             if self.is_protected_branch(branch):
                 continue
             ts = self._git.last_commit_ts(self._repo_path, branch)
             merged_into = merged_map.get(branch)
             stale = ts > 0 and ts < stale_threshold
+            has_uncommitted = (
+                self._git.has_uncommitted_changes(self._repo_path)
+                if branch == main_branch else False
+            )
             candidates.append(CleanupCandidate(
                 branch=branch,
                 path=None,
@@ -119,6 +126,7 @@ class MainWindowViewModel:
                 is_stale=stale,
                 last_commit_ts=ts,
                 merged_into=merged_into,
+                has_uncommitted=has_uncommitted,
             ))
 
         return candidates

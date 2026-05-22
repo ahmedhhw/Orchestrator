@@ -167,6 +167,57 @@ def test_app_shows_empty_main_when_no_repo_path():
 
 
 
+def test_show_cleanup_passes_all_candidates_including_worktree_branches():
+    import worktree_manager.cli as cli_mod
+    from worktree_manager.models import CleanupCandidate
+    worktree_candidate = CleanupCandidate("wt/branch", "/wt/wt-branch", False, True, 0)
+    branch_candidate = CleanupCandidate("orphan", None, True, False, 0)
+    vm = _make_vm([worktree_candidate, branch_candidate])
+    with patch("worktree_manager.ui.cleanup_wizard.CleanupWizard") as MockWizard:
+        app = object.__new__(cli_mod.App)
+        app._root = MagicMock()
+        app._current_frame = MagicMock()
+        app._show_cleanup(vm)
+    called_candidates = MockWizard.call_args.kwargs["candidates"]
+    branches = [c.branch for c in called_candidates]
+    assert "wt/branch" in branches
+    assert "orphan" in branches
+
+
+def test_refresh_calls_show_main_when_repo_active():
+    import worktree_manager.cli as cli_mod
+    app = object.__new__(cli_mod.App)
+    app._active_repo_path = "/repos/proj"
+    with patch.object(app, "_show_main") as mock_show:
+        app._refresh()
+    mock_show.assert_called_once_with("/repos/proj")
+
+
+def test_refresh_is_noop_when_no_active_repo_and_not_on_command_center():
+    import worktree_manager.cli as cli_mod
+    app = object.__new__(cli_mod.App)
+    app._active_repo_path = None
+    app._cc_panel = MagicMock()
+    app._current_frame = MagicMock()  # different object — not the cc_panel
+    with patch.object(app, "_show_main") as mock_show:
+        with patch.object(app, "_show_command_center") as mock_cc:
+            app._refresh()
+    mock_show.assert_not_called()
+    mock_cc.assert_not_called()
+
+
+def test_refresh_reloads_command_center_when_active():
+    import worktree_manager.cli as cli_mod
+    app = object.__new__(cli_mod.App)
+    app._active_repo_path = None
+    cc_panel = MagicMock()
+    app._cc_panel = cc_panel
+    app._current_frame = cc_panel
+    with patch.object(app, "_show_command_center") as mock_cc:
+        app._refresh()
+    mock_cc.assert_called_once()
+
+
 def test_show_landing_is_noop(tmp_path):
     import worktree_manager.cli as cli_mod
     from worktree_manager.window_registry import WindowRegistry

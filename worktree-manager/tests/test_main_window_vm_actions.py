@@ -215,3 +215,53 @@ def test_delete_cleanup_candidate_orphan_branch_always_deletes_branch(store, git
     git.delete_branch.assert_called_once_with(
         repo_path="/repos/proj", branch="release/1.0"
     )
+
+
+def test_delete_cleanup_never_calls_delete_worktree_even_with_path(tmp_path):
+    now = int(time.time())
+    worktrees = [WorktreeModel("/repos/proj", "main", True, now, False, False)]
+    vm, git = _make_vm(tmp_path, worktrees, ["main"])
+    candidate_with_path = CleanupCandidate("fix/old", "/repos/proj-wt/fix-old", False, True, now - 40 * 86400)
+    candidate_no_path = CleanupCandidate("orphan", None, True, False, now - 10 * 86400)
+    vm.delete_cleanup_candidates([candidate_with_path, candidate_no_path])
+    git.delete_worktree.assert_not_called()
+    assert git.delete_branch.call_count == 2
+
+
+def test_main_worktree_branch_included_in_cleanup_candidates(tmp_path):
+    now = int(time.time())
+    worktrees = [WorktreeModel("/repos/proj", "mystuff", True, now, False, False)]
+    vm, git = _make_vm(tmp_path, worktrees, ["mystuff", "old/branch"])
+    candidates = vm.all_cleanup_candidates()
+    assert any(c.branch == "mystuff" for c in candidates)
+
+
+def test_non_main_worktree_branch_not_duplicated_in_cleanup_candidates(tmp_path):
+    now = int(time.time())
+    worktrees = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+        WorktreeModel("/repos/proj-wt/fix-auth", "fix/auth", False, now - 3600, False, False),
+    ]
+    vm, git = _make_vm(tmp_path, worktrees, ["main", "fix/auth", "old/branch"])
+    candidates = vm.all_cleanup_candidates()
+    assert len([c for c in candidates if c.branch == "fix/auth"]) == 1
+
+
+def test_main_worktree_branch_with_uncommitted_marked_has_uncommitted(tmp_path):
+    now = int(time.time())
+    worktrees = [WorktreeModel("/repos/proj", "mystuff", True, now, False, False)]
+    vm, git = _make_vm(tmp_path, worktrees, ["mystuff"])
+    git.has_uncommitted_changes.return_value = True
+    candidates = vm.all_cleanup_candidates()
+    mystuff = next(c for c in candidates if c.branch == "mystuff")
+    assert mystuff.has_uncommitted is True
+
+
+def test_non_checked_out_branch_has_no_uncommitted_flag(tmp_path):
+    now = int(time.time())
+    worktrees = [WorktreeModel("/repos/proj", "main", True, now, False, False)]
+    vm, git = _make_vm(tmp_path, worktrees, ["main", "fix/old"])
+    git.has_uncommitted_changes.return_value = False
+    candidates = vm.all_cleanup_candidates()
+    fix_old = next(c for c in candidates if c.branch == "fix/old")
+    assert fix_old.has_uncommitted is False

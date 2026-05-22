@@ -100,3 +100,57 @@ def test_main_window_switch_branch_refreshes_on_success(root, vm):
     win._switch_branch("/repos/proj-wt/fix-auth", "hotfix/2.1")
     assert vm.load_worktrees.call_count > initial_load_count
     win.destroy()
+
+
+def test_main_window_row_shows_worktree_folder_name(root, vm):
+    import customtkinter as ctk
+    from worktree_manager.ui.main_window import MainWindow
+    win = MainWindow(root, vm=vm, repo_name="proj", on_settings=lambda: None, on_cleanup=lambda: None)
+
+    def collect_labels(widget):
+        texts = []
+        if isinstance(widget, ctk.CTkLabel):
+            texts.append(widget.cget("text"))
+        for child in widget.winfo_children():
+            texts.extend(collect_labels(child))
+        return texts
+
+    texts = collect_labels(win)
+    assert "fix-auth" in texts
+    win.destroy()
+
+
+def test_main_window_row_does_not_show_branch_as_separate_label(root, vm):
+    import customtkinter as ctk
+    from worktree_manager.ui.main_window import MainWindow
+    win = MainWindow(root, vm=vm, repo_name="proj", on_settings=lambda: None, on_cleanup=lambda: None)
+
+    def collect_labels(widget):
+        texts = []
+        if isinstance(widget, ctk.CTkLabel):
+            texts.append(widget.cget("text"))
+        for child in widget.winfo_children():
+            texts.extend(collect_labels(child))
+        return texts
+
+    texts = collect_labels(win)
+    assert "fix/auth" not in texts
+    win.destroy()
+
+
+def test_switch_branch_returns_false_on_failure(root, vm):
+    from worktree_manager.ui.main_window import MainWindow
+    vm.switch_branch.side_effect = ValueError("uncommitted changes")
+    win = MainWindow(root, vm=vm, repo_name="proj", on_settings=lambda: None, on_cleanup=lambda: None)
+    with patch("tkinter.messagebox.showerror"):
+        result = win._switch_branch("/repos/proj-wt/fix-auth", "hotfix/2.1")
+    assert result is False
+    win.destroy()
+
+
+def test_switch_branch_returns_true_on_success(root, vm):
+    from worktree_manager.ui.main_window import MainWindow
+    win = MainWindow(root, vm=vm, repo_name="proj", on_settings=lambda: None, on_cleanup=lambda: None)
+    result = win._switch_branch("/repos/proj-wt/fix-auth", "hotfix/2.1")
+    assert result is True
+    win.destroy()
