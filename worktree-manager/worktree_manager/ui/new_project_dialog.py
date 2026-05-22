@@ -113,7 +113,10 @@ class NewProjectDialog(ctk.CTkToplevel):
         except Exception:
             worktrees = []
         paths = [wt.path for wt in worktrees]
-        display = ["(main)" if wt.is_main else (Path(wt.path).name or wt.path) for wt in worktrees]
+        display = [
+            f"(main): {wt.branch}" if wt.is_main else f"{Path(wt.path).name or wt.path}: {wt.branch}"
+            for wt in worktrees
+        ]
         self._worktree_path_map = dict(zip(display, paths))
         values = display if display else ["(none)"]
         self._worktree_menu.configure(values=values)
