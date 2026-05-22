@@ -53,6 +53,96 @@ def test_create_worktree(vm, git):
     )
 
 
+def test_create_worktree_raises_if_branch_already_exists(vm, git):
+    with pytest.raises(ValueError, match="already exists"):
+        vm.create_worktree(branch="feature/auth", base_branch="main")
+    git.create_worktree.assert_not_called()
+
+
+def test_create_worktree_raises_if_worktree_name_already_in_use(vm, git):
+    # "feature-auth" is the folder for the existing feature/auth worktree
+    with pytest.raises(ValueError, match="already in use"):
+        vm.create_worktree(branch="fix/new", base_branch="main", worktree_name="feature-auth")
+    git.create_worktree.assert_not_called()
+
+
+def test_create_worktree_raises_if_derived_folder_already_in_use(vm, git):
+    # "feature-auth" folder is taken by the feature/auth worktree.
+    # A different branch whose derived name collides should also be refused.
+    with pytest.raises(ValueError, match="already in use"):
+        vm.create_worktree(branch="feature-auth", base_branch="main", worktree_name=None)
+    git.create_worktree.assert_not_called()
+
+
+def test_cleanup_candidates_marks_checked_out_branch(vm, git):
+    import time
+    now = int(time.time())
+    git.list_feature_branches.return_value = []
+    git.build_merged_map.return_value = {}
+    git.last_commit_ts.return_value = now - 5 * 86400
+    git.list_local_branches.return_value = ["main", "feature/auth", "orphan/old"]
+    # feature/auth is checked out in a worktree; orphan/old is not
+    candidates = vm.all_cleanup_candidates()
+    auth_candidate = next((c for c in candidates if c.branch == "feature/auth"), None)
+    orphan_candidate = next((c for c in candidates if c.branch == "orphan/old"), None)
+    assert auth_candidate is None or auth_candidate.is_checked_out  # auth is in a worktree (excluded or marked)
+    if orphan_candidate:
+        assert orphan_candidate.is_checked_out is False
+
+
+def test_non_protected_worktree_branch_is_marked_checked_out(tmp_path):
+    now = int(time.time())
+    worktrees = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+        WorktreeModel("/repos/proj-wt/fix-login", "fix/login", False, now - 3600, False, False),
+    ]
+    vm, git = _make_vm(tmp_path, worktrees, ["main", "fix/login"])
+    git.build_merged_map.return_value = {}
+    git.last_commit_ts.return_value = now - 5 * 86400
+    candidates = vm.all_cleanup_candidates()
+    fix_login = next((c for c in candidates if c.branch == "fix/login"), None)
+    assert fix_login is not None
+    assert fix_login.is_checked_out is True
+
+
+def test_create_worktree_raises_if_branch_exists_as_local_branch_not_worktree(tmp_path):
+    now = int(time.time())
+    worktrees = [WorktreeModel("/repos/proj", "main", True, now, False, False)]
+    vm, git = _make_vm(tmp_path, worktrees, ["main", "fix/existing"])
+    with pytest.raises(ValueError, match="already exists"):
+        vm.create_worktree(branch="fix/existing", base_branch="main")
+    git.create_worktree.assert_not_called()
+
+
+def test_create_worktree_with_custom_worktree_name(vm, git):
+    vm.create_worktree(branch="feature/new", base_branch="main", worktree_name="my-feature")
+    git.create_worktree.assert_called_once_with(
+        repo_path="/repos/proj",
+        worktree_path="/repos/proj-wt/my-feature",
+        branch="feature/new",
+        base_branch="main",
+    )
+
+
+def test_create_worktree_existing_with_custom_worktree_name(vm, git):
+    vm.create_worktree(branch="feature/auth", base_branch=None, existing=True, worktree_name="auth-wt")
+    git.create_worktree_from_existing.assert_called_once_with(
+        repo_path="/repos/proj",
+        worktree_path="/repos/proj-wt/auth-wt",
+        branch="feature/auth",
+    )
+
+
+def test_create_worktree_without_worktree_name_uses_branch_derived_name(vm, git):
+    vm.create_worktree(branch="fix/login-bug", base_branch="main")
+    git.create_worktree.assert_called_once_with(
+        repo_path="/repos/proj",
+        worktree_path="/repos/proj-wt/fix-login-bug",
+        branch="fix/login-bug",
+        base_branch="main",
+    )
+
+
 def test_delete_worktree_without_branch(vm, git):
     vm.delete_worktree(
         path="/repos/proj-wt/feature-auth",

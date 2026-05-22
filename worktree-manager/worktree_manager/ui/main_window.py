@@ -130,9 +130,12 @@ class MainWindow(ctk.CTkFrame):
             on_create=self._handle_create,
         )
 
-    def _handle_create(self, branch, base_branch, is_existing):
-        self._vm.create_worktree(branch=branch, base_branch=base_branch, existing=is_existing)
-        self.refresh()
+    def _handle_create(self, branch, base_branch, is_existing, worktree_name=None):
+        try:
+            self._vm.create_worktree(branch=branch, base_branch=base_branch, existing=is_existing, worktree_name=worktree_name)
+            self.refresh()
+        except ValueError as e:
+            mb.showerror("Cannot create worktree", str(e))
 
     def _open_delete(self, wt: WorktreeModel):
         from worktree_manager.ui.delete_dialog import DeleteDialog

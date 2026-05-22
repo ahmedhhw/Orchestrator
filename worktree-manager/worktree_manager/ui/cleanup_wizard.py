@@ -45,7 +45,8 @@ class CleanupWizard(ctk.CTkToplevel):
         ordered = grouped["merged"] + grouped["stale"] + grouped["healthy"]
         for c in ordered:
             is_priority = c.is_stale or c.is_merged
-            var = ctk.BooleanVar(value=False if c.has_uncommitted else is_priority)
+            disabled = c.has_uncommitted or c.is_checked_out
+            var = ctk.BooleanVar(value=False if disabled else is_priority)
             self._all_pairs.append((c, var))
 
         self._grouped = grouped
@@ -113,6 +114,13 @@ class CleanupWizard(ctk.CTkToplevel):
                          fg_color="gray50", border_color="gray50")
             ctk.CTkLabel(
                 row, text="⚠ uncommitted", text_color="orange",
+                font=ctk.CTkFont(size=11),
+            ).pack(side="left", padx=(6, 0))
+        elif c.is_checked_out:
+            cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
+                         fg_color="gray50", border_color="gray50")
+            ctk.CTkLabel(
+                row, text="⚠ checked out", text_color="orange",
                 font=ctk.CTkFont(size=11),
             ).pack(side="left", padx=(6, 0))
 

@@ -48,8 +48,21 @@ class MainWindowViewModel:
             return False
         return self._git.has_uncommitted_changes(path)
 
-    def create_worktree(self, branch: str, base_branch: str | None, existing: bool = False) -> None:
-        path = self.worktree_path_for_branch(branch)
+    def create_worktree(self, branch: str, base_branch: str | None, existing: bool = False, worktree_name: str | None = None) -> None:
+        cfg = self._store.get_repo(self._repo_path)
+        folder = worktree_name if worktree_name else self.branch_to_folder_name(branch)
+        path = cfg.worktree_storage + "/" + folder
+
+        all_local_branches = set(self._git.list_local_branches(self._repo_path))
+        worktree_branches = {wt.branch for wt in self._worktrees}
+        existing_branches = all_local_branches | worktree_branches
+        if not existing and branch in existing_branches:
+            raise ValueError(f"Branch '{branch}' already exists in this repo.")
+
+        existing_paths = {wt.path for wt in self._worktrees}
+        if path in existing_paths:
+            raise ValueError(f"Worktree folder '{folder}' is already in use.")
+
         if existing:
             self._git.create_worktree_from_existing(
                 repo_path=self._repo_path,
@@ -102,8 +115,10 @@ class MainWindowViewModel:
                 last_commit_ts=wt.last_commit_ts,
                 merged_into=merged_into,
                 has_uncommitted=has_uncommitted,
+                is_checked_out=True,
             ))
 
+        all_checked_out = {wt.branch for wt in self._worktrees}
         main_wt = next((wt for wt in self._worktrees if wt.is_main), None)
         main_branch = main_wt.branch if main_wt else None
 
@@ -115,6 +130,7 @@ class MainWindowViewModel:
             ts = self._git.last_commit_ts(self._repo_path, branch)
             merged_into = merged_map.get(branch)
             stale = ts > 0 and ts < stale_threshold
+            is_checked_out = branch in all_checked_out
             has_uncommitted = (
                 self._git.has_uncommitted_changes(self._repo_path)
                 if branch == main_branch else False
@@ -127,6 +143,7 @@ class MainWindowViewModel:
                 last_commit_ts=ts,
                 merged_into=merged_into,
                 has_uncommitted=has_uncommitted,
+                is_checked_out=is_checked_out,
             ))
 
         return candidates
