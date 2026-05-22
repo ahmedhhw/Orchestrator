@@ -34,7 +34,7 @@ class GitService:
         out = self._run(["git", "branch", "--format=%(refname:short)"], cwd=repo_path)
         return [b for b in out.splitlines() if b]
 
-    def list_worktrees(self, repo_path: str, stale_days: int) -> list:
+    def list_worktrees(self, repo_path: str, stale_days: int = 30) -> list:
         out = self._run(["git", "worktree", "list", "--porcelain"], cwd=repo_path)
         blocks = [b.strip() for b in out.strip().split("\n\n") if b.strip()]
         stale_threshold = int(time.time()) - stale_days * 86400
@@ -105,6 +105,11 @@ class GitService:
             ["git", "worktree", "add", worktree_path, branch],
             cwd=repo_path,
         )
+
+    def repo_root(self, worktree_path: str) -> str:
+        return self._run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=worktree_path
+        ).strip()
 
     def list_feature_branches(self, repo_path: str) -> list[str]:
         out = self._run(["git", "branch", "--format=%(refname:short)"], cwd=repo_path)

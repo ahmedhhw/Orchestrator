@@ -39,6 +39,17 @@ class SavedCommand:
 
 
 @dataclass
+class WorkspaceEntry:
+    worktree_path: str
+
+
+@dataclass
+class WorkspaceProject:
+    name: str
+    entries: list = field(default_factory=list)
+
+
+@dataclass
 class RepoConfig:
     repo_path: str
     worktree_storage: str

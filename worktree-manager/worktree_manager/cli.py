@@ -37,6 +37,7 @@ class App:
         self._current_frame = None
         self._sidebar_frame = None
         self._cc_panel = None
+        self._wp_panel = None
         self._active_repo_path = None
 
         from worktree_manager.command_center_vm import CommandCenterViewModel
@@ -125,6 +126,12 @@ class App:
         ).pack(fill="x", padx=4, pady=(0, 4))
 
         ctk.CTkButton(
+            sidebar, text="⊞ Workspace Projects", fg_color="transparent",
+            border_width=1, text_color=("gray10", "gray90"),
+            command=self._show_workspace_projects,
+        ).pack(fill="x", padx=4, pady=(0, 4))
+
+        ctk.CTkButton(
             sidebar, text="↻ Refresh", fg_color="transparent",
             border_width=1, text_color=("gray10", "gray90"),
             command=self._refresh,
@@ -189,6 +196,8 @@ class App:
             self._show_main(self._active_repo_path)
         elif self._current_frame is self._cc_panel:
             self._show_command_center()
+        elif self._current_frame is self._wp_panel:
+            self._wp_panel.refresh()
 
     def _show_settings(self, repo_path: str):
         from worktree_manager.setup_settings_vm import SettingsViewModel
@@ -210,6 +219,28 @@ class App:
     def _close_command_center(self) -> None:
         if self._cc_panel:
             self._cc_panel.pack_forget()
+        self._show_empty_main()
+
+    def _show_workspace_projects(self) -> None:
+        from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
+        from worktree_manager.workspace_service import WorkspaceService
+        from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+        self._clear_main()
+        wp_vm = WorkspaceProjectsViewModel(
+            config_store=self._store,
+            git_service=self._git,
+            workspace_service=WorkspaceService(),
+        )
+        self._wp_panel = WorkspaceProjectsPanel(
+            self._root, vm=wp_vm,
+            on_close=self._close_workspace_projects,
+        )
+        self._wp_panel.pack(side="left", fill="both", expand=True)
+        self._current_frame = self._wp_panel
+
+    def _close_workspace_projects(self) -> None:
+        if self._wp_panel:
+            self._wp_panel.pack_forget()
         self._show_empty_main()
 
     def _show_cleanup(self, main_vm):

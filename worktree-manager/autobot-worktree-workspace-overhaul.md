@@ -1213,6 +1213,44 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 
 ---
 
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off.
+
+- [ ] Run `python3.14 -m pytest -q` — all 347 tests pass with no failures
+- [ ] In a Python shell: create a `ConfigStore(Path("/tmp/test-config.json"))`, call `save_project(WorkspaceProject("test", [WorkspaceEntry("/tmp")]))`, then `get_project("test")` — entry comes back with the correct worktree path
+- [ ] Verify the project persists: reload `ConfigStore` from the same path and call `get_project("test")` — it's still there
+- [ ] Create a `WorkspaceService(workspace_dir=Path("/tmp/ws-test"))` and call `generate_code_workspace(project)` — file appears at `/tmp/ws-test/test.code-workspace` with valid JSON: `{"folders": [{"path": "/tmp"}]}`
+- [ ] Call `delete_project("test")` and verify `get_project("test")` returns `None` and the project is absent from `all_projects()`
+- [ ] Regression: launch the app, open the cleanup wizard — no crash, checked-out branches show disabled with "⚠ checked out", uncommitted branches show "⚠ uncommitted"
+- [ ] Regression: open the "+ New" dialog — worktree name field, copy buttons, and create all work as before
+
+**How to confirm:** Work through each item above manually and check them off.
+Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. Do not proceed beyond Iteration 3 until every item below is checked off.
+
+- [ ] Launch the app — confirm a "⊞ Workspace Projects" button appears in the sidebar below Command Center
+- [ ] Click "⊞ Workspace Projects" — confirm the Workspace Projects panel opens, showing a global editor toggle (cursor | vscode) and a "+ New" button, with an empty project list
+- [ ] Click "+ New" — confirm the New Project Dialog opens with a project name field, a repo dropdown, a worktree dropdown, an "+ Add" button, an entry list, and a "Create Project" / "Cancel" button
+- [ ] In the New Project Dialog: select a repo, select a worktree, click "+ Add" — confirm the entry appears in the entry list as "reponame → branch"
+- [ ] In the New Project Dialog: click the "✕" on an entry to remove it — confirm it disappears from the list
+- [ ] Enter a project name and click "Create Project" — confirm the dialog closes and the project appears in the panel as a collapsible row with [Open] and [✕] buttons
+- [ ] Click the project header to collapse it — confirm the worktree entries hide; click again to expand — confirm they reappear
+- [ ] With the editor toggle set to "cursor", click [Open] on a project — confirm the `.code-workspace` file is opened in Cursor (new window, not reused)
+- [ ] Click [✕] on a project — confirm it is removed from the panel immediately
+- [ ] Regression: the branch dropdowns in the worktree view still switch branches correctly (clean worktree switches, uncommitted worktree shows error)
+- [ ] Regression: the cleanup wizard still shows only branch candidates in Merged/Stale/Healthy groups with no filter radio buttons
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 3 confirmed" (or describe any failures) when done.
+
+---
+
 ## Decisions
 
 - **`.code-workspace` regeneration**: Not needed. A `.code-workspace` file stores only folder paths (worktree directories on disk), not branch names. The branch is whatever git has checked out at open time. The file is generated once at project creation and remains valid as long as worktree paths exist.

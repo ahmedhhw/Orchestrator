@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from typing import Optional
-from worktree_manager.models import RepoConfig, SavedCommand
+from worktree_manager.models import RepoConfig, SavedCommand, WorkspaceProject, WorkspaceEntry
 
 
 class ConfigStore:
@@ -77,6 +77,38 @@ class ConfigStore:
     def set_ui_pref(self, key: str, value) -> None:
         data = self._load_raw()
         data.setdefault("ui", {})[key] = value
+        self._save_raw(data)
+
+    def _project_from_dict(self, name: str, data: dict) -> WorkspaceProject:
+        return WorkspaceProject(
+            name=name,
+            entries=[WorkspaceEntry(worktree_path=e["worktree_path"]) for e in data.get("entries", [])],
+        )
+
+    def all_projects(self) -> list:
+        data = self._load_raw()
+        return [
+            self._project_from_dict(name, entry)
+            for name, entry in data.get("projects", {}).items()
+        ]
+
+    def get_project(self, name: str) -> Optional[WorkspaceProject]:
+        data = self._load_raw()
+        entry = data.get("projects", {}).get(name)
+        if entry is None:
+            return None
+        return self._project_from_dict(name, entry)
+
+    def save_project(self, project: WorkspaceProject) -> None:
+        data = self._load_raw()
+        data.setdefault("projects", {})[project.name] = {
+            "entries": [{"worktree_path": e.worktree_path} for e in project.entries],
+        }
+        self._save_raw(data)
+
+    def delete_project(self, name: str) -> None:
+        data = self._load_raw()
+        data.setdefault("projects", {}).pop(name, None)
         self._save_raw(data)
 
     def all_repos(self) -> dict:
