@@ -271,17 +271,58 @@ Added `_copy_command(command)`: calls `self.clipboard_clear()` + `self.clipboard
 
 ## ✋ Manual Testing Gate — Iteration 1
 
-> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+> CONFIRMED by user.
 
-- [ ] Open Manage Commands (⚙ Commands button in Command Center toolbar) — confirm a ⎘ button appears next to Edit and Delete on each command row
-- [ ] Click ⎘ on a command — paste into a text editor and confirm the command string (e.g. `npm run dev`) was copied, not the name
-- [ ] Click ⎘ on a second command — confirm it overwrites the clipboard with the new command string
-- [ ] Click Edit on any row to enter edit mode — confirm the ⎘ buttons on all other rows are disabled (grayed out)
-- [ ] Cancel the edit — confirm ⎘ buttons become active again
-- [ ] **Regression:** Open Command Center, launch and stop a command — confirm stop still shows gray dot (Iteration 0 behaviour intact)
+- [x] Open Manage Commands — ⎘ button appears next to Edit and Delete on each command row
+- [x] Click ⎘ — command string copied to clipboard
+- [x] Click ⎘ on second command — clipboard overwritten
+- [x] Enter edit mode — ⎘ buttons disabled
+- [x] Cancel edit — ⎘ buttons active again
+- [x] Regression: stop still shows gray dot
+
+## Iteration 2 — Edit Project + ProjectOperationsDialog
+
+**Delivers:** An Edit button on each project row in Workspace Projects that opens the same dialog used for creation, pre-populated with the existing name and worktrees, and saves changes atomically (including renames).
+
+**Scope:**
+- `project_operations_dialog.py` (new file) — `ProjectOperationsDialog` replaces `NewProjectDialog`; accepts optional `existing_project`; title/button/routing change in edit mode
+- `ConfigStore.rename_project(old_name, new_name, entries)` — atomic delete-old + write-new
+- `WorkspaceProjectsViewModel.update_project(old_name, new_name, entries)`
+- `WorkspaceProjectsPanel` — Edit button per row; `_edit_project`; `_handle_edit`; updated `_open_new_dialog` import
+
+**Done when:** Edit button opens pre-populated dialog; Save Changes calls `update_project`; renamed projects appear under new name; old name is gone; workspace file regenerated.
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed until every item below is checked off by the user.
+
+- [ ] Open Workspace Projects — confirm an Edit button appears next to Open and ✕ on each project row
+- [ ] Click Edit on a project — confirm the dialog opens titled "Edit Project" with the project name and worktrees already filled in
+- [ ] Change the project name and click Save Changes — confirm the project appears under the new name and the old name is gone
+- [ ] Click Edit, add a new worktree entry, click Save Changes — confirm the updated entry list is reflected in the project row
+- [ ] Click Edit, remove a worktree entry, click Save Changes — confirm the entry is no longer listed
+- [ ] Click Edit then Cancel — confirm no changes were made
+- [ ] Click + New — confirm the dialog still opens titled "New Workspace Project" with empty fields (regression)
+- [ ] **Regression:** Open Manage Commands, click ⎘ on a command — confirm clipboard copy still works (Iteration 1 intact)
+- [ ] **Regression:** Open Command Center, launch and stop a command — confirm gray dot still appears (Iteration 0 intact)
 
 **How to confirm:** Run the app with `python3.14 -m worktree_manager.cli`, perform each action above, and check off each item manually.
-Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+Reply "Iteration 2 confirmed" (or describe any failures) before I declare the feature complete.
+
+## Feature Acceptance Checklist
+
+- [ ] Stop button turns dot **gray** (not red) when a running command is intentionally stopped
+- [ ] Restart button clears output and restarts the process; Stop/Restart still work on the restarted process
+- [ ] Closing a command pane (✕) removes it cleanly; empty state label appears when last pane is removed
+- [ ] Dismissed commands do not reappear when Command Center is closed and reopened
+- [ ] Launching the same command on the same repo+worktree while it is running is blocked with a conflict message
+- [ ] Launching the same command on the same repo+worktree while it is stopped offers an inline Restart prompt
+- [ ] ⎘ button in Manage Commands copies the command string to the clipboard
+- [ ] Edit button in Workspace Projects opens pre-populated dialog; changes (name, entries) are saved atomically
+- [ ] Renaming a project removes the old name and creates the new one
+- [ ] + New in Workspace Projects still opens an empty "New Workspace Project" dialog
+- [ ] All automated tests pass with no regressions
+- [ ] All three iteration manual testing gates confirmed by user
 
 ## Open Questions
 

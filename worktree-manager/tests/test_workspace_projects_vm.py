@@ -92,6 +92,30 @@ def test_switch_branch_in_project_clean(vm, git):
     git.checkout_branch.assert_called_once_with("/repos/proj-wt/fix-login", "main")
 
 
+def test_update_project_renames_and_saves(vm, store):
+    vm.create_project("original", [WorkspaceEntry("/repos/wt/a")])
+    new_entries = [WorkspaceEntry("/repos/wt/a"), WorkspaceEntry("/repos/wt/b")]
+    vm.update_project(old_name="original", new_name="renamed", entries=new_entries)
+    assert store.get_project("original") is None
+    result = store.get_project("renamed")
+    assert result is not None
+    assert len(result.entries) == 2
+
+
+def test_update_project_generates_workspace_file(vm, tmp_path):
+    vm.create_project("proj", [WorkspaceEntry("/repos/wt/a")])
+    vm.update_project("proj", "proj-v2", [WorkspaceEntry("/repos/wt/a")])
+    ws_path = tmp_path / "workspaces" / "proj-v2.code-workspace"
+    assert ws_path.exists()
+
+
+def test_update_project_same_name_updates_entries(vm, store):
+    vm.create_project("proj", [WorkspaceEntry("/repos/wt/a")])
+    vm.update_project("proj", "proj", [WorkspaceEntry("/repos/wt/a"), WorkspaceEntry("/repos/wt/b")])
+    result = store.get_project("proj")
+    assert len(result.entries) == 2
+
+
 def test_switch_branch_in_project_raises_if_uncommitted(vm, git):
     git.has_uncommitted_changes.return_value = True
     with pytest.raises(ValueError, match="uncommitted"):

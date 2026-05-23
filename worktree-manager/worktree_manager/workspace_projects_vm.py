@@ -28,6 +28,12 @@ class WorkspaceProjectsViewModel:
     def delete_project(self, name: str) -> None:
         self._store.delete_project(name)
 
+    def update_project(self, old_name: str, new_name: str, entries: list) -> WorkspaceProject:
+        self._store.rename_project(old_name, new_name, entries)
+        project = WorkspaceProject(name=new_name, entries=entries)
+        self._svc.generate_code_workspace(project)
+        return project
+
     def open_project(self, name: str, editor: str) -> None:
         project = self._store.get_project(name)
         if project is None:

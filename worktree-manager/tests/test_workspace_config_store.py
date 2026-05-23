@@ -58,6 +58,32 @@ def test_get_project_returns_none_for_missing(store):
     assert store.get_project("nonexistent") is None
 
 
+def test_rename_project_changes_key_and_preserves_entries(store):
+    entries = [WorkspaceEntry("/repos/wt/feat")]
+    store.save_project(WorkspaceProject(name="old-name", entries=entries))
+    store.rename_project("old-name", "new-name", entries)
+    assert store.get_project("old-name") is None
+    result = store.get_project("new-name")
+    assert result is not None
+    assert result.entries[0].worktree_path == "/repos/wt/feat"
+
+
+def test_rename_project_updates_entries(store):
+    old_entries = [WorkspaceEntry("/repos/wt/a")]
+    new_entries = [WorkspaceEntry("/repos/wt/a"), WorkspaceEntry("/repos/wt/b")]
+    store.save_project(WorkspaceProject(name="proj", entries=old_entries))
+    store.rename_project("proj", "proj", new_entries)
+    result = store.get_project("proj")
+    assert len(result.entries) == 2
+
+
+def test_rename_project_same_name_preserves_project(store):
+    entries = [WorkspaceEntry("/repos/wt/x")]
+    store.save_project(WorkspaceProject(name="keep", entries=entries))
+    store.rename_project("keep", "keep", entries)
+    assert store.get_project("keep") is not None
+
+
 def test_projects_persist_alongside_repos(store, tmp_path):
     from worktree_manager.models import RepoConfig
     store.save_repo(RepoConfig(

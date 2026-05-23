@@ -80,6 +80,12 @@ class WorkspaceProjectsPanel(ctk.CTkFrame):
             command=lambda n=name: self._open_project(n, self._editor_var.get()),
         ).pack(side="right", padx=(0, 2))
         ctk.CTkButton(
+            header, text="Edit", width=46,
+            fg_color=("gray75", "gray30"), text_color=("black", "white"),
+            hover_color=("gray65", "gray40"),
+            command=lambda p=project: self._edit_project(p),
+        ).pack(side="right", padx=(0, 2))
+        ctk.CTkButton(
             header, text="✕", width=28, fg_color="#c0392b",
             command=lambda n=name: self._delete_project(n),
         ).pack(side="right", padx=(0, 2))
@@ -144,18 +150,33 @@ class WorkspaceProjectsPanel(ctk.CTkFrame):
         self._vm.delete_project(name)
         self.refresh()
 
+    def _get_repos_dict(self) -> dict:
+        store = getattr(self._vm, "_store", None)
+        return store.all_repos() if store is not None else {}
+
     def _open_new_dialog(self):
-        from worktree_manager.ui.new_project_dialog import NewProjectDialog
-        # vm doesn't directly hold the store; get repos from config store via vm internals
-        repos = getattr(self._vm, "_store", None)
-        repos_dict = repos.all_repos() if repos is not None else {}
-        NewProjectDialog(
+        from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialog
+        ProjectOperationsDialog(
             self,
             vm=self._vm,
-            repos=repos_dict,
+            repos=self._get_repos_dict(),
             on_create=self._handle_create,
+        )
+
+    def _edit_project(self, project):
+        from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialog
+        ProjectOperationsDialog(
+            self,
+            vm=self._vm,
+            repos=self._get_repos_dict(),
+            on_edit=self._handle_edit,
+            existing_project=project,
         )
 
     def _handle_create(self, name: str, entries: list):
         self._vm.create_project(name=name, entries=entries)
+        self.refresh()
+
+    def _handle_edit(self, old_name: str, new_name: str, entries: list):
+        self._vm.update_project(old_name=old_name, new_name=new_name, entries=entries)
         self.refresh()

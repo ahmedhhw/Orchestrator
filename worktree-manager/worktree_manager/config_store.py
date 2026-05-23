@@ -111,6 +111,15 @@ class ConfigStore:
         data.setdefault("projects", {}).pop(name, None)
         self._save_raw(data)
 
+    def rename_project(self, old_name: str, new_name: str, entries: list) -> None:
+        data = self._load_raw()
+        projects = data.setdefault("projects", {})
+        projects.pop(old_name, None)
+        projects[new_name] = {
+            "entries": [{"worktree_path": e.worktree_path} for e in entries],
+        }
+        self._save_raw(data)
+
     def all_repos(self) -> dict:
         data = self._load_raw()
         repos = {

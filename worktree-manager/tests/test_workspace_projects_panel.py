@@ -145,6 +145,47 @@ def test_panel_delete_project_calls_vm_and_refreshes(root, vm_with_projects):
     panel.destroy()
 
 
+def test_panel_shows_edit_button_per_project(root, vm_with_projects):
+    import customtkinter as ctk
+    from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+    panel = WorkspaceProjectsPanel(root, vm=vm_with_projects, on_close=lambda: None)
+
+    def find_buttons(widget):
+        texts = []
+        if isinstance(widget, ctk.CTkButton):
+            texts.append(widget.cget("text"))
+        for child in widget.winfo_children():
+            texts.extend(find_buttons(child))
+        return texts
+
+    button_texts = find_buttons(panel)
+    edit_buttons = [t for t in button_texts if t == "Edit"]
+    assert len(edit_buttons) == 2  # one per project
+    panel.destroy()
+
+
+def test_handle_edit_calls_vm_update_project(root, vm_with_projects):
+    from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+    from worktree_manager.models import WorkspaceEntry
+    panel = WorkspaceProjectsPanel(root, vm=vm_with_projects, on_close=lambda: None)
+    entries = [WorkspaceEntry("/repos/api-wt/main")]
+    panel._handle_edit("my-feature", "my-feature-renamed", entries)
+    vm_with_projects.update_project.assert_called_once_with(
+        old_name="my-feature", new_name="my-feature-renamed", entries=entries
+    )
+    panel.destroy()
+
+
+def test_handle_edit_refreshes_panel(root, vm_with_projects):
+    from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+    from worktree_manager.models import WorkspaceEntry
+    panel = WorkspaceProjectsPanel(root, vm=vm_with_projects, on_close=lambda: None)
+    initial_load_count = vm_with_projects.load_projects.call_count
+    panel._handle_edit("my-feature", "my-feature", [WorkspaceEntry("/repos/api-wt/main")])
+    assert vm_with_projects.load_projects.call_count > initial_load_count
+    panel.destroy()
+
+
 def test_panel_empty_state_visible_when_no_projects(root, vm):
     import customtkinter as ctk
     from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
