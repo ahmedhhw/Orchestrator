@@ -244,12 +244,9 @@ class App:
         self._show_empty_main()
 
     def _show_cleanup(self, main_vm):
+        import threading
         import tkinter.messagebox as mb
         from worktree_manager.ui.cleanup_wizard import CleanupWizard
-        candidates = main_vm.all_cleanup_candidates()
-        if not candidates:
-            mb.showinfo("Cleanup", "No branches to clean up.")
-            return
 
         def _on_delete(selected_pairs):
             selected = [c for c, _ in selected_pairs]
@@ -257,7 +254,24 @@ class App:
             if self._current_frame and hasattr(self._current_frame, "refresh"):
                 self._current_frame.refresh()
 
-        CleanupWizard(self._root, candidates=candidates, on_delete_selected=_on_delete)
+        wizard = CleanupWizard(self._root, candidates=None, on_delete_selected=_on_delete)
+
+        def _load():
+            def _on_progress(current, total, label):
+                wizard.update_progress(current, total, label)
+
+            candidates = main_vm.all_cleanup_candidates(on_progress=_on_progress)
+
+            def _done():
+                if not candidates:
+                    wizard.destroy()
+                    mb.showinfo("Cleanup", "No branches to clean up.")
+                else:
+                    wizard.finish_loading(candidates)
+
+            wizard.after(0, _done)
+
+        threading.Thread(target=_load, daemon=True).start()
 
 
 def main():

@@ -80,17 +80,30 @@ def test_show_cleanup_shows_wizard_for_worktree_branch_candidates():
 
 
 def test_show_cleanup_shows_messagebox_when_empty():
+    import threading
     import worktree_manager.cli as cli_mod
-    from unittest.mock import patch
+    from unittest.mock import patch, call
     vm = _make_vm([])
+    # The wizard always opens first (loading screen) with candidates=None.
+    # When no candidates are found the background thread schedules destroy+showinfo
+    # via wizard.after(). We verify the wizard was constructed and after() was
+    # scheduled (the actual Tk dispatch happens only in a real event loop).
     with patch("worktree_manager.ui.cleanup_wizard.CleanupWizard") as MockWizard:
         with patch("tkinter.messagebox.showinfo") as mock_info:
             app = object.__new__(cli_mod.App)
             app._root = MagicMock()
             app._current_frame = MagicMock()
+            threads_before = set(threading.enumerate())
             app._show_cleanup(vm)
-    MockWizard.assert_not_called()
-    mock_info.assert_called_once()
+            new_threads = set(threading.enumerate()) - threads_before
+            for t in new_threads:
+                t.join(timeout=5)
+    MockWizard.assert_called_once_with(
+        app._root, candidates=None, on_delete_selected=MockWizard.call_args.kwargs["on_delete_selected"]
+    )
+    # _done is scheduled via after(0, _done); verify after was called at least once
+    wizard_instance = MockWizard.return_value
+    assert wizard_instance.after.called
 
 
 def test_app_has_window_registry():
@@ -168,18 +181,36 @@ def test_app_shows_empty_main_when_no_repo_path():
 
 
 def test_show_cleanup_passes_all_candidates_including_worktree_branches():
+    import threading
     import worktree_manager.cli as cli_mod
     from worktree_manager.models import CleanupCandidate
     worktree_candidate = CleanupCandidate("wt/branch", "/wt/wt-branch", False, True, 0)
     branch_candidate = CleanupCandidate("orphan", None, True, False, 0)
     vm = _make_vm([worktree_candidate, branch_candidate])
+    # Wizard opens with candidates=None; after load, finish_loading is scheduled via after()
     with patch("worktree_manager.ui.cleanup_wizard.CleanupWizard") as MockWizard:
         app = object.__new__(cli_mod.App)
         app._root = MagicMock()
         app._current_frame = MagicMock()
+        threads_before = set(threading.enumerate())
         app._show_cleanup(vm)
-    called_candidates = MockWizard.call_args.kwargs["candidates"]
-    branches = [c.branch for c in called_candidates]
+        new_threads = set(threading.enumerate()) - threads_before
+        for t in new_threads:
+            t.join(timeout=5)
+    # wizard opened with candidates=None (loading screen)
+    assert MockWizard.call_args.kwargs["candidates"] is None
+    # finish_loading was scheduled via after(0, ...) with the real candidates list
+    wizard_instance = MockWizard.return_value
+    after_calls = wizard_instance.after.call_args_list
+    # find the _done call — it's after(0, _done); extract and call it to inspect
+    assert len(after_calls) >= 1
+    # The last after() call's second arg is _done; calling it invokes finish_loading
+    _done = after_calls[-1][0][1]
+    _done()
+    finish_loading_calls = wizard_instance.finish_loading.call_args_list
+    assert len(finish_loading_calls) == 1
+    passed_candidates = finish_loading_calls[0][0][0]
+    branches = [c.branch for c in passed_candidates]
     assert "wt/branch" in branches
     assert "orphan" in branches
 

@@ -49,33 +49,105 @@ def _group_candidates(candidates: list) -> dict:
 
 
 class CleanupWizard(ctk.CTkToplevel):
-    def __init__(self, master, candidates: list, on_delete_selected):
+    def __init__(self, master, candidates: list | None, on_delete_selected):
         super().__init__(master)
         self.title("Cleanup Wizard")
         self.resizable(False, False)
         self._on_delete_selected = on_delete_selected
         self._all_pairs: list = []
 
+        # Loading state — set when candidates is None (deferred load)
+        self._loading_frame: ctk.CTkFrame | None = None
+        self._progress_bar: ctk.CTkProgressBar | None = None
+        self._progress_label: ctk.CTkLabel | None = None
+        self._progress_count: ctk.CTkLabel | None = None
+
+        self._grouped = {}
+        self._global_btn: ctk.CTkButton | None = None
+        self._subgroup_btn: dict = {}
+        self._stale_btn: ctk.CTkButton | None = None
+        self._admin_mode_var = ctk.BooleanVar(value=False)
+        self._protected_triples: list = []
+        self._admin_banner = None
+        self._admin_only_label = None
+
+        if candidates is None:
+            self._build_loading()
+        else:
+            self._init_candidates(candidates)
+            self._build()
+            self._wire_traces()
+            self._refresh_button_labels()
+
+    def _init_candidates(self, candidates: list):
         grouped = _group_candidates(candidates)
         operable = grouped["merged"] + grouped["stale"] + grouped["healthy"]
         for c in operable:
             var = ctk.BooleanVar(value=c.is_stale or c.is_merged)
             self._all_pairs.append((c, var))
-
         self._grouped = grouped
-        # Button refs populated during _build; keyed by target for subgroups
-        self._global_btn: ctk.CTkButton | None = None
-        self._subgroup_btn: dict = {}
-        self._stale_btn: ctk.CTkButton | None = None
-        # Admin Mode state and widget refs
-        self._admin_mode_var = ctk.BooleanVar(value=False)
-        self._protected_triples: list = []  # (candidate, BooleanVar, CTkCheckBox)
-        self._admin_banner = None
-        self._admin_only_label = None
 
-        self._build()
-        self._wire_traces()
-        self._refresh_button_labels()
+    def _build_loading(self):
+        ctk.CTkLabel(
+            self, text="Cleanup Wizard", font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(pady=(20, 4))
+
+        frame = ctk.CTkFrame(self, fg_color="transparent")
+        frame.pack(fill="x", padx=24, pady=(12, 4))
+        self._loading_frame = frame
+
+        self._progress_label = ctk.CTkLabel(
+            frame, text="Scanning branches…", font=ctk.CTkFont(size=12), anchor="w"
+        )
+        self._progress_label.pack(fill="x", pady=(0, 6))
+
+        self._progress_bar = ctk.CTkProgressBar(frame, mode="determinate")
+        self._progress_bar.set(0)
+        self._progress_bar.pack(fill="x", pady=(0, 4))
+
+        self._progress_count = ctk.CTkLabel(
+            frame, text="", font=ctk.CTkFont(size=11), text_color="gray", anchor="e"
+        )
+        self._progress_count.pack(fill="x")
+
+        # Spacer so the window has a stable size from the start
+        ctk.CTkFrame(self, height=60, fg_color="transparent").pack()
+
+    def update_progress(self, current: int, total: int, label: str):
+        """Called from background thread via after(); safe to call cross-thread."""
+        def _update():
+            if self._progress_bar is None:
+                return
+            fraction = current / total if total > 0 else 0
+            self._progress_bar.set(fraction)
+            self._progress_label.configure(text=label)
+            self._progress_count.configure(text=f"{current} / {total}")
+        self.after(0, _update)
+
+    def finish_loading(self, candidates: list):
+        """Replace the loading screen with the real wizard content."""
+        def _swap():
+            if self._loading_frame:
+                self._loading_frame.destroy()
+                self._loading_frame = None
+                self._progress_bar = None
+                self._progress_label = None
+                self._progress_count = None
+            # Destroy spacer frames (all children not yet part of real UI)
+            for w in self.winfo_children():
+                w.destroy()
+            self._all_pairs = []
+            self._subgroup_btn = {}
+            self._global_btn = None
+            self._stale_btn = None
+            self._admin_banner = None
+            self._admin_only_label = None
+            self._protected_triples = []
+            self._init_candidates(candidates)
+            self._build()
+            self._wire_traces()
+            self._refresh_button_labels()
+        self.after(0, _swap)
 
     def _build(self):
         ctk.CTkLabel(

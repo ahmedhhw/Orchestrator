@@ -82,18 +82,39 @@ class MainWindowViewModel:
         if also_delete_branch:
             self._git.delete_branch(repo_path=self._repo_path, branch=branch)
 
-    def all_cleanup_candidates(self) -> list:
+    def count_cleanup_candidates(self) -> int:
+        """Fast estimate of total branches to scan (for progress bar total)."""
+        worktree_count = sum(1 for wt in self._worktrees if not wt.is_main)
+        branch_count = len(self._git.list_local_branches(self._repo_path))
+        return worktree_count + branch_count
+
+    def all_cleanup_candidates(self, on_progress=None) -> list:
+        """
+        on_progress(current, total, label) — called from this thread as work proceeds.
+        """
         cfg = self._store.get_repo(self._repo_path)
         stale_threshold = int(time.time()) - cfg.stale_days * 86400
+
+        local_branches = self._git.list_local_branches(self._repo_path)
+        worktree_wts = list(self._worktrees)
+        total = len(worktree_wts) + len(local_branches)
+        done = 0
+
+        def _progress(label):
+            nonlocal done
+            done += 1
+            if on_progress:
+                on_progress(done, total, label)
+
+        if on_progress:
+            on_progress(0, total, "Scanning worktrees…")
 
         feature_branches = self._git.list_feature_branches(self._repo_path)
         merge_targets = ["main"] + feature_branches
         merged_map = self._git.build_merged_map(self._repo_path, merge_targets)
 
-        non_main_worktree_branches = {wt.branch for wt in self._worktrees if not wt.is_main}
+        non_main_worktree_branches = {wt.branch for wt in worktree_wts if not wt.is_main}
         candidates = []
-
-        worktree_wts = list(self._worktrees)
 
         with ThreadPoolExecutor() as executor:
             uncommitted_results = list(executor.map(
@@ -115,15 +136,18 @@ class MainWindowViewModel:
                 is_checked_out=True,
                 is_protected=wt.is_main or self.is_protected_branch(wt.branch),
             ))
+            _progress(wt.branch)
 
         all_checked_out = {wt.branch for wt in self._worktrees}
         main_wt = next((wt for wt in self._worktrees if wt.is_main), None)
         main_branch = main_wt.branch if main_wt else None
 
-        for branch in self._git.list_local_branches(self._repo_path):
+        for branch in local_branches:
             if branch in non_main_worktree_branches:
+                _progress(branch)
                 continue
             if branch == main_branch:
+                _progress(branch)
                 continue
             is_protected = self.is_protected_branch(branch)
             ts = self._git.last_commit_ts(self._repo_path, branch)
@@ -141,6 +165,7 @@ class MainWindowViewModel:
                 is_checked_out=is_checked_out,
                 is_protected=is_protected,
             ))
+            _progress(branch)
 
         return candidates
 
