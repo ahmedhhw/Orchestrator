@@ -1,6 +1,7 @@
 import time
 import customtkinter as ctk
 from worktree_manager.models import CleanupCandidate
+from worktree_manager.ui.scroll_fix import attach_scroll_fix
 
 
 def _fmt_age(ts: int) -> str:
@@ -91,6 +92,13 @@ class CleanupWizard(ctk.CTkToplevel):
 
         scroll = ctk.CTkScrollableFrame(self, height=280)
         scroll.pack(fill="x", padx=24, pady=(4, 8))
+        self._scroll = scroll
+
+        # CTkScrollableFrame registers its MouseWheel handler via bind_all on
+        # the main Tk root. In a CTkToplevel (separate window), those bindings
+        # don't fire. Re-register on the canvas itself so the toplevel window
+        # receives the events.
+        attach_scroll_fix(self, scroll)
 
         # Merged section — sub-grouped by target
         ctk.CTkLabel(

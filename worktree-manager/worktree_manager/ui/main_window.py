@@ -4,6 +4,7 @@ import tkinter.messagebox as mb
 import customtkinter as ctk
 from worktree_manager.main_window_vm import MainWindowViewModel
 from worktree_manager.models import WorktreeModel
+from worktree_manager.ui.scroll_fix import attach_scroll_fix
 
 
 def _fmt_age(ts: int) -> str:
@@ -54,6 +55,7 @@ class MainWindow(ctk.CTkFrame):
 
         self._list_frame = ctk.CTkScrollableFrame(self)
         self._list_frame.pack(fill="both", expand=True, padx=16, pady=8)
+        attach_scroll_fix(self, self._list_frame)
 
     def refresh(self):
         for w in self._list_frame.winfo_children():

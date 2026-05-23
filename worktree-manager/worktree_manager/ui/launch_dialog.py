@@ -1,6 +1,7 @@
 from pathlib import Path
 import customtkinter as ctk
 from worktree_manager.models import SavedCommand, WorktreeModel
+from worktree_manager.ui.scroll_fix import attach_scroll_fix
 
 
 class LaunchDialog(ctk.CTkToplevel):
@@ -67,6 +68,7 @@ class LaunchDialog(ctk.CTkToplevel):
                      textvariable=self._cmd_filter_var, width=160).pack(side="right")
         self._cmd_list = ctk.CTkScrollableFrame(self, height=160)
         self._cmd_list.pack(fill="x", padx=24, pady=(0, 8))
+        attach_scroll_fix(self, self._cmd_list)
 
         self._empty_cmd_label = ctk.CTkLabel(
             self._cmd_list, text="No saved commands for this repo.", text_color="gray"

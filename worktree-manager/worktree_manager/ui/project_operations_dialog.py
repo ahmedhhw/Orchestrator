@@ -2,6 +2,7 @@ from pathlib import Path
 import customtkinter as ctk
 from worktree_manager.models import WorkspaceEntry
 from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
+from worktree_manager.ui.scroll_fix import attach_scroll_fix
 
 
 class ProjectOperationsDialog(ctk.CTkToplevel):
@@ -94,6 +95,7 @@ class ProjectOperationsDialog(ctk.CTkToplevel):
 
         self._list_frame = ctk.CTkScrollableFrame(self, height=100)
         self._list_frame.pack(fill="x", padx=24, pady=(0, 2))
+        attach_scroll_fix(self, self._list_frame)
 
         self._empty_list_label = ctk.CTkLabel(
             self._list_frame, text="(none)", text_color="gray", anchor="w"

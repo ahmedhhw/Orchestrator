@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.ui.command_pane import CommandPane
+from worktree_manager.ui.scroll_fix import attach_scroll_fix
 
 
 class CommandCenterPanel(ctk.CTkFrame):
@@ -41,6 +42,7 @@ class CommandCenterPanel(ctk.CTkFrame):
 
         self._scroll = ctk.CTkScrollableFrame(self)
         self._scroll.pack(fill="both", expand=True, padx=8, pady=4)
+        attach_scroll_fix(self, self._scroll)
 
         self._empty_label = ctk.CTkLabel(
             self._scroll,
