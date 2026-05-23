@@ -61,6 +61,14 @@ def test_delete_project_removes_from_store(vm, store):
     assert store.get_project("to-delete") is None
 
 
+def test_delete_project_removes_workspace_file(vm, tmp_path):
+    vm.create_project("to-delete", [WorkspaceEntry("/repos/wt")])
+    ws_path = tmp_path / "workspaces" / "to-delete.code-workspace"
+    assert ws_path.exists()
+    vm.delete_project("to-delete")
+    assert not ws_path.exists()
+
+
 def test_open_project_calls_workspace_service(vm, svc):
     from unittest.mock import patch
     vm.create_project("myproj", [WorkspaceEntry("/repos/wt")])

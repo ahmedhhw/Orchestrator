@@ -20,6 +20,10 @@ class WorkspaceService:
         path.write_text(json.dumps(data, indent=2))
         return path
 
+    def delete_code_workspace(self, name: str) -> None:
+        path = self._workspace_dir / f"{name}.code-workspace"
+        path.unlink(missing_ok=True)
+
     def open_in_editor(self, project: WorkspaceProject, editor: str) -> None:
         cmd = _resolve_editor_cmd(editor)
         ws_path = self._workspace_dir / f"{project.name}.code-workspace"
