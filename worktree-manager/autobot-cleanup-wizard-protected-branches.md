@@ -197,3 +197,20 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I plan Iteration
 
 **How to confirm:** Run the app, open the Cleanup Wizard on the test repo, and check off each item manually.
 Reply "Iteration 1 confirmed" (or describe any failures) before I plan Iteration 2.
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed until every item below is checked off by the user.
+
+- [ ] An "Admin Mode" checkbox appears below the branch list, with `⚠ Enable only if you know what you're doing` next to it — and it is unchecked by default
+- [ ] With Admin Mode OFF: protected branches have disabled checkboxes that cannot be interacted with
+- [ ] Toggle Admin Mode ON — a warning banner appears at the top of the wizard reading something like "Admin Mode: Protected branches can be deleted. Double-check your selection before deleting."
+- [ ] With Admin Mode ON: protected branch checkboxes become individually selectable
+- [ ] Protected branches are NOT pre-checked when Admin Mode is turned on — they start unchecked
+- [ ] The Protected section header shows `⚠ admin only` label when Admin Mode is ON, and not when OFF
+- [ ] Toggle Admin Mode OFF again — the warning banner disappears, protected checkboxes become disabled again, and any protected selections are cleared
+- [ ] Regression: Unoperable (Cannot delete) branches remain permanently locked regardless of Admin Mode state
+- [ ] Regression: Merged sub-groups, Stale, Healthy sections and their toggle buttons all work as before
+
+**How to confirm:** Run the app, open the Cleanup Wizard on the test repo, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) to complete the feature.

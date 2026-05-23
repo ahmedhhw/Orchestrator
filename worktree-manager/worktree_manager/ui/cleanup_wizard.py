@@ -66,6 +66,11 @@ class CleanupWizard(ctk.CTkToplevel):
         self._global_btn: ctk.CTkButton | None = None
         self._subgroup_btn: dict = {}
         self._stale_btn: ctk.CTkButton | None = None
+        # Admin Mode state and widget refs
+        self._admin_mode_var = ctk.BooleanVar(value=False)
+        self._protected_triples: list = []  # (candidate, BooleanVar, CTkCheckBox)
+        self._admin_banner = None
+        self._admin_only_label = None
 
         self._build()
         self._wire_traces()
@@ -75,6 +80,14 @@ class CleanupWizard(ctk.CTkToplevel):
         ctk.CTkLabel(
             self, text="Cleanup Wizard", font=ctk.CTkFont(size=16, weight="bold")
         ).pack(pady=(20, 4))
+
+        # Warning banner — hidden until Admin Mode is ON
+        self._admin_banner = ctk.CTkFrame(self, fg_color="#7b2d00")
+        ctk.CTkLabel(
+            self._admin_banner,
+            text="⚠ Admin Mode: Protected branches can be deleted.\n    Double-check your selection before deleting.",
+            text_color="white", font=ctk.CTkFont(size=11), anchor="w", justify="left",
+        ).pack(padx=12, pady=6, anchor="w")
 
         scroll = ctk.CTkScrollableFrame(self, height=280)
         scroll.pack(fill="x", padx=24, pady=(4, 8))
@@ -150,10 +163,16 @@ class CleanupWizard(ctk.CTkToplevel):
 
         if self._grouped["protected"]:
             ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
+            prot_header = ctk.CTkFrame(scroll, fg_color="transparent")
+            prot_header.pack(fill="x", pady=(0, 2))
             ctk.CTkLabel(
-                scroll, text="Protected:", text_color="gray",
+                prot_header, text="Protected:", text_color="gray",
                 font=ctk.CTkFont(size=11), anchor="w",
-            ).pack(fill="x", padx=4, pady=(0, 2))
+            ).pack(side="left", padx=4)
+            self._admin_only_label = ctk.CTkLabel(
+                prot_header, text="⚠ admin only", text_color="orange",
+                font=ctk.CTkFont(size=11),
+            )
             for c in self._grouped["protected"]:
                 self._add_protected_item(scroll, c)
 
@@ -166,8 +185,20 @@ class CleanupWizard(ctk.CTkToplevel):
             for c in self._grouped["unoperable"]:
                 self._add_unoperable_item(scroll, c)
 
+        # Admin Mode toggle
+        admin_row = ctk.CTkFrame(self, fg_color="transparent")
+        admin_row.pack(fill="x", padx=24, pady=(0, 4))
+        ctk.CTkCheckBox(
+            admin_row, text="Admin Mode", variable=self._admin_mode_var,
+            command=self._on_admin_mode_toggle,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            admin_row, text="⚠ Enable only if you know what you're doing",
+            text_color="orange", font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=(8, 0))
+
         btn_frame = ctk.CTkFrame(self)
-        btn_frame.pack(fill="x", padx=24, pady=16)
+        btn_frame.pack(fill="x", padx=24, pady=(4, 16))
         self._global_btn = ctk.CTkButton(
             btn_frame, text="Select All", fg_color="gray",
             text_color=("black", "white"), command=self._toggle_all,
@@ -191,10 +222,11 @@ class CleanupWizard(ctk.CTkToplevel):
         ).pack(side="left", padx=4)
 
     def _add_protected_item(self, parent, c: CleanupCandidate):
+        var = ctk.BooleanVar(value=False)
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", pady=2)
         cb = ctk.CTkCheckBox(
-            row, text=f"{c.branch}  ({_reason(c)})", variable=ctk.BooleanVar(value=False),
+            row, text=f"{c.branch}  ({_reason(c)})", variable=var,
         )
         cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
                      fg_color="gray50", border_color="gray50")
@@ -204,6 +236,7 @@ class CleanupWizard(ctk.CTkToplevel):
             row, text=tag, text_color="orange",
             font=ctk.CTkFont(size=11),
         ).pack(side="left", padx=(6, 0))
+        self._protected_triples.append((c, var, cb))
 
     def _add_unoperable_item(self, parent, c: CleanupCandidate):
         row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -217,6 +250,27 @@ class CleanupWizard(ctk.CTkToplevel):
             row, text=tag, text_color="orange",
             font=ctk.CTkFont(size=11),
         ).pack(side="left", padx=(6, 0))
+
+    def _on_admin_mode_toggle(self):
+        admin_on = self._admin_mode_var.get()
+        if admin_on:
+            self._admin_banner.pack(fill="x", padx=24, pady=(0, 4),
+                                    after=self.pack_slaves()[0])
+            if self._admin_only_label:
+                self._admin_only_label.pack(side="right", padx=4)
+            for _, _, cb in self._protected_triples:
+                cb.configure(state="normal", text_color=("black", "white"),
+                             checkmark_color=("black", "white"),
+                             fg_color=("#3a7ebf", "#1f538d"), border_color=("gray50", "gray50"))
+        else:
+            self._admin_banner.pack_forget()
+            if self._admin_only_label:
+                self._admin_only_label.pack_forget()
+            for _, var, cb in self._protected_triples:
+                var.set(False)
+                cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
+                             fg_color="gray50", border_color="gray50")
+        self.update_idletasks()
 
     def _wire_traces(self):
         for _, v in self._all_pairs:
@@ -282,5 +336,7 @@ class CleanupWizard(ctk.CTkToplevel):
 
     def _delete_selected(self):
         selected = [(c, v) for c, v in self._all_pairs if v.get()]
+        if self._admin_mode_var.get():
+            selected += [(c, v) for c, v, _ in self._protected_triples if v.get()]
         self._on_delete_selected(selected)
         self.destroy()
