@@ -90,3 +90,43 @@ def test_update_existing_repo(store):
     assert store.get_repo("/repos/proj").stale_days == 60
 
 
+def _make_cfg(path):
+    return RepoConfig(
+        repo_path=path,
+        worktree_storage=path + "-wt",
+        stale_days=30,
+        last_editor="cursor",
+        last_editor_mode="new",
+        last_opened="2026-01-01T00:00:00",
+    )
+
+
+def test_delete_repo_removes_entry(store):
+    store.save_repo(_make_cfg("/repos/alpha"))
+    store.save_repo(_make_cfg("/repos/beta"))
+    store.delete_repo("/repos/alpha")
+    assert store.get_repo("/repos/alpha") is None
+    assert store.get_repo("/repos/beta") is not None
+
+
+def test_delete_repo_persists_to_disk(store):
+    store.save_repo(_make_cfg("/repos/alpha"))
+    store.delete_repo("/repos/alpha")
+    assert store.get_repo("/repos/alpha") is None
+
+
+def test_delete_repo_absent_key_is_noop(store):
+    store.delete_repo("/repos/nonexistent")
+    assert store.all_repos() == {}
+
+
+def test_delete_repo_preserves_commands_of_other_repos(store):
+    from worktree_manager.models import SavedCommand
+    store.save_repo(_make_cfg("/repos/alpha"))
+    store.save_repo(_make_cfg("/repos/beta"))
+    store.save_command("/repos/beta", SavedCommand(name="test", command="pytest"))
+    store.delete_repo("/repos/alpha")
+    cmds = store.get_commands("/repos/beta")
+    assert len(cmds) == 1
+    assert cmds[0].name == "test"
+

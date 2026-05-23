@@ -59,6 +59,11 @@ class ConfigStore:
         entry["commands"] = [c for c in entry.get("commands", []) if c["name"] != name]
         self._save_raw(data)
 
+    def delete_repo(self, repo_path: str) -> None:
+        data = self._load_raw()
+        data.setdefault("repos", {}).pop(repo_path, None)
+        self._save_raw(data)
+
     def save_repo(self, cfg: RepoConfig) -> None:
         data = self._load_raw()
         data["repos"][cfg.repo_path] = {

@@ -81,6 +81,7 @@ class App:
 
     def _show_sidebar(self, active_repo_path: str):
         import customtkinter as ctk
+        from worktree_manager.ui.scroll_fix import attach_scroll_fix
 
         if self._sidebar_frame:
             self._sidebar_frame.destroy()
@@ -90,40 +91,12 @@ class App:
         sidebar.pack_propagate(False)
         self._sidebar_frame = sidebar
 
-        ctk.CTkLabel(
-            sidebar, text="REPOS", font=ctk.CTkFont(weight="bold"), text_color="gray"
-        ).pack(pady=(12, 4), padx=8, anchor="w")
-
-        repos = self._store.all_repos()
-        for path, cfg in repos.items():
-            name = Path(path).name
-            is_active = active_repo_path is not None and path == active_repo_path
-            btn = ctk.CTkButton(
-                sidebar,
-                text=("● " if is_active else "  ") + name,
-                anchor="w",
-                fg_color=("gray30" if is_active else "transparent"),
-                hover_color="gray25",
-                text_color=("white" if is_active else ("gray10", "gray90")),
-                command=lambda p=path: self._switch_repo(p),
-            )
-            btn.pack(fill="x", padx=4, pady=1)
-            try:
-                btn._text_label.configure(wraplength=196)
-            except Exception:
-                pass
-
-        ctk.CTkButton(
-            sidebar, text="+ Add Repo", fg_color="transparent",
-            border_width=1, text_color=("gray10", "gray90"),
-            command=self._pick_and_add_repo,
-        ).pack(fill="x", padx=4, pady=(8, 4))
-
+        # ── Top action buttons ────────────────────────────────────────────────
         ctk.CTkButton(
             sidebar, text="⊞ Command Center", fg_color="transparent",
             border_width=1, text_color=("gray10", "gray90"),
             command=self._show_command_center,
-        ).pack(fill="x", padx=4, pady=(0, 4))
+        ).pack(fill="x", padx=4, pady=(8, 2))
 
         ctk.CTkButton(
             sidebar, text="⊞ Workspace Projects", fg_color="transparent",
@@ -131,11 +104,104 @@ class App:
             command=self._show_workspace_projects,
         ).pack(fill="x", padx=4, pady=(0, 4))
 
+        # ── Collapsible REPOS section ─────────────────────────────────────────
+        saved = self._store.get_ui_pref("repos_collapsed")
+        self._repos_collapsed = bool(saved) if saved is not None else False
+
+        arrow = "▶" if self._repos_collapsed else "▼"
+        ctk.CTkButton(
+            sidebar,
+            text=f"{arrow} REPOS",
+            anchor="w",
+            fg_color="transparent",
+            hover_color="gray25",
+            text_color="gray",
+            font=ctk.CTkFont(weight="bold"),
+            command=self._toggle_repos_section,
+        ).pack(fill="x", padx=4, pady=(4, 0))
+
+        if not self._repos_collapsed:
+            repo_scroll = ctk.CTkScrollableFrame(sidebar, height=200)
+            repo_scroll.pack(fill="x", padx=4, pady=(0, 2))
+            attach_scroll_fix(self._root, repo_scroll)
+
+            repos = self._store.all_repos()
+            for path, cfg in repos.items():
+                name = Path(path).name
+                is_active = active_repo_path is not None and path == active_repo_path
+
+                row = ctk.CTkFrame(repo_scroll, fg_color="transparent")
+                row.pack(fill="x", pady=1)
+
+                btn = ctk.CTkButton(
+                    row,
+                    text=("● " if is_active else "○ ") + name,
+                    anchor="w",
+                    fg_color=("gray30" if is_active else "transparent"),
+                    hover_color="gray25",
+                    text_color=("white" if is_active else ("gray10", "gray90")),
+                    command=lambda p=path: self._switch_repo(p),
+                )
+                btn.pack(side="left", fill="x", expand=True)
+                try:
+                    btn._text_label.configure(wraplength=150)
+                except Exception:
+                    pass
+
+                ctk.CTkButton(
+                    row, text="✕", width=28, fg_color="#c0392b",
+                    hover_color="#96281b",
+                    command=lambda p=path, a=is_active: self._confirm_delete_repo(p, is_active=a),
+                ).pack(side="right", padx=(2, 0))
+
+        # ── Bottom buttons ────────────────────────────────────────────────────
+        ctk.CTkButton(
+            sidebar, text="+ Add Repo", fg_color="transparent",
+            border_width=1, text_color=("gray10", "gray90"),
+            command=self._pick_and_add_repo,
+        ).pack(fill="x", padx=4, pady=(4, 2))
+
         ctk.CTkButton(
             sidebar, text="↻ Refresh", fg_color="transparent",
             border_width=1, text_color=("gray10", "gray90"),
             command=self._refresh,
         ).pack(fill="x", padx=4, pady=(0, 12), side="bottom")
+
+    def _toggle_repos_section(self):
+        self._repos_collapsed = not self._repos_collapsed
+        self._store.set_ui_pref("repos_collapsed", self._repos_collapsed)
+        # Repack main frame so it stays to the right of the rebuilt sidebar.
+        if self._current_frame:
+            self._current_frame.pack_forget()
+        self._show_sidebar(active_repo_path=self._active_repo_path)
+        if self._current_frame:
+            self._current_frame.pack(side="left", fill="both", expand=True)
+
+    def _confirm_delete_repo(self, repo_path: str, is_active: bool) -> None:
+        import tkinter.messagebox as mb
+        name = Path(repo_path).name
+        extra = (
+            "\n⚠ This is the currently open repo. Removing it will return you to the empty screen.\n"
+            if is_active else ""
+        )
+        msg = (
+            f'Remove "{name}" from the app?\n\n'
+            f"{repo_path}\n"
+            f"{extra}\n"
+            "Files on disk are not affected."
+        )
+        if not mb.askyesno("Remove repo", msg, icon="warning"):
+            return
+        self._store.delete_repo(repo_path)
+        if is_active:
+            self._active_repo_path = None
+            self._show_empty_main()
+        else:
+            if self._current_frame:
+                self._current_frame.pack_forget()
+            self._show_sidebar(active_repo_path=self._active_repo_path)
+            if self._current_frame:
+                self._current_frame.pack(side="left", fill="both", expand=True)
 
     def _pick_and_add_repo(self):
         from tkinter import filedialog
