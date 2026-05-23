@@ -36,11 +36,18 @@ def root():
     r.destroy()
 
 
+def _make_vm_store(editor="cursor"):
+    store = MagicMock()
+    store.get_ui_pref.return_value = editor
+    return store
+
+
 @pytest.fixture
 def vm():
     m = MagicMock(spec=WorkspaceProjectsViewModel)
     m.load_projects.return_value = []
     m.list_worktrees_for_repo.return_value = []
+    m._store = _make_vm_store()
     return m
 
 
@@ -55,6 +62,7 @@ def vm_with_projects():
         WorkspaceProject("auth-refactor", []),
     ]
     m.list_worktrees_for_repo.return_value = []
+    m._store = _make_vm_store()
     return m
 
 
@@ -201,4 +209,47 @@ def test_panel_empty_state_visible_when_no_projects(root, vm):
 
     texts = collect_labels(panel)
     assert any("No" in t or "project" in t.lower() for t in texts)
+    panel.destroy()
+
+
+def test_panel_loads_saved_editor_pref(root):
+    from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+    m = MagicMock(spec=WorkspaceProjectsViewModel)
+    m.load_projects.return_value = []
+    m._store = _make_vm_store(editor="vscode")
+    panel = WorkspaceProjectsPanel(root, vm=m, on_close=lambda: None)
+    assert panel._editor_var.get() == "vscode"
+    panel.destroy()
+
+
+def test_panel_persists_editor_pref_on_change(root, vm):
+    from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+    panel = WorkspaceProjectsPanel(root, vm=vm, on_close=lambda: None)
+    panel._editor_var.set("vscode")
+    vm._store.set_ui_pref.assert_called_with("projects_editor", "vscode")
+    panel.destroy()
+
+
+def test_panel_loads_saved_collapsed_state(root):
+    from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+    m = MagicMock(spec=WorkspaceProjectsViewModel)
+    m.load_projects.return_value = []
+    store = _make_vm_store()
+    store.get_ui_pref.side_effect = lambda key, default=None: {
+        "projects_editor": "cursor",
+        "projects_collapsed": ["auth-refactor"],
+    }.get(key, default)
+    m._store = store
+    panel = WorkspaceProjectsPanel(root, vm=m, on_close=lambda: None)
+    assert "auth-refactor" in panel._collapsed
+    panel.destroy()
+
+
+def test_panel_persists_collapsed_state_on_toggle(root, vm_with_projects):
+    from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+    panel = WorkspaceProjectsPanel(root, vm=vm_with_projects, on_close=lambda: None)
+    panel._toggle_collapse("my-feature")
+    saved = vm_with_projects._store.set_ui_pref.call_args
+    assert saved[0][0] == "projects_collapsed"
+    assert "my-feature" in saved[0][1]
     panel.destroy()

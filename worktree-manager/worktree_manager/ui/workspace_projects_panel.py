@@ -10,10 +10,16 @@ class WorkspaceProjectsPanel(ctk.CTkFrame):
         super().__init__(master)
         self._vm = vm
         self._on_close = on_close
-        self._editor_var = ctk.StringVar(value="cursor")
-        self._collapsed: set = set()
+        saved_editor = vm._store.get_ui_pref("projects_editor", "cursor")
+        self._editor_var = ctk.StringVar(value=saved_editor)
+        self._editor_var.trace_add("write", self._on_editor_changed)
+        saved_collapsed = vm._store.get_ui_pref("projects_collapsed", [])
+        self._collapsed: set = set(saved_collapsed)
         self._build()
         self.refresh()
+
+    def _on_editor_changed(self, *_):
+        self._vm._store.set_ui_pref("projects_editor", self._editor_var.get())
 
     def _build(self):
         toolbar = ctk.CTkFrame(self, corner_radius=0)
@@ -143,6 +149,7 @@ class WorkspaceProjectsPanel(ctk.CTkFrame):
             self._collapsed.discard(name)
         else:
             self._collapsed.add(name)
+        self._vm._store.set_ui_pref("projects_collapsed", list(self._collapsed))
         self.refresh()
 
     def _open_project(self, name: str, editor: str):
