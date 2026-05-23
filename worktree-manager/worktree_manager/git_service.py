@@ -89,9 +89,10 @@ class GitService:
 
     def checked_out_branch(self, worktree_path: str) -> str:
         try:
-            return self._run(
+            result = self._run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=worktree_path
             ).strip()
+            return "(detached)" if result == "HEAD" else result
         except subprocess.CalledProcessError:
             return "(detached)"
 

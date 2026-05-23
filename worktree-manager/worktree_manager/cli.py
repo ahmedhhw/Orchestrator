@@ -192,12 +192,12 @@ class App:
         self._current_frame.pack(side="left", fill="both", expand=True)
 
     def _refresh(self):
-        if self._active_repo_path:
-            self._show_main(self._active_repo_path)
-        elif self._current_frame is self._cc_panel:
+        if self._current_frame is self._cc_panel:
             self._show_command_center()
         elif getattr(self, "_wp_panel", None) and self._current_frame is self._wp_panel:
             self._wp_panel.refresh()
+        elif self._active_repo_path:
+            self._show_main(self._active_repo_path)
 
     def _show_settings(self, repo_path: str):
         from worktree_manager.setup_settings_vm import SettingsViewModel

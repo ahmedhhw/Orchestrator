@@ -188,6 +188,9 @@ def test_refresh_calls_show_main_when_repo_active():
     import worktree_manager.cli as cli_mod
     app = object.__new__(cli_mod.App)
     app._active_repo_path = "/repos/proj"
+    app._cc_panel = MagicMock()
+    app._wp_panel = None
+    app._current_frame = MagicMock()  # on worktree view — not cc or wp panel
     with patch.object(app, "_show_main") as mock_show:
         app._refresh()
     mock_show.assert_called_once_with("/repos/proj")
