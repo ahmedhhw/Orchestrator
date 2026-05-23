@@ -55,7 +55,7 @@ class MainWindow(ctk.CTkFrame):
 
         self._list_frame = ctk.CTkScrollableFrame(self)
         self._list_frame.pack(fill="both", expand=True, padx=16, pady=8)
-        attach_scroll_fix(self, self._list_frame)
+        attach_scroll_fix(self._list_frame)
 
     def refresh(self):
         for w in self._list_frame.winfo_children():

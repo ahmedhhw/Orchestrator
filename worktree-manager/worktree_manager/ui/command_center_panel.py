@@ -42,7 +42,7 @@ class CommandCenterPanel(ctk.CTkFrame):
 
         self._scroll = ctk.CTkScrollableFrame(self)
         self._scroll.pack(fill="both", expand=True, padx=8, pady=4)
-        attach_scroll_fix(self, self._scroll)
+        attach_scroll_fix(self._scroll)
 
         self._empty_label = ctk.CTkLabel(
             self._scroll,

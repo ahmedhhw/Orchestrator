@@ -88,7 +88,7 @@ class NewProjectDialog(ctk.CTkToplevel):
 
         self._list_frame = ctk.CTkScrollableFrame(self, height=100)
         self._list_frame.pack(fill="x", padx=24, pady=(0, 2))
-        attach_scroll_fix(self, self._list_frame)
+        attach_scroll_fix(self._list_frame)
 
         self._empty_list_label = ctk.CTkLabel(
             self._list_frame, text="(none)", text_color="gray", anchor="w"

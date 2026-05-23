@@ -52,7 +52,7 @@ class ManageCommandsDialog(ctk.CTkToplevel):
 
         self._list_frame = ctk.CTkScrollableFrame(self, width=440, height=300)
         self._list_frame.pack(fill="both", expand=True, padx=24, pady=(0, 8))
-        attach_scroll_fix(self, self._list_frame)
+        attach_scroll_fix(self._list_frame)
 
         footer = ctk.CTkFrame(self, fg_color="transparent")
         footer.pack(fill="x", padx=24, pady=(0, 16))

@@ -199,7 +199,7 @@ class App:
         if not self._repos_collapsed:
             repo_scroll = ctk.CTkScrollableFrame(sidebar, height=200)
             repo_scroll.pack(fill="x", padx=4, pady=(0, 2))
-            attach_scroll_fix(self._sidebar_frame, repo_scroll)
+            attach_scroll_fix(repo_scroll)
             self._repo_scroll = repo_scroll
             self._populate_repo_rows(repo_scroll, active_repo_path=active_repo_path)
 
@@ -230,7 +230,7 @@ class App:
         else:
             if self._repo_scroll is None and self._sidebar_frame:
                 repo_scroll = ctk.CTkScrollableFrame(self._sidebar_frame, height=200)
-                attach_scroll_fix(self._sidebar_frame, repo_scroll)
+                attach_scroll_fix(repo_scroll)
                 self._repo_scroll = repo_scroll
                 self._populate_repo_rows(repo_scroll)
             if self._repo_scroll:
