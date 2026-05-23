@@ -155,3 +155,41 @@ def test_find_returns_zero_for_no_match(pane):
     p.append_line("everything is fine")
     count = p.find("error")
     assert count == 0
+
+
+def test_update_run_id_changes_run_id(pane):
+    p, _, _, _ = pane
+    assert p._run_id == "r1"
+    p.update_run_id("r2")
+    assert p._run_id == "r2"
+
+
+def test_update_callbacks_routes_stop_to_new_callback(pane):
+    p, _, old_stop, _ = pane
+    new_stop = MagicMock()
+    p.update_callbacks(on_stop=new_stop, on_restart=MagicMock())
+    p.trigger_stop()
+    new_stop.assert_called_once()
+    old_stop.assert_not_called()
+
+
+def test_update_callbacks_routes_restart_to_new_callback(pane):
+    p, _, _, old_restart = pane
+    new_restart = MagicMock()
+    p.update_callbacks(on_stop=MagicMock(), on_restart=new_restart)
+    p.trigger_restart()
+    new_restart.assert_called_once()
+    old_restart.assert_not_called()
+
+
+def test_update_callbacks_routes_remove_to_new_callback(root, handle):
+    from worktree_manager.ui.command_pane import CommandPane
+    old_remove = MagicMock()
+    new_remove = MagicMock()
+    p = CommandPane(root, handle=handle,
+                    on_maximize=MagicMock(), on_stop=MagicMock(),
+                    on_restart=MagicMock(), on_remove=old_remove)
+    p.update_callbacks(on_stop=MagicMock(), on_restart=MagicMock(), on_remove=new_remove)
+    p.trigger_remove()
+    new_remove.assert_called_once()
+    old_remove.assert_not_called()

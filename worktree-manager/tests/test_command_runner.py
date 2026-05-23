@@ -125,3 +125,46 @@ def test_terminate_noop_for_already_exited_process(runner):
 
 def test_get_handle_returns_none_for_unknown_id(runner):
     assert runner.get_handle("nonexistent-id") is None
+
+
+def test_intentional_terminate_sets_status_stopped(runner):
+    from worktree_manager.command_runner import RunStatus
+    exited = {}
+
+    def on_exit(run_id, returncode):
+        exited["status"] = runner.get_handle(run_id).status
+
+    runner.exit_callback = on_exit
+    handle = runner.start([sys.executable, "-c", "import time; time.sleep(60)"])
+    time.sleep(0.1)
+    runner.terminate(handle.run_id, intentional=True)
+    deadline = time.time() + 3
+    while "status" not in exited and time.time() < deadline:
+        time.sleep(0.05)
+    assert exited["status"] == RunStatus.STOPPED
+
+
+def test_unintentional_terminate_sets_status_error(runner):
+    from worktree_manager.command_runner import RunStatus
+    exited = {}
+
+    def on_exit(run_id, returncode):
+        exited["status"] = runner.get_handle(run_id).status
+
+    runner.exit_callback = on_exit
+    handle = runner.start([sys.executable, "-c", "import time; time.sleep(60)"])
+    time.sleep(0.1)
+    runner.terminate(handle.run_id, intentional=False)
+    deadline = time.time() + 3
+    while "status" not in exited and time.time() < deadline:
+        time.sleep(0.05)
+    assert exited["status"] == RunStatus.ERROR
+
+
+def test_forget_removes_handle_and_proc(runner):
+    handle = runner.start([sys.executable, "-c", "import time; time.sleep(60)"])
+    time.sleep(0.1)
+    runner.terminate(handle.run_id, intentional=True)
+    runner.forget(handle.run_id)
+    assert runner.get_handle(handle.run_id) is None
+    assert handle.run_id not in runner._procs

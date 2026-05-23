@@ -39,6 +39,7 @@ def vm():
         WorktreeModel(path="/repos/proj-wt/feat", branch="feat-auth",
                       is_main=False, last_commit_ts=0, is_merged=False, is_stale=False),
     ]
+    m.find_existing_run.return_value = None
     return m
 
 
@@ -89,3 +90,56 @@ def test_cancel_closes_without_launching(root, vm):
     d = LaunchDialog(root, vm=vm)
     d.trigger_cancel()
     vm.launch.assert_not_called()
+
+
+def test_running_duplicate_shows_conflict_message_and_does_not_launch(root, vm):
+    from worktree_manager.command_runner import RunHandle, RunStatus
+    from worktree_manager.ui.launch_dialog import LaunchDialog
+    handle = RunHandle(
+        run_id="existing-r1", cmd_name="frontend", repo_path="/repos/proj",
+        repo_name="proj", worktree_path="/repos/proj-wt/main",
+        command=["npm", "run", "dev"], status=RunStatus.RUNNING,
+    )
+    vm.find_existing_run.return_value = handle
+    d = LaunchDialog(root, vm=vm)
+    d.set_command("frontend")
+    d.set_worktree("/repos/proj-wt/main")
+    d.trigger_launch()
+    vm.launch.assert_not_called()
+    label_text = d._conflict_label.cget("text")
+    assert "already running" in label_text
+
+
+def test_stopped_duplicate_shows_restart_prompt_and_does_not_launch(root, vm):
+    from worktree_manager.command_runner import RunHandle, RunStatus
+    from worktree_manager.ui.launch_dialog import LaunchDialog
+    handle = RunHandle(
+        run_id="existing-r2", cmd_name="frontend", repo_path="/repos/proj",
+        repo_name="proj", worktree_path="/repos/proj-wt/main",
+        command=["npm", "run", "dev"], status=RunStatus.STOPPED,
+    )
+    vm.find_existing_run.return_value = handle
+    d = LaunchDialog(root, vm=vm)
+    d.set_command("frontend")
+    d.set_worktree("/repos/proj-wt/main")
+    d.trigger_launch()
+    vm.launch.assert_not_called()
+    label_text = d._conflict_label.cget("text")
+    assert "stopped" in label_text.lower() or "restart" in label_text.lower()
+
+
+def test_stopped_duplicate_restart_calls_vm_restart(root, vm):
+    from worktree_manager.command_runner import RunHandle, RunStatus
+    from worktree_manager.ui.launch_dialog import LaunchDialog
+    handle = RunHandle(
+        run_id="existing-r1", cmd_name="frontend", repo_path="/repos/proj",
+        repo_name="proj", worktree_path="/repos/proj-wt/main",
+        command=["npm", "run", "dev"], status=RunStatus.STOPPED,
+    )
+    vm.find_existing_run.return_value = handle
+    d = LaunchDialog(root, vm=vm)
+    d.set_command("frontend")
+    d.set_worktree("/repos/proj-wt/main")
+    d.trigger_launch()
+    d._trigger_conflict_restart()
+    vm.restart.assert_called_with("existing-r1")

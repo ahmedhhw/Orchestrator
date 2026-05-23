@@ -6,6 +6,13 @@ from worktree_manager.models import SavedCommand
 from worktree_manager.git_service import GitService
 
 
+class DuplicateRunError(Exception):
+    """Raised when the same command is already running for the same repo+worktree."""
+    def __init__(self, run_id: str):
+        self.run_id = run_id
+        super().__init__(f"Command already running: {run_id}")
+
+
 class CommandCenterViewModel:
     def __init__(self, config_store: ConfigStore, git_service: GitService | None = None):
         self._store = config_store
@@ -41,6 +48,15 @@ class CommandCenterViewModel:
         command_str: str,
         worktree_path: str,
     ) -> str:
+        for handle in self._runner._handles.values():
+            if (
+                handle.status == RunStatus.RUNNING
+                and handle.cmd_name == cmd_name
+                and handle.repo_path == repo_path
+                and handle.worktree_path == worktree_path
+            ):
+                raise DuplicateRunError(handle.run_id)
+
         command = shlex.split(command_str)
         handle = self._runner.start(
             command=command,
@@ -62,7 +78,12 @@ class CommandCenterViewModel:
         return handle.run_id
 
     def stop(self, run_id: str) -> None:
-        self._runner.terminate(run_id)
+        self._runner.terminate(run_id, intentional=True)
+
+    def remove_run(self, run_id: str) -> None:
+        self._runner.terminate(run_id, intentional=True)
+        self._runner.forget(run_id)
+        self._run_meta.pop(run_id, None)
 
     def restart(self, run_id: str) -> str:
         meta = self._run_meta.get(run_id)
@@ -70,8 +91,9 @@ class CommandCenterViewModel:
             raise KeyError(run_id)
         old_handle = self._runner.get_handle(run_id)
         if old_handle:
-            self._runner.terminate(run_id)
+            self._runner.terminate(run_id, intentional=True)
             old_handle.output_lines.clear()
+            self._runner.forget(run_id)
 
         saved_on_run_added = self.on_run_added
         self.on_run_added = None
@@ -84,6 +106,17 @@ class CommandCenterViewModel:
 
     def get_run(self, run_id: str) -> RunHandle | None:
         return self._runner.get_handle(run_id)
+
+    def find_existing_run(self, cmd_name: str, repo_path: str, worktree_path: str) -> RunHandle | None:
+        """Return any existing handle (any status) matching the given command+repo+worktree."""
+        for handle in self._runner._handles.values():
+            if (
+                handle.cmd_name == cmd_name
+                and handle.repo_path == repo_path
+                and handle.worktree_path == worktree_path
+            ):
+                return handle
+        return None
 
     def all_runs(self) -> list[RunHandle]:
         return list(self._runner._handles.values())

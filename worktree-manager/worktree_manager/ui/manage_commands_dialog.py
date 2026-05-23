@@ -126,6 +126,14 @@ class ManageCommandsDialog(ctk.CTkToplevel):
         )
         edit_btn.pack(side="right", padx=(4, 0))
 
+        copy_btn = ctk.CTkButton(
+            btn_row, text="⎘", width=36,
+            fg_color=("gray75", "gray30"), text_color=("black", "white"),
+            hover_color=("gray65", "gray40"),
+            command=lambda c=command: self._copy_command(c),
+        )
+        copy_btn.pack(side="right", padx=(4, 0))
+
         del_btn = ctk.CTkButton(
             btn_row, text="Delete", width=70,
             fg_color="#b04545", hover_color="#8a3535",
@@ -133,7 +141,7 @@ class ManageCommandsDialog(ctk.CTkToplevel):
         )
         del_btn.pack(side="right")
 
-        self._all_action_buttons.extend([edit_btn, del_btn])
+        self._all_action_buttons.extend([edit_btn, copy_btn, del_btn])
 
     def _build_edit_row(self, name: str, command: str) -> None:
         row = ctk.CTkFrame(self._list_frame, border_width=1,
@@ -148,9 +156,12 @@ class ManageCommandsDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(row, text="Command", anchor="w",
                      font=ctk.CTkFont(size=11)).pack(anchor="w", padx=10)
-        cmd_entry = ctk.CTkEntry(row)
-        cmd_entry.insert(0, command)
-        cmd_entry.pack(fill="x", padx=10, pady=(2, 8))
+        cmd_text = ctk.CTkTextbox(row, height=80)
+        cmd_text.insert("1.0", command)
+        cmd_text.pack(fill="x", padx=10, pady=(2, 8))
+
+        def _get_cmd() -> str:
+            return cmd_text.get("1.0", "end").strip()
 
         btn_row = ctk.CTkFrame(row, fg_color="transparent")
         btn_row.pack(fill="x", padx=10, pady=(0, 10))
@@ -164,14 +175,13 @@ class ManageCommandsDialog(ctk.CTkToplevel):
 
         save_btn = ctk.CTkButton(
             btn_row, text="Save", width=80,
-            command=lambda: self._save_edit(name, name_entry.get(), cmd_entry.get()),
+            command=lambda: self._save_edit(name, name_entry.get(), _get_cmd()),
         )
         save_btn.pack(side="right")
 
-        name_entry.bind("<Return>", lambda e: self._save_edit(name, name_entry.get(), cmd_entry.get()))
+        name_entry.bind("<Return>", lambda e: self._save_edit(name, name_entry.get(), _get_cmd()))
         name_entry.bind("<Escape>", lambda e: self._cancel_edit())
-        cmd_entry.bind("<Return>", lambda e: self._save_edit(name, name_entry.get(), cmd_entry.get()))
-        cmd_entry.bind("<Escape>", lambda e: self._cancel_edit())
+        cmd_text.bind("<Escape>", lambda e: self._cancel_edit())
 
         name_entry.focus_set()
 
@@ -202,6 +212,10 @@ class ManageCommandsDialog(ctk.CTkToplevel):
         self._vm.save_command(repo_path, new_name, new_command)
         self._editing_name = None
         self._refresh_list()
+
+    def _copy_command(self, command: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(command)
 
     def _delete(self, name: str) -> None:
         self._vm.delete_command(self._current_repo_path(), name)

@@ -2,7 +2,7 @@ import sys
 import time
 import pytest
 from unittest.mock import MagicMock
-from worktree_manager.command_center_vm import CommandCenterViewModel
+from worktree_manager.command_center_vm import CommandCenterViewModel, DuplicateRunError
 from worktree_manager.models import SavedCommand, WorktreeModel
 from worktree_manager.command_runner import RunStatus
 
@@ -110,7 +110,7 @@ def test_restart_creates_new_run_id(vm, tmp_path):
     assert vm.get_run(new_run_id) is not None
 
 
-def test_restart_clears_old_run_output(vm, tmp_path):
+def test_restart_new_handle_starts_with_empty_output(vm, tmp_path):
     run_id = vm.launch(
         repo_path="/repos/proj",
         repo_name="proj",
@@ -119,9 +119,11 @@ def test_restart_clears_old_run_output(vm, tmp_path):
         worktree_path=str(tmp_path),
     )
     time.sleep(0.5)
-    vm.restart(run_id)
-    old_handle = vm.get_run(run_id)
-    assert old_handle.output_lines == []
+    new_run_id = vm.restart(run_id)
+    # old handle is forgotten; new handle starts fresh
+    assert vm.get_run(run_id) is None
+    new_handle = vm.get_run(new_run_id)
+    assert new_handle is not None
 
 
 def test_on_run_added_callback_fires(vm, tmp_path):
@@ -184,3 +186,120 @@ def test_list_worktrees_delegates_to_git(vm):
     wts = vm.list_worktrees("/repos/proj")
     assert len(wts) == 1
     mock_git.list_worktrees.assert_called_once()
+
+
+def test_stop_marks_intentional_so_status_is_stopped(vm, tmp_path):
+    run_id = vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    time.sleep(0.1)
+    vm.stop(run_id)
+    deadline = time.time() + 3
+    handle = vm.get_run(run_id)
+    while handle.status == RunStatus.RUNNING and time.time() < deadline:
+        time.sleep(0.05)
+    assert handle.status == RunStatus.STOPPED
+
+
+def test_remove_run_removes_handle_from_all_runs(vm, tmp_path):
+    run_id = vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    assert any(h.run_id == run_id for h in vm.all_runs())
+    vm.remove_run(run_id)
+    assert not any(h.run_id == run_id for h in vm.all_runs())
+
+
+def test_duplicate_launch_raises_when_running(vm, tmp_path):
+    vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    with pytest.raises(DuplicateRunError):
+        vm.launch(
+            repo_path="/repos/proj",
+            repo_name="proj",
+            cmd_name="sleep",
+            command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+            worktree_path=str(tmp_path),
+        )
+
+
+def test_find_existing_run_returns_running_handle(vm, tmp_path):
+    vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    handle = vm.find_existing_run("sleep", "/repos/proj", str(tmp_path))
+    assert handle is not None
+    assert handle.status == RunStatus.RUNNING
+
+
+def test_find_existing_run_returns_stopped_handle(vm, tmp_path):
+    run_id = vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    time.sleep(0.1)
+    vm.stop(run_id)
+    deadline = time.time() + 3
+    handle = vm.get_run(run_id)
+    while handle.status == RunStatus.RUNNING and time.time() < deadline:
+        time.sleep(0.05)
+    found = vm.find_existing_run("sleep", "/repos/proj", str(tmp_path))
+    assert found is not None
+    assert found.status == RunStatus.STOPPED
+
+
+def test_find_existing_run_returns_none_when_removed(vm, tmp_path):
+    run_id = vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    vm.remove_run(run_id)
+    assert vm.find_existing_run("sleep", "/repos/proj", str(tmp_path)) is None
+
+
+def test_find_existing_run_different_worktree_is_not_duplicate(vm, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    assert vm.find_existing_run("sleep", "/repos/proj", str(other)) is None
+
+
+def test_remove_run_removes_meta(vm, tmp_path):
+    run_id = vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    vm.remove_run(run_id)
+    assert run_id not in vm._run_meta

@@ -18,6 +18,7 @@ class CommandPane(ctk.CTkFrame):
     def __init__(self, master, handle: RunHandle, on_maximize, on_stop, on_restart, on_remove=None, show_popout_btn=True):
         super().__init__(master, corner_radius=6, border_width=1)
         self._handle = handle
+        self._run_id = handle.run_id
         self._on_maximize = on_maximize
         self._on_stop = on_stop
         self._on_restart = on_restart
@@ -101,6 +102,15 @@ class CommandPane(ctk.CTkFrame):
 
     def status_dot_color(self) -> str:
         return _STATUS_COLORS[self._status]
+
+    def update_run_id(self, run_id: str) -> None:
+        self._run_id = run_id
+
+    def update_callbacks(self, on_stop, on_restart, on_remove=None) -> None:
+        self._on_stop = on_stop
+        self._on_restart = on_restart
+        if on_remove is not None:
+            self._on_remove = on_remove
 
     def trigger_remove(self) -> None:
         if self._on_remove:

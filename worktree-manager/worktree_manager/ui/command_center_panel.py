@@ -108,10 +108,10 @@ class CommandCenterPanel(ctk.CTkFrame):
         pane = CommandPane(
             self._scroll,
             handle=handle,
-            on_maximize=lambda p: self._open_popout(p._handle.run_id),
-            on_stop=lambda: self._vm.stop(handle.run_id),
-            on_restart=lambda: self._do_restart(handle.run_id),
-            on_remove=lambda: self.remove_pane(handle.run_id),
+            on_maximize=lambda p: self._open_popout(p._run_id),
+            on_stop=lambda p=None: self._vm.stop(pane._run_id),
+            on_restart=lambda p=None: self._do_restart(pane._run_id),
+            on_remove=lambda p=None: self.remove_pane(pane._run_id),
         )
         self._panes[handle.run_id] = pane
         self._empty_label.pack_forget()
@@ -126,7 +126,7 @@ class CommandCenterPanel(ctk.CTkFrame):
         self._on_search_changed()
 
     def remove_pane(self, run_id: str) -> None:
-        self._vm.stop(run_id)
+        self._vm.remove_run(run_id)
         popout = self._popouts.pop(run_id, None)
         if popout and popout.winfo_exists():
             popout.destroy()
@@ -145,6 +145,12 @@ class CommandCenterPanel(ctk.CTkFrame):
         pane = self._panes.pop(old_id, None)
         if pane:
             self._panes[new_id] = pane
+            pane.update_run_id(new_id)
+            pane.update_callbacks(
+                on_stop=lambda: self._vm.stop(new_id),
+                on_restart=lambda: self._do_restart(new_id),
+                on_remove=lambda: self.remove_pane(new_id),
+            )
         popout = self._popouts.pop(old_id, None)
         if popout:
             self._popouts[new_id] = popout
@@ -160,7 +166,7 @@ class CommandCenterPanel(ctk.CTkFrame):
 
     def route_output(self, run_id: str, line: str) -> None:
         pane = self._panes.get(run_id)
-        if pane:
+        if pane and pane.winfo_exists():
             pane.append_line(line)
         popout = self._popouts.get(run_id)
         if popout and popout.winfo_exists():
@@ -168,7 +174,7 @@ class CommandCenterPanel(ctk.CTkFrame):
 
     def route_status(self, run_id: str, status: RunStatus) -> None:
         pane = self._panes.get(run_id)
-        if pane:
+        if pane and pane.winfo_exists():
             pane.set_status(status)
         popout = self._popouts.get(run_id)
         if popout and popout.winfo_exists():

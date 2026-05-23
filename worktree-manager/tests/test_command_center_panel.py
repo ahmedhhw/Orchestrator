@@ -156,3 +156,40 @@ def test_empty_state_hidden_when_pane_added(root, vm):
     p.add_pane(handle)
     root.update_idletasks()
     assert not p.empty_state_visible()
+
+
+def test_run_id_changed_remaps_pane(root, vm):
+    from worktree_manager.command_runner import RunHandle, RunStatus
+    from worktree_manager.ui.command_center_panel import CommandCenterPanel
+    p = CommandCenterPanel(root, vm=vm, on_close=MagicMock())
+    handle = RunHandle(run_id="old", cmd_name="frontend", repo_path="/repos/proj",
+                       repo_name="proj", worktree_path="/wt", command=[], status=RunStatus.RUNNING)
+    p.add_pane(handle)
+    root.update_idletasks()
+    p._on_run_id_changed("old", "new")
+    assert p.get_pane("new") is not None
+    assert p.get_pane("old") is None
+
+
+def test_run_id_changed_updates_pane_run_id(root, vm):
+    from worktree_manager.command_runner import RunHandle, RunStatus
+    from worktree_manager.ui.command_center_panel import CommandCenterPanel
+    p = CommandCenterPanel(root, vm=vm, on_close=MagicMock())
+    handle = RunHandle(run_id="old2", cmd_name="backend", repo_path="/repos/proj",
+                       repo_name="proj", worktree_path="/wt", command=[], status=RunStatus.RUNNING)
+    p.add_pane(handle)
+    root.update_idletasks()
+    p._on_run_id_changed("old2", "new2")
+    assert p.get_pane("new2")._run_id == "new2"
+
+
+def test_remove_pane_calls_vm_remove_run(root, vm):
+    from worktree_manager.command_runner import RunHandle, RunStatus
+    from worktree_manager.ui.command_center_panel import CommandCenterPanel
+    p = CommandCenterPanel(root, vm=vm, on_close=MagicMock())
+    handle = RunHandle(run_id="del2", cmd_name="svc", repo_path="/repos/proj",
+                       repo_name="proj", worktree_path="/wt", command=[], status=RunStatus.RUNNING)
+    p.add_pane(handle)
+    root.update_idletasks()
+    p.remove_pane("del2")
+    vm.remove_run.assert_called_with("del2")

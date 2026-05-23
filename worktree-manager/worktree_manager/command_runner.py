@@ -31,6 +31,7 @@ class CommandRunner:
     def __init__(self):
         self._handles: dict[str, RunHandle] = {}
         self._procs: dict[str, subprocess.Popen] = {}
+        self._intentional_stops: set[str] = set()
         self.output_callback = None  # Callable[[run_id, line], None]
         self.exit_callback = None    # Callable[[run_id, returncode], None]
 
@@ -78,14 +79,25 @@ class CommandRunner:
                 self.output_callback(run_id, line)
         proc.wait()
         handle.returncode = proc.returncode
-        handle.status = RunStatus.STOPPED if proc.returncode == 0 else RunStatus.ERROR
+        if proc.returncode == 0 or run_id in self._intentional_stops:
+            handle.status = RunStatus.STOPPED
+        else:
+            handle.status = RunStatus.ERROR
+        self._intentional_stops.discard(run_id)
         if self.exit_callback:
             self.exit_callback(run_id, proc.returncode)
 
-    def terminate(self, run_id: str) -> None:
+    def terminate(self, run_id: str, intentional: bool = False) -> None:
+        if intentional:
+            self._intentional_stops.add(run_id)
         proc = self._procs.get(run_id)
         if proc and proc.poll() is None:
             proc.terminate()
+
+    def forget(self, run_id: str) -> None:
+        self._handles.pop(run_id, None)
+        self._procs.pop(run_id, None)
+        self._intentional_stops.discard(run_id)
 
     def get_handle(self, run_id: str) -> RunHandle | None:
         return self._handles.get(run_id)

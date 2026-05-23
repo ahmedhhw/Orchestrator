@@ -196,7 +196,7 @@ class App:
             self._show_main(self._active_repo_path)
         elif self._current_frame is self._cc_panel:
             self._show_command_center()
-        elif self._current_frame is self._wp_panel:
+        elif getattr(self, "_wp_panel", None) and self._current_frame is self._wp_panel:
             self._wp_panel.refresh()
 
     def _show_settings(self, repo_path: str):

@@ -72,11 +72,24 @@ class LaunchDialog(ctk.CTkToplevel):
             self._cmd_list, text="No saved commands for this repo.", text_color="gray"
         )
 
+        self._conflict_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._conflict_frame.pack(fill="x", padx=24)
+        self._conflict_label = ctk.CTkLabel(
+            self._conflict_frame, text="", text_color="red", wraplength=260, justify="left", anchor="w"
+        )
+        self._conflict_label.pack(side="left", fill="x", expand=True)
+        self._restart_btn = ctk.CTkButton(
+            self._conflict_frame, text="Restart", width=80,
+            command=self._trigger_conflict_restart,
+        )
+
         btns = ctk.CTkFrame(self, fg_color="transparent")
         btns.pack(fill="x", padx=24, pady=(4, 16))
         ctk.CTkButton(btns, text="Cancel", fg_color="transparent",
                       border_width=1, command=self.trigger_cancel).pack(side="left", padx=4)
         ctk.CTkButton(btns, text="Launch", command=self.trigger_launch).pack(side="right", padx=4)
+
+        self._conflict_run_id: str | None = None
 
         if default_name:
             self._on_repo_changed(default_name)
@@ -171,10 +184,31 @@ class LaunchDialog(ctk.CTkToplevel):
     def trigger_launch(self) -> None:
         if self._selected_cmd is None:
             return
+        from worktree_manager.command_runner import RunStatus
         cmd_obj = self._selected_cmd
         repo_path = self._current_repo_path()
         worktree_path = self._current_worktree_path()
         repo_name = Path(repo_path).name
+
+        existing = None
+        if hasattr(self._vm, "find_existing_run"):
+            existing = self._vm.find_existing_run(cmd_obj.name, repo_path, worktree_path)
+
+        if existing is not None:
+            if existing.status == RunStatus.RUNNING:
+                self._show_conflict(
+                    f'"{cmd_obj.name}" is already running in this worktree.',
+                    show_restart=False,
+                    run_id=None,
+                )
+            else:
+                self._show_conflict(
+                    f'"{cmd_obj.name}" already exists but is stopped. Restart it?',
+                    show_restart=True,
+                    run_id=existing.run_id,
+                )
+            return
+
         self._vm.launch(
             repo_path=repo_path,
             repo_name=repo_name,
@@ -184,6 +218,19 @@ class LaunchDialog(ctk.CTkToplevel):
         )
         if hasattr(self._vm, "set_last_used_repo"):
             self._vm.set_last_used_repo(repo_path)
+        self.destroy()
+
+    def _show_conflict(self, message: str, show_restart: bool, run_id: str | None) -> None:
+        self._conflict_label.configure(text=message)
+        self._conflict_run_id = run_id
+        if show_restart:
+            self._restart_btn.pack(side="right")
+        else:
+            self._restart_btn.pack_forget()
+
+    def _trigger_conflict_restart(self) -> None:
+        if self._conflict_run_id and hasattr(self._vm, "restart"):
+            self._vm.restart(self._conflict_run_id)
         self.destroy()
 
     def trigger_cancel(self) -> None:
