@@ -30,6 +30,7 @@ class CleanupCandidate:
     merged_into: str | None = None
     has_uncommitted: bool = False
     is_checked_out: bool = False
+    is_protected: bool = False
 
 
 @dataclass

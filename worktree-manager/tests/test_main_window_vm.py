@@ -122,18 +122,23 @@ def test_all_cleanup_candidates_merged_into_field_populated(vm):
     assert merged[0].is_merged is True
 
 
-def test_all_cleanup_candidates_excludes_main_worktree(vm):
+def test_all_cleanup_candidates_includes_main_worktree_as_protected(vm):
     vm.load_worktrees()
     vm._git.list_local_branches.return_value = []
     candidates = vm.all_cleanup_candidates()
-    assert all(c.branch != "main" for c in candidates)
+    main_candidates = [c for c in candidates if c.branch == "main"]
+    assert len(main_candidates) == 1
+    assert main_candidates[0].is_protected is True
+    assert main_candidates[0].is_checked_out is True
 
 
-def test_all_cleanup_candidates_excludes_healthy_worktrees(vm):
+def test_all_cleanup_candidates_includes_protected_healthy_worktree_as_protected(vm):
     vm.load_worktrees()
     vm._git.list_local_branches.return_value = []
     candidates = vm.all_cleanup_candidates()
-    assert all(c.branch != "feature/auth" for c in candidates)
+    feature_auth = [c for c in candidates if c.branch == "feature/auth"]
+    assert len(feature_auth) == 1
+    assert feature_auth[0].is_protected is True
 
 
 def test_all_cleanup_candidates_worktree_has_path(vm):
@@ -183,7 +188,7 @@ def test_all_cleanup_candidates_includes_orphan_stale_branch(store, git):
     assert "experiment/xyz" in [c.branch for c in candidates]
 
 
-def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git):
+def test_all_cleanup_candidates_includes_protected_orphan_branch_as_protected(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -199,7 +204,9 @@ def test_all_cleanup_candidates_excludes_healthy_orphan_branch(store, git):
     )
     vm.load_worktrees()
     candidates = vm.all_cleanup_candidates()
-    assert all(c.branch != "feature/wip" for c in candidates)
+    feature_wip = [c for c in candidates if c.branch == "feature/wip"]
+    assert len(feature_wip) == 1
+    assert feature_wip[0].is_protected is True
 
 
 def test_all_cleanup_candidates_orphan_has_no_path(store, git):
@@ -305,14 +312,16 @@ def test_create_worktree_new_branch(vm):
     )
 
 
-# Phase 3 — all_cleanup_candidates includes all non-protected branches
+# Phase 3 — all_cleanup_candidates includes protected branches with is_protected=True
 
-def test_all_cleanup_candidates_excludes_protected_worktree(vm):
+def test_all_cleanup_candidates_protected_worktree_has_is_protected_true(vm):
     vm.load_worktrees()
     vm._git.list_local_branches.return_value = []
     candidates = vm.all_cleanup_candidates()
-    assert all(not c.branch.startswith("feature/") for c in candidates)
-    assert all(c.branch != "main" for c in candidates)
+    feature_candidates = [c for c in candidates if c.branch.startswith("feature/")]
+    assert all(c.is_protected for c in feature_candidates)
+    main_candidates = [c for c in candidates if c.branch == "main"]
+    assert len(main_candidates) == 1 and main_candidates[0].is_protected
 
 
 def test_all_cleanup_candidates_includes_healthy_worktree(vm, store, git):
@@ -334,7 +343,7 @@ def test_all_cleanup_candidates_includes_healthy_worktree(vm, store, git):
     assert any(c.branch == "wip/thing" for c in candidates)
 
 
-def test_all_cleanup_candidates_excludes_protected_orphan(store, git):
+def test_all_cleanup_candidates_protected_orphan_has_is_protected_true(store, git):
     now = int(time.time())
     git.list_worktrees.return_value = [
         WorktreeModel("/repos/proj", "main", True, now, False, False),
@@ -350,8 +359,9 @@ def test_all_cleanup_candidates_excludes_protected_orphan(store, git):
     )
     local_vm.load_worktrees()
     candidates = local_vm.all_cleanup_candidates()
-    assert all(c.branch != "feature/payments" for c in candidates)
-    assert all(c.branch != "main" for c in candidates)
+    feature_pay = [c for c in candidates if c.branch == "feature/payments"]
+    assert len(feature_pay) == 1
+    assert feature_pay[0].is_protected is True
 
 
 def test_all_cleanup_candidates_includes_healthy_orphan(store, git):

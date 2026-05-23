@@ -127,7 +127,7 @@ def test_cleanup_wizard_smoke_with_healthy_and_stale(root):
     wiz.destroy()
 
 
-def test_uncommitted_item_is_unchecked(root):
+def test_uncommitted_item_not_in_selectable_pairs(root):
     from worktree_manager.ui.cleanup_wizard import CleanupWizard
     from worktree_manager.models import CleanupCandidate
     import time
@@ -137,8 +137,8 @@ def test_uncommitted_item_is_unchecked(root):
         last_commit_ts=now - 40 * 86400, has_uncommitted=True,
     )
     wiz = CleanupWizard(root, candidates=[c], on_delete_selected=MagicMock())
-    status = {cand.branch: v.get() for cand, v in wiz._all_pairs}
-    assert status["wip/dirty"] is False
+    pair_branches = [cand.branch for cand, _ in wiz._all_pairs]
+    assert "wip/dirty" not in pair_branches
     wiz.destroy()
 
 
@@ -394,13 +394,13 @@ def test_group_candidates_healthy_preserves_insertion_order():
 def test_group_candidates_empty_list_returns_empty_groups():
     from worktree_manager.ui.cleanup_wizard import _group_candidates
     result = _group_candidates([])
-    assert result == {"merged": [], "stale": [], "healthy": []}
+    assert result == {"merged": [], "stale": [], "healthy": [], "protected": [], "unoperable": []}
 
 
-def test_group_candidates_returns_all_three_keys():
+def test_group_candidates_returns_all_five_keys():
     from worktree_manager.ui.cleanup_wizard import _group_candidates
     result = _group_candidates([])
-    assert set(result.keys()) == {"merged", "stale", "healthy"}
+    assert set(result.keys()) == {"merged", "stale", "healthy", "protected", "unoperable"}
 
 
 # ---------------------------------------------------------------------------

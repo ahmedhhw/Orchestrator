@@ -95,7 +95,7 @@ def test_cleanup_wizard_priority_items_pre_checked(root):
     wizard.destroy()
 
 
-def test_cleanup_wizard_uncommitted_items_disabled(root):
+def test_cleanup_wizard_uncommitted_items_not_selectable(root):
     import customtkinter as ctk
     from worktree_manager.models import CleanupCandidate
     from worktree_manager.ui.cleanup_wizard import CleanupWizard
@@ -104,7 +104,7 @@ def test_cleanup_wizard_uncommitted_items_disabled(root):
         CleanupCandidate("fix/dirty", None, True, False, now - 5 * 86400, "main", has_uncommitted=True),
     ]
     wizard = CleanupWizard(root, candidates=candidates, on_delete_selected=lambda s: None)
-    # Uncommitted item should not be checked
-    status = {c.branch: v.get() for c, v in wizard._all_pairs}
-    assert status["fix/dirty"] is False
+    # Uncommitted item is in the unoperable bucket — not in _all_pairs at all
+    pair_branches = [c.branch for c, _ in wizard._all_pairs]
+    assert "fix/dirty" not in pair_branches
     wizard.destroy()

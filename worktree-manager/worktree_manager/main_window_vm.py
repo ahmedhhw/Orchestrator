@@ -93,10 +93,7 @@ class MainWindowViewModel:
         non_main_worktree_branches = {wt.branch for wt in self._worktrees if not wt.is_main}
         candidates = []
 
-        worktree_wts = [
-            wt for wt in self._worktrees
-            if not wt.is_main and not self.is_protected_branch(wt.branch)
-        ]
+        worktree_wts = list(self._worktrees)
 
         with ThreadPoolExecutor() as executor:
             uncommitted_results = list(executor.map(
@@ -116,6 +113,7 @@ class MainWindowViewModel:
                 merged_into=merged_into,
                 has_uncommitted=has_uncommitted,
                 is_checked_out=True,
+                is_protected=wt.is_main or self.is_protected_branch(wt.branch),
             ))
 
         all_checked_out = {wt.branch for wt in self._worktrees}
@@ -125,16 +123,13 @@ class MainWindowViewModel:
         for branch in self._git.list_local_branches(self._repo_path):
             if branch in non_main_worktree_branches:
                 continue
-            if self.is_protected_branch(branch):
+            if branch == main_branch:
                 continue
+            is_protected = self.is_protected_branch(branch)
             ts = self._git.last_commit_ts(self._repo_path, branch)
             merged_into = merged_map.get(branch)
             stale = ts > 0 and ts < stale_threshold
             is_checked_out = branch in all_checked_out
-            has_uncommitted = (
-                self._git.has_uncommitted_changes(self._repo_path)
-                if branch == main_branch else False
-            )
             candidates.append(CleanupCandidate(
                 branch=branch,
                 path=None,
@@ -142,8 +137,9 @@ class MainWindowViewModel:
                 is_stale=stale,
                 last_commit_ts=ts,
                 merged_into=merged_into,
-                has_uncommitted=has_uncommitted,
+                has_uncommitted=False,
                 is_checked_out=is_checked_out,
+                is_protected=is_protected,
             ))
 
         return candidates

@@ -318,12 +318,15 @@ def test_delete_cleanup_never_calls_delete_worktree_even_with_path(tmp_path):
     assert git.delete_branch.call_count == 2
 
 
-def test_main_worktree_branch_included_in_cleanup_candidates(tmp_path):
+def test_main_worktree_branch_included_as_protected(tmp_path):
     now = int(time.time())
     worktrees = [WorktreeModel("/repos/proj", "mystuff", True, now, False, False)]
     vm, git = _make_vm(tmp_path, worktrees, ["mystuff", "old/branch"])
     candidates = vm.all_cleanup_candidates()
-    assert any(c.branch == "mystuff" for c in candidates)
+    mystuff = [c for c in candidates if c.branch == "mystuff"]
+    assert len(mystuff) == 1
+    assert mystuff[0].is_protected is True
+    assert mystuff[0].is_checked_out is True
 
 
 def test_non_main_worktree_branch_not_duplicated_in_cleanup_candidates(tmp_path):
@@ -337,14 +340,17 @@ def test_non_main_worktree_branch_not_duplicated_in_cleanup_candidates(tmp_path)
     assert len([c for c in candidates if c.branch == "fix/auth"]) == 1
 
 
-def test_main_worktree_branch_with_uncommitted_marked_has_uncommitted(tmp_path):
+def test_non_main_worktree_branch_with_uncommitted_marked_has_uncommitted(tmp_path):
     now = int(time.time())
-    worktrees = [WorktreeModel("/repos/proj", "mystuff", True, now, False, False)]
-    vm, git = _make_vm(tmp_path, worktrees, ["mystuff"])
+    worktrees = [
+        WorktreeModel("/repos/proj", "main", True, now, False, False),
+        WorktreeModel("/repos/proj-wt/fix-stuff", "fix/stuff", False, now - 3600, False, False),
+    ]
+    vm, git = _make_vm(tmp_path, worktrees, ["main", "fix/stuff"])
     git.has_uncommitted_changes.return_value = True
     candidates = vm.all_cleanup_candidates()
-    mystuff = next(c for c in candidates if c.branch == "mystuff")
-    assert mystuff.has_uncommitted is True
+    fix_stuff = next(c for c in candidates if c.branch == "fix/stuff")
+    assert fix_stuff.has_uncommitted is True
 
 
 def test_non_checked_out_branch_has_no_uncommitted_flag(tmp_path):

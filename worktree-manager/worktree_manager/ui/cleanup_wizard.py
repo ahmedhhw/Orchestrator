@@ -24,13 +24,27 @@ def _merge_sort_key(c) -> tuple:
     return (target, c.branch.lower())
 
 
+def _merged_subgroups(merged: list) -> list:
+    """Return [(target, [candidates...]), ...] sorted by target name."""
+    groups: dict = {}
+    for c in merged:
+        target = c.merged_into or "main"
+        groups.setdefault(target, []).append(c)
+    for branches in groups.values():
+        branches.sort(key=lambda c: c.branch.lower())
+    return sorted(groups.items(), key=lambda kv: kv[0].lower())
+
+
 def _group_candidates(candidates: list) -> dict:
-    merged = [c for c in candidates if c.is_merged]
-    stale = [c for c in candidates if c.is_stale and not c.is_merged]
-    healthy = [c for c in candidates if not c.is_stale and not c.is_merged]
+    unoperable = [c for c in candidates if c.has_uncommitted or c.is_checked_out]
+    protected = [c for c in candidates if c.is_protected and not c.has_uncommitted and not c.is_checked_out]
+    operable = [c for c in candidates if not c.is_protected and not c.has_uncommitted and not c.is_checked_out]
+    merged = [c for c in operable if c.is_merged]
+    stale = [c for c in operable if c.is_stale and not c.is_merged]
+    healthy = [c for c in operable if not c.is_stale and not c.is_merged]
     merged.sort(key=_merge_sort_key)
     stale.sort(key=lambda c: c.last_commit_ts)
-    return {"merged": merged, "stale": stale, "healthy": healthy}
+    return {"merged": merged, "stale": stale, "healthy": healthy, "protected": protected, "unoperable": unoperable}
 
 
 class CleanupWizard(ctk.CTkToplevel):
@@ -42,15 +56,20 @@ class CleanupWizard(ctk.CTkToplevel):
         self._all_pairs: list = []
 
         grouped = _group_candidates(candidates)
-        ordered = grouped["merged"] + grouped["stale"] + grouped["healthy"]
-        for c in ordered:
-            is_priority = c.is_stale or c.is_merged
-            disabled = c.has_uncommitted or c.is_checked_out
-            var = ctk.BooleanVar(value=False if disabled else is_priority)
+        operable = grouped["merged"] + grouped["stale"] + grouped["healthy"]
+        for c in operable:
+            var = ctk.BooleanVar(value=c.is_stale or c.is_merged)
             self._all_pairs.append((c, var))
 
         self._grouped = grouped
+        # Button refs populated during _build; keyed by target for subgroups
+        self._global_btn: ctk.CTkButton | None = None
+        self._subgroup_btn: dict = {}
+        self._stale_btn: ctk.CTkButton | None = None
+
         self._build()
+        self._wire_traces()
+        self._refresh_button_labels()
 
     def _build(self):
         ctk.CTkLabel(
@@ -60,38 +79,100 @@ class CleanupWizard(ctk.CTkToplevel):
         scroll = ctk.CTkScrollableFrame(self, height=280)
         scroll.pack(fill="x", padx=24, pady=(4, 8))
 
-        groups_to_show = [
-            ("Merged:", self._grouped["merged"]),
-            ("Stale:", self._grouped["stale"]),
-            ("Healthy:", self._grouped["healthy"]),
-        ]
-
-        for i, (label_text, items) in enumerate(groups_to_show):
-            if i > 0:
-                ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
+        # Merged section — sub-grouped by target
+        ctk.CTkLabel(
+            scroll, text="Merged:", text_color="gray",
+            font=ctk.CTkFont(size=11), anchor="w",
+        ).pack(fill="x", padx=4, pady=(0, 2))
+        merged = self._grouped["merged"]
+        if merged:
+            for target, branches in _merged_subgroups(merged):
+                sub_header = ctk.CTkFrame(scroll, fg_color="transparent")
+                sub_header.pack(fill="x", pady=(4, 0))
+                ctk.CTkLabel(
+                    sub_header, text=f"  → into {target}", text_color="gray",
+                    font=ctk.CTkFont(size=11), anchor="w",
+                ).pack(side="left", padx=4)
+                btn = ctk.CTkButton(
+                    sub_header, text="Select all", fg_color="gray",
+                    text_color=("black", "white"), width=80, height=20,
+                    font=ctk.CTkFont(size=11),
+                    command=lambda t=target: self._toggle_subgroup(t),
+                )
+                btn.pack(side="right", padx=4)
+                self._subgroup_btn[target] = btn
+                for c in branches:
+                    self._add_item(scroll, c)
+        else:
             ctk.CTkLabel(
-                scroll, text=label_text, text_color="gray",
+                scroll, text="(none)", text_color="gray",
+                font=ctk.CTkFont(size=11), anchor="w",
+            ).pack(fill="x", padx=8, pady=(0, 2))
+
+        # Stale section — with Select all button
+        ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
+        stale_header = ctk.CTkFrame(scroll, fg_color="transparent")
+        stale_header.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(
+            stale_header, text="Stale:", text_color="gray",
+            font=ctk.CTkFont(size=11), anchor="w",
+        ).pack(side="left", padx=4)
+        if self._grouped["stale"]:
+            self._stale_btn = ctk.CTkButton(
+                stale_header, text="Select all", fg_color="gray",
+                text_color=("black", "white"), width=80, height=20,
+                font=ctk.CTkFont(size=11),
+                command=self._toggle_stale,
+            )
+            self._stale_btn.pack(side="right", padx=4)
+            for c in self._grouped["stale"]:
+                self._add_item(scroll, c)
+        else:
+            ctk.CTkLabel(
+                scroll, text="(none)", text_color="gray",
+                font=ctk.CTkFont(size=11), anchor="w",
+            ).pack(fill="x", padx=8, pady=(0, 2))
+
+        # Healthy section
+        ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
+        ctk.CTkLabel(
+            scroll, text="Healthy:", text_color="gray",
+            font=ctk.CTkFont(size=11), anchor="w",
+        ).pack(fill="x", padx=4, pady=(0, 2))
+        if self._grouped["healthy"]:
+            for c in self._grouped["healthy"]:
+                self._add_item(scroll, c)
+        else:
+            ctk.CTkLabel(
+                scroll, text="(none)", text_color="gray",
+                font=ctk.CTkFont(size=11), anchor="w",
+            ).pack(fill="x", padx=8, pady=(0, 2))
+
+        if self._grouped["protected"]:
+            ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
+            ctk.CTkLabel(
+                scroll, text="Protected:", text_color="gray",
                 font=ctk.CTkFont(size=11), anchor="w",
             ).pack(fill="x", padx=4, pady=(0, 2))
-            if items:
-                for c in items:
-                    self._add_item(scroll, c)
-            else:
-                ctk.CTkLabel(
-                    scroll, text="(none)", text_color="gray",
-                    font=ctk.CTkFont(size=11), anchor="w",
-                ).pack(fill="x", padx=8, pady=(0, 2))
+            for c in self._grouped["protected"]:
+                self._add_protected_item(scroll, c)
+
+        if self._grouped["unoperable"]:
+            ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
+            ctk.CTkLabel(
+                scroll, text="Cannot delete:", text_color="gray",
+                font=ctk.CTkFont(size=11), anchor="w",
+            ).pack(fill="x", padx=4, pady=(0, 2))
+            for c in self._grouped["unoperable"]:
+                self._add_unoperable_item(scroll, c)
 
         btn_frame = ctk.CTkFrame(self)
         btn_frame.pack(fill="x", padx=24, pady=16)
-        ctk.CTkButton(
+        self._global_btn = ctk.CTkButton(
             btn_frame, text="Select All", fg_color="gray",
-            text_color=("black", "white"), command=self._select_all
-        ).pack(side="left", padx=(0, 4))
-        ctk.CTkButton(
-            btn_frame, text="Deselect All", fg_color="gray",
-            text_color=("black", "white"), command=self._deselect_all
-        ).pack(side="left")
+            text_color=("black", "white"), command=self._toggle_all,
+        )
+        self._global_btn.pack(side="left", padx=(0, 4))
         ctk.CTkButton(
             btn_frame, text="Cancel", fg_color="gray",
             text_color=("black", "white"), command=self.destroy
@@ -105,24 +186,91 @@ class CleanupWizard(ctk.CTkToplevel):
         var = next(v for cand, v in self._all_pairs if cand is c)
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", pady=2)
-        cb = ctk.CTkCheckBox(
+        ctk.CTkCheckBox(
             row, text=f"{c.branch}  ({_reason(c)})", variable=var
+        ).pack(side="left", padx=4)
+
+    def _add_protected_item(self, parent, c: CleanupCandidate):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        cb = ctk.CTkCheckBox(
+            row, text=f"{c.branch}  ({_reason(c)})", variable=ctk.BooleanVar(value=False),
         )
+        cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
+                     fg_color="gray50", border_color="gray50")
         cb.pack(side="left", padx=4)
-        if c.has_uncommitted:
-            cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
-                         fg_color="gray50", border_color="gray50")
-            ctk.CTkLabel(
-                row, text="⚠ uncommitted", text_color="orange",
-                font=ctk.CTkFont(size=11),
-            ).pack(side="left", padx=(6, 0))
-        elif c.is_checked_out:
-            cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
-                         fg_color="gray50", border_color="gray50")
-            ctk.CTkLabel(
-                row, text="⚠ checked out", text_color="orange",
-                font=ctk.CTkFont(size=11),
-            ).pack(side="left", padx=(6, 0))
+        tag = "⚠ main" if c.branch == "main" else "⚠ feature"
+        ctk.CTkLabel(
+            row, text=tag, text_color="orange",
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=(6, 0))
+
+    def _add_unoperable_item(self, parent, c: CleanupCandidate):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=2)
+        ctk.CTkLabel(
+            row, text=f"—   {c.branch}  ({_reason(c)})", text_color="gray50",
+            font=ctk.CTkFont(size=11), anchor="w",
+        ).pack(side="left", padx=4)
+        tag = "⚠ uncommitted" if c.has_uncommitted else "⚠ checked out"
+        ctk.CTkLabel(
+            row, text=tag, text_color="orange",
+            font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=(6, 0))
+
+    def _wire_traces(self):
+        for _, v in self._all_pairs:
+            v.trace_add("write", lambda *_: self._refresh_button_labels())
+
+    def _refresh_button_labels(self):
+        if self._global_btn:
+            all_checked = bool(self._all_pairs) and all(v.get() for _, v in self._all_pairs)
+            self._global_btn.configure(text="Deselect All" if all_checked else "Select All")
+
+        for target, btn in self._subgroup_btn.items():
+            group_pairs = [(c, v) for c, v in self._all_pairs if c.is_merged and (c.merged_into or "main") == target]
+            all_checked = bool(group_pairs) and all(v.get() for _, v in group_pairs)
+            btn.configure(text="Deselect all" if all_checked else "Select all")
+
+        if self._stale_btn:
+            stale_pairs = [(c, v) for c, v in self._all_pairs if c.is_stale and not c.is_merged]
+            all_checked = bool(stale_pairs) and all(v.get() for _, v in stale_pairs)
+            self._stale_btn.configure(text="Deselect all" if all_checked else "Select all")
+
+    def _toggle_all(self):
+        all_checked = bool(self._all_pairs) and all(v.get() for _, v in self._all_pairs)
+        if all_checked:
+            self._deselect_all()
+        else:
+            self._select_all()
+
+    def _toggle_subgroup(self, target: str):
+        group_pairs = [(c, v) for c, v in self._all_pairs if c.is_merged and (c.merged_into or "main") == target]
+        all_checked = bool(group_pairs) and all(v.get() for _, v in group_pairs)
+        if all_checked:
+            for _, v in group_pairs:
+                v.set(False)
+        else:
+            self._select_subgroup(target)
+
+    def _toggle_stale(self):
+        stale_pairs = [(c, v) for c, v in self._all_pairs if c.is_stale and not c.is_merged]
+        all_checked = bool(stale_pairs) and all(v.get() for _, v in stale_pairs)
+        if all_checked:
+            for _, v in stale_pairs:
+                v.set(False)
+        else:
+            self._select_stale()
+
+    def _select_stale(self):
+        for c, v in self._all_pairs:
+            if c.is_stale and not c.is_merged:
+                v.set(True)
+
+    def _select_subgroup(self, target: str):
+        for c, v in self._all_pairs:
+            if c.is_merged and (c.merged_into or "main") == target:
+                v.set(True)
 
     def _select_all(self):
         for _, v in self._all_pairs:

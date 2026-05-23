@@ -134,3 +134,66 @@ sequenceDiagram
 ## Open Questions
 
 (none)
+
+## Iteration Plan
+
+### Iteration 0 — Walking Skeleton: Three-bucket routing
+**Delivers:** The Cleanup Wizard shows all branches in three sections — Merged/Stale/Healthy (operable), Protected (greyed, disabled), and Cannot delete (dash, no checkbox) — and the VM supplies protected branches with `is_protected=True`.
+**Scope:**
+- Add `is_protected: bool = False` to `CleanupCandidate`
+- Update `all_cleanup_candidates()` to include protected branches (main, feature/*) with `is_protected=True` instead of skipping them
+- Update `_group_candidates()` to return a `protected` and `unoperable` bucket alongside the existing three
+- Render Protected section: disabled checkboxes, `⚠ main` / `⚠ feature` warning tags
+- Render "Cannot delete" section: dash label only (no checkbox), `⚠ checked out` / `⚠ uncommitted` tags
+- `[Select All]` / `[Deselect All]` never touch protected or unoperable items
+**Explicitly out of scope:** Merged sub-groups with per-target `[Select all]`; Admin Mode toggle; warning banner.
+
+### Iteration 1 — Merged sub-groups with [Select all] per target
+**Delivers:** Inside the Merged section, operable branches are sub-grouped by merge target, each sub-group headed by `→ into <target>` with its own `[Select all]` button.
+**Scope:**
+- Sub-group operable merged branches by `merged_into` target in `_group_candidates()`
+- Render sub-group headers with per-group `[Select all]` buttons (operable only)
+- Per-group `[Select all]` only touches that target's operable branches
+- Global `[Select All]` / `[Deselect All]` still never touch protected or unoperable items
+**Builds on:** Iteration 0.
+
+### Iteration 2 — Admin Mode toggle
+**Delivers:** An Admin Mode checkbox below the list enables individual selection of protected branches, with a warning banner at the top while active; protected branches are never pre-checked.
+**Scope:**
+- Admin Mode `BooleanVar` wired to a `CTkCheckBox` below the scrollable list
+- Warning banner appears at top of wizard when Admin Mode is ON, hidden when OFF
+- `⚠ admin only` label appears next to Protected section header when Admin Mode is ON
+- Protected checkboxes enabled/disabled reactively on toggle
+- Protected branches never pre-checked, even when Admin Mode is ON
+**Builds on:** Iteration 1.
+
+## ✋ Manual Testing Gate — Iteration 0
+
+> STOP. Do not proceed to Iteration 1 until every item below is checked off by the user.
+
+- [ ] Open the Cleanup Wizard in a repo that has at least one `main` and one `feature/*` branch — confirm a "Protected:" section appears at the bottom of the list with those branches greyed out and a `⚠ main` / `⚠ feature` tag next to each
+- [ ] Confirm the protected branches have disabled (greyed) checkboxes that cannot be checked
+- [ ] If a worktree is currently checked out or has uncommitted changes, confirm it appears in a "Cannot delete:" section with a dash instead of a checkbox, and `⚠ checked out` or `⚠ uncommitted` tag
+- [ ] Click `[Select All]` — confirm no protected or unoperable branches get checked
+- [ ] Click `[Deselect All]` — confirm no protected or unoperable branches change state
+- [ ] Confirm operable merged/stale/healthy branches still appear in their sections as before and behave normally
+
+**How to confirm:** Run the app, open the Cleanup Wizard, and check off each item manually.
+Reply "Iteration 0 confirmed" (or describe any failures) before I plan Iteration 1.
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] Open the Cleanup Wizard — the Merged section shows sub-group headers like `→ into main` and `→ into feature/payments` instead of a flat list
+- [ ] Each sub-group header has a `[Select all]` button next to it
+- [ ] Click `[Select all]` for `→ into main` — only branches merged into main get checked; branches merged into other targets are unaffected
+- [ ] Click `[Select all]` for `→ into feature/payments` — only those branches get checked
+- [ ] Confirm `[Select all]` sub-group buttons never check Protected or Cannot-delete branches
+- [ ] The Stale section header also has a `[Select all]` button — clicking it checks only stale branches and leaves everything else untouched
+- [ ] Global `[Select All]` and `[Deselect All]` still work correctly on operable branches and do not affect Protected or Cannot-delete
+- [ ] Regression: Protected section still appears with disabled checkboxes and warning tags
+- [ ] Regression: Cannot delete section still appears with dash labels and warning tags
+
+**How to confirm:** Run the app, open the Cleanup Wizard on the test repo, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I plan Iteration 2.
