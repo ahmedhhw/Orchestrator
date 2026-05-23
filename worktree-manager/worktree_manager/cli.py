@@ -36,6 +36,8 @@ class App:
         self._git = GitService()
         self._current_frame = None
         self._sidebar_frame = None
+        self._repo_scroll = None
+        self._repo_buttons: dict = {}
         self._cc_panel = None
         self._wp_panel = None
         self._active_repo_path = None
@@ -67,7 +69,7 @@ class App:
 
     def _show_empty_main(self):
         self._clear_main()
-        self._show_sidebar(active_repo_path=None)
+        self._ensure_sidebar()
 
         frame = self._ctk.CTkFrame(self._root)
         frame.pack(side="left", fill="both", expand=True)
@@ -78,6 +80,77 @@ class App:
             justify="center",
         ).place(relx=0.5, rely=0.5, anchor="center")
         self._current_frame = frame
+
+    def _ensure_sidebar(self):
+        """Build the sidebar once; no-op if it already exists."""
+        if self._sidebar_frame and self._sidebar_frame.winfo_exists():
+            return
+        self._show_sidebar(active_repo_path=getattr(self, "_active_repo_path", None))
+
+    def _update_repo_selection(self, new_path: str):
+        """Swap active/inactive visual state on the two affected buttons only."""
+        if new_path == self._active_repo_path:
+            return
+        old_path = self._active_repo_path
+        self._active_repo_path = new_path
+        if old_path and old_path in self._repo_buttons:
+            old_btn = self._repo_buttons[old_path]
+            old_btn.configure(
+                text="○ " + Path(old_path).name,
+                fg_color="transparent",
+                text_color=("gray10", "gray90"),
+            )
+        if new_path and new_path in self._repo_buttons:
+            new_btn = self._repo_buttons[new_path]
+            new_btn.configure(
+                text="● " + Path(new_path).name,
+                fg_color="gray30",
+                text_color="white",
+            )
+
+    def _populate_repo_rows(self, repo_scroll, active_repo_path=None):
+        """Render repo rows into *repo_scroll*, storing button refs."""
+        import customtkinter as ctk
+        self._repo_buttons = {}
+        active = active_repo_path if active_repo_path is not None else self._active_repo_path
+        repos = self._store.all_repos()
+        for path, cfg in repos.items():
+            name = Path(path).name
+            is_active = active is not None and path == active
+
+            row = ctk.CTkFrame(repo_scroll, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+
+            btn = ctk.CTkButton(
+                row,
+                text=("● " if is_active else "○ ") + name,
+                anchor="w",
+                fg_color=("gray30" if is_active else "transparent"),
+                hover_color="gray25",
+                text_color=("white" if is_active else ("gray10", "gray90")),
+                command=lambda p=path: self._switch_repo(p),
+            )
+            btn.pack(side="left", fill="x", expand=True)
+            self._repo_buttons[path] = btn
+            try:
+                btn._text_label.configure(wraplength=150)
+            except Exception:
+                pass
+
+            ctk.CTkButton(
+                row, text="✕", width=28, fg_color="#c0392b",
+                hover_color="#96281b",
+                command=lambda p=path, a=is_active: self._confirm_delete_repo(p, is_active=a),
+            ).pack(side="right", padx=(2, 0))
+
+    def _rebuild_repo_rows(self):
+        """Clear and re-render rows inside the existing scroll frame. No-op if collapsed."""
+        if getattr(self, "_repo_scroll", None) is None:
+            return
+        for child in self._repo_scroll.winfo_children():
+            child.destroy()
+        self._populate_repo_rows(self._repo_scroll)
+        self._update_repo_selection(self._active_repo_path)
 
     def _show_sidebar(self, active_repo_path: str):
         import customtkinter as ctk
@@ -90,6 +163,8 @@ class App:
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
         self._sidebar_frame = sidebar
+        self._repo_scroll = None
+        self._repo_buttons = {}
 
         # ── Top action buttons ────────────────────────────────────────────────
         ctk.CTkButton(
@@ -109,7 +184,7 @@ class App:
         self._repos_collapsed = bool(saved) if saved is not None else False
 
         arrow = "▶" if self._repos_collapsed else "▼"
-        ctk.CTkButton(
+        self._repos_header_btn = ctk.CTkButton(
             sidebar,
             text=f"{arrow} REPOS",
             anchor="w",
@@ -118,41 +193,15 @@ class App:
             text_color="gray",
             font=ctk.CTkFont(weight="bold"),
             command=self._toggle_repos_section,
-        ).pack(fill="x", padx=4, pady=(4, 0))
+        )
+        self._repos_header_btn.pack(fill="x", padx=4, pady=(4, 0))
 
         if not self._repos_collapsed:
             repo_scroll = ctk.CTkScrollableFrame(sidebar, height=200)
             repo_scroll.pack(fill="x", padx=4, pady=(0, 2))
-            attach_scroll_fix(self._root, repo_scroll)
-
-            repos = self._store.all_repos()
-            for path, cfg in repos.items():
-                name = Path(path).name
-                is_active = active_repo_path is not None and path == active_repo_path
-
-                row = ctk.CTkFrame(repo_scroll, fg_color="transparent")
-                row.pack(fill="x", pady=1)
-
-                btn = ctk.CTkButton(
-                    row,
-                    text=("● " if is_active else "○ ") + name,
-                    anchor="w",
-                    fg_color=("gray30" if is_active else "transparent"),
-                    hover_color="gray25",
-                    text_color=("white" if is_active else ("gray10", "gray90")),
-                    command=lambda p=path: self._switch_repo(p),
-                )
-                btn.pack(side="left", fill="x", expand=True)
-                try:
-                    btn._text_label.configure(wraplength=150)
-                except Exception:
-                    pass
-
-                ctk.CTkButton(
-                    row, text="✕", width=28, fg_color="#c0392b",
-                    hover_color="#96281b",
-                    command=lambda p=path, a=is_active: self._confirm_delete_repo(p, is_active=a),
-                ).pack(side="right", padx=(2, 0))
+            attach_scroll_fix(self._sidebar_frame, repo_scroll)
+            self._repo_scroll = repo_scroll
+            self._populate_repo_rows(repo_scroll, active_repo_path=active_repo_path)
 
         # ── Bottom buttons ────────────────────────────────────────────────────
         ctk.CTkButton(
@@ -168,14 +217,30 @@ class App:
         ).pack(fill="x", padx=4, pady=(0, 12), side="bottom")
 
     def _toggle_repos_section(self):
+        import customtkinter as ctk
+        from worktree_manager.ui.scroll_fix import attach_scroll_fix
         self._repos_collapsed = not self._repos_collapsed
         self._store.set_ui_pref("repos_collapsed", self._repos_collapsed)
-        # Repack main frame so it stays to the right of the rebuilt sidebar.
-        if self._current_frame:
-            self._current_frame.pack_forget()
-        self._show_sidebar(active_repo_path=self._active_repo_path)
-        if self._current_frame:
-            self._current_frame.pack(side="left", fill="both", expand=True)
+        arrow = "▶" if self._repos_collapsed else "▼"
+        if hasattr(self, "_repos_header_btn"):
+            self._repos_header_btn.configure(text=f"{arrow} REPOS")
+        if self._repos_collapsed:
+            if self._repo_scroll:
+                self._repo_scroll.pack_forget()
+        else:
+            if self._repo_scroll is None and self._sidebar_frame:
+                repo_scroll = ctk.CTkScrollableFrame(self._sidebar_frame, height=200)
+                attach_scroll_fix(self._sidebar_frame, repo_scroll)
+                self._repo_scroll = repo_scroll
+                self._populate_repo_rows(repo_scroll)
+            if self._repo_scroll:
+                after_widget = getattr(self, "_repos_header_btn", None)
+                if after_widget:
+                    self._repo_scroll.pack(fill="x", padx=4, pady=(0, 2),
+                                           after=after_widget)
+                else:
+                    self._repo_scroll.pack(fill="x", padx=4, pady=(0, 2))
+            self._rebuild_repo_rows()
 
     def _confirm_delete_repo(self, repo_path: str, is_active: bool) -> None:
         import tkinter.messagebox as mb
@@ -197,11 +262,7 @@ class App:
             self._active_repo_path = None
             self._show_empty_main()
         else:
-            if self._current_frame:
-                self._current_frame.pack_forget()
-            self._show_sidebar(active_repo_path=self._active_repo_path)
-            if self._current_frame:
-                self._current_frame.pack(side="left", fill="both", expand=True)
+            self._rebuild_repo_rows()
 
     def _pick_and_add_repo(self):
         from tkinter import filedialog
@@ -240,9 +301,9 @@ class App:
         from worktree_manager.main_window_vm import MainWindowViewModel
         from worktree_manager.ui.main_window import MainWindow
 
-        self._active_repo_path = repo_path
         self._clear_main()
-        self._show_sidebar(repo_path)
+        self._ensure_sidebar()
+        self._update_repo_selection(repo_path)
 
         vm = MainWindowViewModel(
             repo_path=repo_path,
@@ -263,7 +324,9 @@ class App:
         elif getattr(self, "_wp_panel", None) and self._current_frame is self._wp_panel:
             self._wp_panel.refresh()
         elif self._active_repo_path:
-            self._show_main(self._active_repo_path)
+            self._rebuild_repo_rows()
+            if self._current_frame and hasattr(self._current_frame, "refresh"):
+                self._current_frame.refresh()
 
     def _show_settings(self, repo_path: str):
         from worktree_manager.setup_settings_vm import SettingsViewModel

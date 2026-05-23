@@ -151,6 +151,8 @@ def test_show_main_creates_vm_with_correct_services():
         app._git = MagicMock()
         app._current_frame = None
         app._sidebar_frame = None
+        app._active_repo_path = None
+        app._repo_buttons = {}
         app._show_main("/repos/proj")
 
     assert captured["repo_path"] == "/repos/proj"
@@ -170,10 +172,12 @@ def test_app_shows_empty_main_when_no_repo_path():
     app._editor = MagicMock()
     app._current_frame = None
     app._sidebar_frame = None
+    app._active_repo_path = None
+    app._repo_buttons = {}
     app._window_registry = WindowRegistry()
 
     shown = {}
-    app._show_sidebar = lambda active_repo_path=None: shown.update({"sidebar": active_repo_path})
+    app._show_sidebar = lambda active_repo_path=None: shown.update({"sidebar": True})
 
     app._show_empty_main()
     assert "sidebar" in shown
@@ -215,16 +219,16 @@ def test_show_cleanup_passes_all_candidates_including_worktree_branches():
     assert "orphan" in branches
 
 
-def test_refresh_calls_show_main_when_repo_active():
+def test_refresh_rebuilds_repo_rows_when_repo_active():
     import worktree_manager.cli as cli_mod
     app = object.__new__(cli_mod.App)
     app._active_repo_path = "/repos/proj"
     app._cc_panel = MagicMock()
     app._wp_panel = None
     app._current_frame = MagicMock()  # on worktree view — not cc or wp panel
-    with patch.object(app, "_show_main") as mock_show:
+    with patch.object(app, "_rebuild_repo_rows") as mock_rebuild:
         app._refresh()
-    mock_show.assert_called_once_with("/repos/proj")
+    mock_rebuild.assert_called_once()
 
 
 def test_refresh_is_noop_when_no_active_repo_and_not_on_command_center():

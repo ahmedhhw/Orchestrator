@@ -40,6 +40,8 @@ def _make_app(tmp_path):
     app._editor = MagicMock()
     app._current_frame = None
     app._sidebar_frame = None
+    app._repo_buttons = {}
+    app._active_repo_path = None
     app._cc_panel = None
     app._window_registry = WindowRegistry()
 
