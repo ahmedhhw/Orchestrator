@@ -1,45 +1,54 @@
-import customtkinter as ctk
-from tkinter import filedialog
+from PySide6.QtWidgets import (
+    QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout,
+)
+
 from worktree_manager.setup_settings_vm import RepoSetupViewModel
 
 
-class RepoSetupDialog(ctk.CTkToplevel):
-    def __init__(self, master, vm: RepoSetupViewModel, on_confirm):
-        super().__init__(master)
-        self.title("Worktree Storage")
-        self.resizable(False, False)
+class RepoSetupDialog(QDialog):
+    def __init__(self, parent, vm: RepoSetupViewModel, on_confirm):
+        super().__init__(parent)
+        self.setWindowTitle("Worktree Storage")
+        self.setModal(True)
         self._vm = vm
         self._on_confirm = on_confirm
-        self._build()
 
-    def _build(self):
-        ctk.CTkLabel(
-            self, text="Where should worktrees be stored?",
-            font=ctk.CTkFont(weight="bold")
-        ).pack(padx=24, pady=(20, 8))
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(8)
 
-        row = ctk.CTkFrame(self)
-        row.pack(fill="x", padx=24)
-        self._entry = ctk.CTkEntry(row, width=300)
-        self._entry.insert(0, self._vm.default_storage_path())
-        self._entry.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(
-            row, text="Browse", width=70, command=self._browse
-        ).pack(side="right", padx=(8, 0))
+        title = QLabel("Where should worktrees be stored?")
+        title.setStyleSheet("font-weight: bold;")
+        outer.addWidget(title)
 
-        btns = ctk.CTkFrame(self)
-        btns.pack(fill="x", padx=24, pady=16)
-        ctk.CTkButton(
-            btns, text="Cancel", fg_color="gray", text_color=("black", "white"), command=self.destroy
-        ).pack(side="left")
-        ctk.CTkButton(btns, text="Confirm", command=self._confirm).pack(side="right")
+        row = QHBoxLayout()
+        self._entry = QLineEdit(vm.default_storage_path())
+        self._entry.setMinimumWidth(300)
+        row.addWidget(self._entry, 1)
+        browse = QPushButton("Browse")
+        browse.setFixedWidth(80)
+        browse.clicked.connect(self._browse)
+        row.addWidget(browse)
+        outer.addLayout(row)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        confirm = QPushButton("Confirm")
+        confirm.clicked.connect(self._confirm)
+        btns.addWidget(confirm)
+        outer.addLayout(btns)
 
     def _browse(self):
-        path = filedialog.askdirectory(title="Choose worktree storage folder")
+        path = QFileDialog.getExistingDirectory(
+            self, "Choose worktree storage folder",
+        )
         if path:
-            self._entry.delete(0, "end")
-            self._entry.insert(0, path)
+            self._entry.setText(path)
 
     def _confirm(self):
-        self._vm.confirm(storage_path=self._entry.get(), callback=self._on_confirm)
-        self.destroy()
+        self._vm.confirm(storage_path=self._entry.text(), callback=self._on_confirm)
+        self.accept()

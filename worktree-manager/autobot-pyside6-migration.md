@@ -1406,9 +1406,1244 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 
 ---
 
+## Iteration 1 — Core Worktree Dialogs
+
+### Phase 1.1 — RepoSetupDialog (Qt)
+
+**What it covers:** Replace `RepoSetupDialog` (CTkToplevel) with a Qt `QDialog`. Shows the default storage path pre-filled in a `QLineEdit`, a Browse button that opens `QFileDialog`, and Cancel / Confirm buttons. Confirm calls `vm.confirm(storage_path=..., callback=...)`. No `MainWindow`/`App` wiring yet — that lands in Phase 1.5.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_repo_setup_dialog_qt.py
+from unittest.mock import MagicMock, patch
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton
+
+from worktree_manager.setup_settings_vm import RepoSetupViewModel
+from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
+
+
+def _make_vm(default_path="/repos/proj-worktrees"):
+    vm = MagicMock(spec=RepoSetupViewModel)
+    vm.default_storage_path.return_value = default_path
+    return vm
+
+
+def test_repo_setup_dialog_is_qdialog(qtbot):
+    vm = _make_vm()
+    d = RepoSetupDialog(parent=None, vm=vm, on_confirm=lambda: None)
+    qtbot.addWidget(d)
+    assert isinstance(d, QDialog)
+
+
+def test_repo_setup_dialog_prefills_default_path(qtbot):
+    vm = _make_vm(default_path="/repos/myrepo-worktrees")
+    d = RepoSetupDialog(parent=None, vm=vm, on_confirm=lambda: None)
+    qtbot.addWidget(d)
+    entry = d.findChild(QLineEdit)
+    assert entry.text() == "/repos/myrepo-worktrees"
+
+
+def test_repo_setup_dialog_has_cancel_and_confirm_buttons(qtbot):
+    vm = _make_vm()
+    d = RepoSetupDialog(parent=None, vm=vm, on_confirm=lambda: None)
+    qtbot.addWidget(d)
+    btn_texts = [b.text() for b in d.findChildren(QPushButton)]
+    assert "Cancel" in btn_texts
+    assert "Confirm" in btn_texts
+
+
+def test_repo_setup_dialog_cancel_closes_without_calling_vm(qtbot):
+    vm = _make_vm()
+    called = []
+    d = RepoSetupDialog(parent=None, vm=vm, on_confirm=lambda: called.append("ok"))
+    qtbot.addWidget(d)
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    qtbot.mouseClick(cancel, Qt.LeftButton)
+    vm.confirm.assert_not_called()
+    assert called == []
+
+
+def test_repo_setup_dialog_confirm_calls_vm_with_entry_text(qtbot):
+    vm = _make_vm()
+    called = []
+    d = RepoSetupDialog(parent=None, vm=vm, on_confirm=lambda: called.append("ok"))
+    qtbot.addWidget(d)
+    entry = d.findChild(QLineEdit)
+    entry.setText("/somewhere/else")
+    confirm = next(b for b in d.findChildren(QPushButton) if b.text() == "Confirm")
+    qtbot.mouseClick(confirm, Qt.LeftButton)
+    vm.confirm.assert_called_once()
+    kwargs = vm.confirm.call_args.kwargs
+    assert kwargs["storage_path"] == "/somewhere/else"
+    # callback wiring — vm gets called with the on_confirm function
+    assert callable(kwargs["callback"])
+
+
+def test_repo_setup_dialog_browse_button_updates_entry(qtbot):
+    vm = _make_vm()
+    d = RepoSetupDialog(parent=None, vm=vm, on_confirm=lambda: None)
+    qtbot.addWidget(d)
+    browse = next(b for b in d.findChildren(QPushButton) if b.text() == "Browse")
+    with patch("PySide6.QtWidgets.QFileDialog.getExistingDirectory",
+               return_value="/picked/path"):
+        qtbot.mouseClick(browse, Qt.LeftButton)
+    entry = d.findChild(QLineEdit)
+    assert entry.text() == "/picked/path"
+
+
+def test_repo_setup_dialog_browse_cancel_leaves_entry_unchanged(qtbot):
+    vm = _make_vm(default_path="/orig")
+    d = RepoSetupDialog(parent=None, vm=vm, on_confirm=lambda: None)
+    qtbot.addWidget(d)
+    browse = next(b for b in d.findChildren(QPushButton) if b.text() == "Browse")
+    with patch("PySide6.QtWidgets.QFileDialog.getExistingDirectory", return_value=""):
+        qtbot.mouseClick(browse, Qt.LeftButton)
+    entry = d.findChild(QLineEdit)
+    assert entry.text() == "/orig"
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/repo_setup_dialog.py`:
+
+```python
+from PySide6.QtWidgets import (
+    QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout,
+)
+
+from worktree_manager.setup_settings_vm import RepoSetupViewModel
+
+
+class RepoSetupDialog(QDialog):
+    def __init__(self, parent, vm: RepoSetupViewModel, on_confirm):
+        super().__init__(parent)
+        self.setWindowTitle("Worktree Storage")
+        self.setModal(True)
+        self._vm = vm
+        self._on_confirm = on_confirm
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(8)
+
+        title = QLabel("Where should worktrees be stored?")
+        title.setStyleSheet("font-weight: bold;")
+        outer.addWidget(title)
+
+        row = QHBoxLayout()
+        self._entry = QLineEdit(vm.default_storage_path())
+        self._entry.setMinimumWidth(300)
+        row.addWidget(self._entry, 1)
+        browse = QPushButton("Browse")
+        browse.setFixedWidth(80)
+        browse.clicked.connect(self._browse)
+        row.addWidget(browse)
+        outer.addLayout(row)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        confirm = QPushButton("Confirm")
+        confirm.clicked.connect(self._confirm)
+        btns.addWidget(confirm)
+        outer.addLayout(btns)
+
+    def _browse(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "Choose worktree storage folder",
+        )
+        if path:
+            self._entry.setText(path)
+
+    def _confirm(self):
+        self._vm.confirm(storage_path=self._entry.text(), callback=self._on_confirm)
+        self.accept()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_repo_setup_dialog_qt.py` is green and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 1.2 — SettingsDialog (Qt)
+
+**What it covers:** Replace `SettingsPanel` with `SettingsDialog` (Qt `QDialog`). Shows the current worktree storage path (`QLineEdit` + Browse) and the stale threshold in days (`QSpinBox`), plus a Save button. Cancel just closes. Save calls `vm.save(worktree_storage=..., stale_days=...)`. The class is also re-exported from the existing module name `settings_panel` so existing imports keep working until Phase 1.5 finalises the wiring; the file is replaced in place.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_settings_dialog_qt.py
+from unittest.mock import MagicMock, patch
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton, QSpinBox
+
+from worktree_manager.setup_settings_vm import SettingsViewModel
+from worktree_manager.ui.settings_panel import SettingsDialog
+
+
+def _make_vm(storage="/repos/proj-wt", stale_days=30):
+    vm = MagicMock(spec=SettingsViewModel)
+    vm.worktree_storage = storage
+    vm.stale_days = stale_days
+    return vm
+
+
+def test_settings_dialog_is_qdialog(qtbot):
+    d = SettingsDialog(parent=None, vm=_make_vm())
+    qtbot.addWidget(d)
+    assert isinstance(d, QDialog)
+
+
+def test_settings_dialog_prefills_storage_and_stale_days(qtbot):
+    vm = _make_vm(storage="/x/y", stale_days=14)
+    d = SettingsDialog(parent=None, vm=vm)
+    qtbot.addWidget(d)
+    entry = d.findChild(QLineEdit)
+    assert entry.text() == "/x/y"
+    spin = d.findChild(QSpinBox)
+    assert spin.value() == 14
+
+
+def test_settings_dialog_save_calls_vm_with_current_values(qtbot):
+    vm = _make_vm()
+    d = SettingsDialog(parent=None, vm=vm)
+    qtbot.addWidget(d)
+    d.findChild(QLineEdit).setText("/new/storage")
+    d.findChild(QSpinBox).setValue(7)
+    save = next(b for b in d.findChildren(QPushButton) if b.text() == "Save")
+    qtbot.mouseClick(save, Qt.LeftButton)
+    vm.save.assert_called_once_with(worktree_storage="/new/storage", stale_days=7)
+
+
+def test_settings_dialog_cancel_does_not_call_vm(qtbot):
+    vm = _make_vm()
+    d = SettingsDialog(parent=None, vm=vm)
+    qtbot.addWidget(d)
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    qtbot.mouseClick(cancel, Qt.LeftButton)
+    vm.save.assert_not_called()
+
+
+def test_settings_dialog_browse_updates_entry(qtbot):
+    vm = _make_vm(storage="/orig")
+    d = SettingsDialog(parent=None, vm=vm)
+    qtbot.addWidget(d)
+    browse = next(b for b in d.findChildren(QPushButton) if b.text() == "Browse")
+    with patch("PySide6.QtWidgets.QFileDialog.getExistingDirectory",
+               return_value="/chosen"):
+        qtbot.mouseClick(browse, Qt.LeftButton)
+    assert d.findChild(QLineEdit).text() == "/chosen"
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/settings_panel.py`:
+
+```python
+from PySide6.QtWidgets import (
+    QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QSpinBox, QVBoxLayout,
+)
+
+from worktree_manager.setup_settings_vm import SettingsViewModel
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent, vm: SettingsViewModel):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setModal(True)
+        self._vm = vm
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(8)
+
+        title = QLabel("Settings")
+        title.setStyleSheet("font-weight: bold; font-size: 16px;")
+        outer.addWidget(title)
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Worktree storage:"))
+        self._storage_entry = QLineEdit(vm.worktree_storage)
+        self._storage_entry.setMinimumWidth(240)
+        row1.addWidget(self._storage_entry, 1)
+        browse = QPushButton("Browse")
+        browse.setFixedWidth(80)
+        browse.clicked.connect(self._browse)
+        row1.addWidget(browse)
+        outer.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Stale threshold:"))
+        self._stale_spin = QSpinBox()
+        self._stale_spin.setRange(1, 3650)
+        self._stale_spin.setValue(int(vm.stale_days))
+        row2.addWidget(self._stale_spin)
+        row2.addWidget(QLabel("days"))
+        row2.addStretch(1)
+        outer.addLayout(row2)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        save = QPushButton("Save")
+        save.clicked.connect(self._save)
+        btns.addWidget(save)
+        outer.addLayout(btns)
+
+    def _browse(self):
+        path = QFileDialog.getExistingDirectory(self, "Choose worktree storage")
+        if path:
+            self._storage_entry.setText(path)
+
+    def _save(self):
+        self._vm.save(
+            worktree_storage=self._storage_entry.text(),
+            stale_days=int(self._stale_spin.value()),
+        )
+        self.accept()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_settings_dialog_qt.py` passes and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 1.3 — CreateDialog (Qt)
+
+**What it covers:** Replace `CreateDialog` (CTkToplevel) with a Qt `QDialog` that supports both **New branch** and **Existing branch** modes via `QRadioButton`s. Mirrors the existing behaviour exactly: copy-from-branch / copy-from-worktree helpers, base branch dropdown, and a single `_create()` method that calls `on_create(branch, base_branch, is_existing, worktree_name)`. Preserves the underscore-named attributes (`_mode_var`, `_branch_entry`, `_wt_name_entry`, `_existing_var`, `_existing_wt_name_entry`, `_base_var`) so the existing 7 behavioural tests in `tests/test_ui_smoke.py` continue to pass.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_create_dialog_qt.py
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton, QRadioButton
+
+from worktree_manager.ui.create_dialog import CreateDialog
+
+
+def _make_dialog(qtbot, branches=None, existing_branches=None, on_create=None):
+    d = CreateDialog(
+        parent=None,
+        branches=branches or ["main"],
+        existing_branches=existing_branches or [],
+        on_create=on_create or (lambda *a: None),
+    )
+    qtbot.addWidget(d)
+    return d
+
+
+def test_create_dialog_is_qdialog(qtbot):
+    d = _make_dialog(qtbot)
+    assert isinstance(d, QDialog)
+
+
+def test_create_dialog_starts_in_new_branch_mode(qtbot):
+    d = _make_dialog(qtbot)
+    assert d._mode_var.get() == "new"
+
+
+def test_create_dialog_has_two_mode_radio_buttons(qtbot):
+    d = _make_dialog(qtbot)
+    labels = [r.text() for r in d.findChildren(QRadioButton)]
+    assert "New branch" in labels
+    assert "Existing branch" in labels
+
+
+def test_create_dialog_cancel_does_not_call_on_create(qtbot):
+    calls = []
+    d = _make_dialog(qtbot, on_create=lambda *a: calls.append(a))
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    qtbot.mouseClick(cancel, Qt.LeftButton)
+    assert calls == []
+
+
+def test_create_dialog_new_mode_create_calls_callback_with_correct_args(qtbot):
+    calls = []
+    d = _make_dialog(qtbot, branches=["main", "develop"],
+                     on_create=lambda *a: calls.append(a))
+    d._mode_var.set("new")
+    d._on_mode_change()
+    d._branch_entry.insert(0, "fix/login")
+    d._base_var.set("main")
+    d._wt_name_entry.clear()
+    d._wt_name_entry.insert(0, "fix-login")
+    d._create()
+    assert len(calls) == 1
+    branch, base, is_existing, wt_name = calls[0]
+    assert (branch, base, is_existing, wt_name) == ("fix/login", "main", False, "fix-login")
+
+
+def test_create_dialog_new_mode_empty_branch_does_not_call_callback(qtbot):
+    calls = []
+    d = _make_dialog(qtbot, on_create=lambda *a: calls.append(a))
+    d._mode_var.set("new")
+    d._on_mode_change()
+    d._create()
+    assert calls == []
+
+
+def test_create_dialog_existing_mode_calls_callback_with_correct_args(qtbot):
+    calls = []
+    d = _make_dialog(qtbot,
+                     existing_branches=["fix/auth", "chore/deps"],
+                     on_create=lambda *a: calls.append(a))
+    d._mode_var.set("existing")
+    d._on_mode_change()
+    d._existing_var.set("fix/auth")
+    d._existing_wt_name_entry.clear()
+    d._existing_wt_name_entry.insert(0, "auth-wt")
+    d._create()
+    assert len(calls) == 1
+    branch, base, is_existing, wt_name = calls[0]
+    assert (branch, base, is_existing, wt_name) == ("fix/auth", None, True, "auth-wt")
+
+
+def test_create_dialog_copy_branch_to_wt_name(qtbot):
+    d = _make_dialog(qtbot)
+    d._mode_var.set("new")
+    d._on_mode_change()
+    d._branch_entry.clear()
+    d._branch_entry.insert(0, "fix/my-login")
+    d._copy_branch_to_wt()
+    assert d._wt_name_entry.get() == "fix-my-login"
+
+
+def test_create_dialog_copy_wt_to_branch_name(qtbot):
+    d = _make_dialog(qtbot)
+    d._mode_var.set("new")
+    d._on_mode_change()
+    d._wt_name_entry.clear()
+    d._wt_name_entry.insert(0, "fix-my-login")
+    d._copy_wt_to_branch()
+    assert d._branch_entry.get() == "fix/my-login"
+
+
+def test_create_dialog_existing_copy_branch_fills_wt_name(qtbot):
+    d = _make_dialog(qtbot, existing_branches=["fix/auth", "chore/deps"])
+    d._mode_var.set("existing")
+    d._on_mode_change()
+    d._existing_var.set("fix/auth")
+    d._copy_existing_branch_to_wt()
+    assert d._existing_wt_name_entry.get() == "fix-auth"
+
+
+def test_create_dialog_new_mode_passes_none_wt_name_when_empty(qtbot):
+    calls = []
+    d = _make_dialog(qtbot, on_create=lambda *a: calls.append(a))
+    d._mode_var.set("new")
+    d._on_mode_change()
+    d._branch_entry.insert(0, "fix/x")
+    d._wt_name_entry.clear()
+    d._create()
+    branch, base, is_existing, wt_name = calls[0]
+    assert wt_name is None
+
+
+def test_create_dialog_existing_mode_with_no_branches_does_not_call_callback(qtbot):
+    calls = []
+    d = _make_dialog(qtbot, existing_branches=[],
+                     on_create=lambda *a: calls.append(a))
+    d._mode_var.set("existing")
+    d._on_mode_change()
+    d._create()
+    assert calls == []
+
+
+def test_create_dialog_shows_only_new_widgets_in_new_mode(qtbot):
+    d = _make_dialog(qtbot, existing_branches=["fix/auth"])
+    d._mode_var.set("new")
+    d._on_mode_change()
+    assert d._new_frame.isVisibleTo(d)
+    assert not d._existing_frame.isVisibleTo(d)
+
+
+def test_create_dialog_shows_only_existing_widgets_in_existing_mode(qtbot):
+    d = _make_dialog(qtbot, existing_branches=["fix/auth"])
+    d._mode_var.set("existing")
+    d._on_mode_change()
+    assert d._existing_frame.isVisibleTo(d)
+    assert not d._new_frame.isVisibleTo(d)
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/create_dialog.py`:
+
+```python
+from PySide6.QtWidgets import (
+    QButtonGroup, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QRadioButton, QVBoxLayout, QWidget,
+)
+
+
+class _StringVar:
+    """Tiny tk-style facade so existing tests calling ._mode_var.set/get keep working."""
+    def __init__(self, initial=""):
+        self._value = initial
+        self._on_change = None
+
+    def set(self, value):
+        self._value = value
+        if self._on_change:
+            self._on_change(value)
+
+    def get(self):
+        return self._value
+
+
+class _EntryFacade:
+    """LineEdit wrapper providing tk-style insert/delete/get for test compatibility."""
+    def __init__(self, line_edit: QLineEdit):
+        self._le = line_edit
+
+    def insert(self, index, text):
+        if index == 0:
+            self._le.setText(text + self._le.text())
+        else:
+            cur = self._le.text()
+            self._le.setText(cur[:index] + text + cur[index:])
+
+    def delete(self, first, last=None):
+        self._le.clear()
+
+    def clear(self):
+        self._le.clear()
+
+    def get(self):
+        return self._le.text()
+
+
+class CreateDialog(QDialog):
+    def __init__(self, parent, branches: list, existing_branches: list, on_create):
+        super().__init__(parent)
+        self.setWindowTitle("New Worktree")
+        self.setModal(True)
+        self._branches = branches
+        self._existing_branches = existing_branches
+        self._on_create = on_create
+
+        self._mode_var = _StringVar("new")
+        self._mode_var._on_change = lambda _v: self._on_mode_change()
+
+        self._build()
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(8)
+
+        mode_row = QHBoxLayout()
+        self._new_radio = QRadioButton("New branch")
+        self._new_radio.setChecked(True)
+        self._new_radio.toggled.connect(
+            lambda checked: checked and self._mode_var.set("new")
+        )
+        self._existing_radio = QRadioButton("Existing branch")
+        self._existing_radio.toggled.connect(
+            lambda checked: checked and self._mode_var.set("existing")
+        )
+        group = QButtonGroup(self)
+        group.addButton(self._new_radio)
+        group.addButton(self._existing_radio)
+        mode_row.addWidget(self._new_radio)
+        mode_row.addWidget(self._existing_radio)
+        mode_row.addStretch(1)
+        outer.addLayout(mode_row)
+
+        # ── New branch frame ────────────────────────────────────────────────
+        self._new_frame = QWidget()
+        new_layout = QVBoxLayout(self._new_frame)
+        new_layout.setContentsMargins(0, 0, 0, 0)
+        new_layout.setSpacing(4)
+
+        new_layout.addWidget(QLabel("Worktree name:"))
+        wt_row = QHBoxLayout()
+        self._wt_name_le = QLineEdit()
+        self._wt_name_le.setPlaceholderText("fix-login")
+        self._wt_name_le.setMinimumWidth(240)
+        wt_row.addWidget(self._wt_name_le)
+        copy_b2w = QPushButton("← copy from branch")
+        copy_b2w.setFixedWidth(150)
+        copy_b2w.clicked.connect(self._copy_branch_to_wt)
+        wt_row.addWidget(copy_b2w)
+        new_layout.addLayout(wt_row)
+
+        new_layout.addSpacing(6)
+        new_layout.addWidget(QLabel("Branch name:"))
+        br_row = QHBoxLayout()
+        self._branch_le = QLineEdit()
+        self._branch_le.setPlaceholderText("fix/")
+        self._branch_le.setMinimumWidth(240)
+        br_row.addWidget(self._branch_le)
+        copy_w2b = QPushButton("← copy from worktree")
+        copy_w2b.setFixedWidth(150)
+        copy_w2b.clicked.connect(self._copy_wt_to_branch)
+        br_row.addWidget(copy_w2b)
+        new_layout.addLayout(br_row)
+
+        new_layout.addSpacing(6)
+        new_layout.addWidget(QLabel("Base branch:"))
+        self._base_combo = QComboBox()
+        self._base_combo.addItems(self._branches or ["main"])
+        self._base_var = _StringVar(self._branches[0] if self._branches else "main")
+        self._base_combo.currentTextChanged.connect(self._base_var.set)
+        self._base_var._on_change = self._base_combo.setCurrentText
+        new_layout.addWidget(self._base_combo)
+
+        outer.addWidget(self._new_frame)
+
+        # ── Existing branch frame ───────────────────────────────────────────
+        self._existing_frame = QWidget()
+        ex_layout = QVBoxLayout(self._existing_frame)
+        ex_layout.setContentsMargins(0, 0, 0, 0)
+        ex_layout.setSpacing(4)
+
+        ex_layout.addWidget(QLabel("Existing branch:"))
+        self._existing_combo = QComboBox()
+        self._existing_combo.addItems(self._existing_branches or ["(none available)"])
+        self._existing_var = _StringVar(
+            self._existing_branches[0] if self._existing_branches else ""
+        )
+        self._existing_combo.currentTextChanged.connect(self._existing_var.set)
+        self._existing_var._on_change = self._existing_combo.setCurrentText
+        ex_layout.addWidget(self._existing_combo)
+
+        ex_layout.addSpacing(6)
+        ex_layout.addWidget(QLabel("Worktree name:"))
+        ex_wt_row = QHBoxLayout()
+        self._existing_wt_name_le = QLineEdit()
+        self._existing_wt_name_le.setPlaceholderText("fix-login")
+        self._existing_wt_name_le.setMinimumWidth(240)
+        ex_wt_row.addWidget(self._existing_wt_name_le)
+        copy_ex = QPushButton("← copy from branch")
+        copy_ex.setFixedWidth(150)
+        copy_ex.clicked.connect(self._copy_existing_branch_to_wt)
+        ex_wt_row.addWidget(copy_ex)
+        ex_layout.addLayout(ex_wt_row)
+
+        outer.addWidget(self._existing_frame)
+
+        # tk-facade entry adapters so existing tests using insert/delete/get pass
+        self._wt_name_entry = _EntryFacade(self._wt_name_le)
+        self._branch_entry = _EntryFacade(self._branch_le)
+        self._existing_wt_name_entry = _EntryFacade(self._existing_wt_name_le)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        create = QPushButton("Create")
+        create.clicked.connect(self._create)
+        btns.addWidget(create)
+        outer.addLayout(btns)
+
+        self._on_mode_change()
+
+    def _on_mode_change(self):
+        is_new = self._mode_var.get() == "new"
+        # Keep radio button state in sync if _mode_var was set programmatically
+        if is_new and not self._new_radio.isChecked():
+            self._new_radio.setChecked(True)
+        if not is_new and not self._existing_radio.isChecked():
+            self._existing_radio.setChecked(True)
+        self._new_frame.setVisible(is_new)
+        self._existing_frame.setVisible(not is_new)
+
+    def _copy_branch_to_wt(self):
+        branch = self._branch_le.text().strip()
+        self._wt_name_le.setText(branch.replace("/", "-"))
+
+    def _copy_wt_to_branch(self):
+        wt_name = self._wt_name_le.text().strip()
+        self._branch_le.setText(wt_name.replace("-", "/", 1))
+
+    def _copy_existing_branch_to_wt(self):
+        branch = self._existing_var.get()
+        self._existing_wt_name_le.setText(branch.replace("/", "-"))
+
+    def _create(self):
+        if self._mode_var.get() == "existing":
+            branch = self._existing_var.get()
+            if not branch or branch == "(none available)":
+                return
+            wt_name = self._existing_wt_name_le.text().strip() or None
+            self._on_create(branch, None, True, wt_name)
+        else:
+            branch = self._branch_le.text().strip()
+            if not branch:
+                return
+            wt_name = self._wt_name_le.text().strip() or None
+            self._on_create(branch, self._base_var.get(), False, wt_name)
+        self.accept()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_create_dialog_qt.py` is green, and the legacy `tests/test_ui_smoke.py` create-dialog tests also still pass against the new implementation (the `_StringVar` / `_EntryFacade` shims preserve their API surface). Module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 1.4 — DeleteDialog (Qt)
+
+**What it covers:** Replace `DeleteDialog` (CTkToplevel) with a Qt `QDialog`. Shows branch + path, optional "⚠ uncommitted changes" warning, optional "⚠ currently open in <editor>" warning, an "Also delete branch" checkbox (disabled and unchecked when `is_protected=True`), and Cancel / Delete buttons. The Delete button shows "Delete & Close" when `live_window` is non-None. Clicking Delete with uncommitted changes pops `QMessageBox.critical`. Otherwise calls `on_delete(wt, also_branch_bool)`. Preserves `_also_branch` attribute so existing smoke tests in `tests/test_ui_smoke.py` keep passing.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_delete_dialog_qt.py
+import time
+from unittest.mock import MagicMock, patch
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QCheckBox, QDialog, QLabel, QPushButton
+
+from worktree_manager.models import WorktreeModel
+from worktree_manager.ui.delete_dialog import DeleteDialog
+
+
+def _make_wt(branch="fix/auth", path="/r/proj-wt/fix-auth"):
+    return WorktreeModel(
+        path=path, branch=branch, is_main=False,
+        last_commit_ts=int(time.time()), is_merged=False, is_stale=False,
+    )
+
+
+def test_delete_dialog_is_qdialog(qtbot):
+    d = DeleteDialog(parent=None, wt=_make_wt(), on_delete=lambda *a: None)
+    qtbot.addWidget(d)
+    assert isinstance(d, QDialog)
+
+
+def test_delete_dialog_shows_branch_and_path(qtbot):
+    d = DeleteDialog(
+        parent=None,
+        wt=_make_wt(branch="feature/x", path="/repos/wt/feature-x"),
+        on_delete=lambda *a: None,
+    )
+    qtbot.addWidget(d)
+    texts = " ".join(l.text() for l in d.findChildren(QLabel))
+    assert "feature/x" in texts
+    assert "/repos/wt/feature-x" in texts
+
+
+def test_delete_dialog_normal_branch_checkbox_enabled_and_checked(qtbot):
+    d = DeleteDialog(parent=None, wt=_make_wt(),
+                     on_delete=lambda *a: None, is_protected=False)
+    qtbot.addWidget(d)
+    cb = d.findChild(QCheckBox)
+    assert cb.isEnabled()
+    assert cb.isChecked()
+    assert d._also_branch.get() is True
+
+
+def test_delete_dialog_protected_branch_checkbox_disabled_and_unchecked(qtbot):
+    d = DeleteDialog(parent=None, wt=_make_wt(),
+                     on_delete=lambda *a: None, is_protected=True)
+    qtbot.addWidget(d)
+    cb = d.findChild(QCheckBox)
+    assert not cb.isEnabled()
+    assert not cb.isChecked()
+    assert d._also_branch.get() is False
+    assert "protected" in cb.text().lower()
+
+
+def test_delete_dialog_cancel_does_not_call_on_delete(qtbot):
+    calls = []
+    d = DeleteDialog(parent=None, wt=_make_wt(),
+                     on_delete=lambda *a: calls.append(a))
+    qtbot.addWidget(d)
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    qtbot.mouseClick(cancel, Qt.LeftButton)
+    assert calls == []
+
+
+def test_delete_dialog_delete_calls_on_delete_with_checkbox_value(qtbot):
+    calls = []
+    wt = _make_wt()
+    d = DeleteDialog(parent=None, wt=wt, on_delete=lambda *a: calls.append(a))
+    qtbot.addWidget(d)
+    d._also_branch.set(False)
+    delete = next(b for b in d.findChildren(QPushButton) if b.text() == "Delete")
+    qtbot.mouseClick(delete, Qt.LeftButton)
+    assert len(calls) == 1
+    assert calls[0] == (wt, False)
+
+
+def test_delete_dialog_uncommitted_shows_warning_label(qtbot):
+    d = DeleteDialog(
+        parent=None, wt=_make_wt(),
+        on_delete=lambda *a: None, has_uncommitted=True,
+    )
+    qtbot.addWidget(d)
+    texts = " ".join(l.text() for l in d.findChildren(QLabel))
+    assert "uncommitted" in texts.lower()
+
+
+def test_delete_dialog_uncommitted_blocks_delete_with_messagebox(qtbot):
+    calls = []
+    d = DeleteDialog(parent=None, wt=_make_wt(),
+                     on_delete=lambda *a: calls.append(a), has_uncommitted=True)
+    qtbot.addWidget(d)
+    delete = next(b for b in d.findChildren(QPushButton)
+                  if b.text() in ("Delete", "Delete & Close"))
+    with patch("PySide6.QtWidgets.QMessageBox.critical") as mock_err:
+        qtbot.mouseClick(delete, Qt.LeftButton)
+    mock_err.assert_called_once()
+    assert calls == []
+
+
+def test_delete_dialog_live_window_shows_editor_warning_and_changes_button(qtbot):
+    live = MagicMock()
+    live.editor = "cursor"
+    d = DeleteDialog(parent=None, wt=_make_wt(),
+                     on_delete=lambda *a: None, live_window=live)
+    qtbot.addWidget(d)
+    texts = " ".join(l.text() for l in d.findChildren(QLabel))
+    assert "Cursor" in texts
+    btn_texts = [b.text() for b in d.findChildren(QPushButton)]
+    assert "Delete & Close" in btn_texts
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/delete_dialog.py`:
+
+```python
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QCheckBox, QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QVBoxLayout,
+)
+
+from worktree_manager.models import WorktreeModel
+
+
+class _BoolVar:
+    """tk-style BooleanVar facade so tests calling ._also_branch.set/get keep working."""
+    def __init__(self, initial=False):
+        self._value = bool(initial)
+        self._on_change = None
+
+    def set(self, value):
+        self._value = bool(value)
+        if self._on_change:
+            self._on_change(self._value)
+
+    def get(self):
+        return self._value
+
+
+class DeleteDialog(QDialog):
+    def __init__(self, parent, wt: WorktreeModel, on_delete,
+                 live_window=None, is_protected: bool = False,
+                 has_uncommitted: bool = False):
+        super().__init__(parent)
+        self.setWindowTitle("Delete Worktree")
+        self.setModal(True)
+        self._wt = wt
+        self._on_delete = on_delete
+        self._live_window = live_window
+        self._is_protected = is_protected
+        self._has_uncommitted = has_uncommitted
+        self._also_branch = _BoolVar(False if is_protected else True)
+        self._build()
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(6)
+
+        title = QLabel("Delete worktree?")
+        title.setStyleSheet("font-weight: bold;")
+        title.setAlignment(Qt.AlignCenter)
+        outer.addWidget(title)
+
+        outer.addWidget(QLabel(f"Branch:  {self._wt.branch}"))
+        path_label = QLabel(f"Path:    {self._wt.path}")
+        path_label.setWordWrap(True)
+        outer.addWidget(path_label)
+
+        if self._has_uncommitted:
+            warn = QLabel("⚠ Unstaged or uncommitted changes detected.")
+            warn.setStyleSheet("color: orange;")
+            warn.setAlignment(Qt.AlignCenter)
+            outer.addWidget(warn)
+
+        if self._live_window is not None:
+            editor_name = self._live_window.editor.title()
+            live_warn = QLabel(
+                f'⚠ "{self._wt.branch}" is currently open in {editor_name}.\n'
+                "The editor window will be closed automatically."
+            )
+            live_warn.setStyleSheet("color: orange;")
+            live_warn.setAlignment(Qt.AlignCenter)
+            outer.addWidget(live_warn)
+
+        cb_text = (
+            "Also delete branch  (protected)" if self._is_protected
+            else "Also delete branch"
+        )
+        self._cb = QCheckBox(cb_text)
+        self._cb.setChecked(self._also_branch.get())
+        self._cb.toggled.connect(self._also_branch.set)
+        self._also_branch._on_change = self._cb.setChecked
+        if self._is_protected:
+            self._cb.setEnabled(False)
+        outer.addWidget(self._cb)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        confirm_label = "Delete & Close" if self._live_window is not None else "Delete"
+        delete = QPushButton(confirm_label)
+        delete.setStyleSheet("background-color: #c0392b; color: white;")
+        delete.clicked.connect(self._delete)
+        btns.addWidget(delete)
+        outer.addLayout(btns)
+
+    def _delete(self):
+        if self._has_uncommitted:
+            QMessageBox.critical(
+                self, "Cannot delete branch",
+                f'"{self._wt.branch}" has uncommitted changes.\n\n'
+                "Commit or discard changes before deleting.",
+            )
+            return
+        self._on_delete(self._wt, self._also_branch.get())
+        self.accept()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_delete_dialog_qt.py` passes, the existing `tests/test_ui_smoke.py::test_delete_dialog_*` tests still pass against the new implementation, and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 1.5 — Wire Dialogs into App / MainWindow
+
+**What it covers:** Replace the four "Ships in Iteration N" `QMessageBox.information` stubs in `cli.py` and the `_open_delete` print stub in `main_window.py` with real dialog invocations. After this phase the user can do the full add-repo → configure → create-worktree → delete-worktree → tweak-settings loop entirely from the Qt UI.
+
+Wiring:
+- `App._load_repo()`: when `cfg is None`, open `RepoSetupDialog`; on confirm, re-load.
+- `App._show_settings(repo_path)`: open `SettingsDialog`; on save, refresh the active panel.
+- `App._show_new_worktree(vm)`: open `CreateDialog`; on create, call `vm.create_worktree(...)` and refresh.
+- `MainWindow._open_delete(wt)`: open `DeleteDialog`; on confirm, call `vm.delete_worktree(...)` and refresh. Pass `is_protected = vm.is_protected_branch(wt.branch)` and `has_uncommitted = vm.has_uncommitted_changes(wt.path)`.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_iteration_1_wiring.py
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+from PySide6.QtWidgets import QDialog
+
+from worktree_manager.models import RepoConfig, WorktreeModel
+
+
+@pytest.fixture
+def empty_store(monkeypatch):
+    store = MagicMock()
+    store.all_repos.return_value = {}
+    store.get_ui_pref.side_effect = lambda key, default=None: default
+    monkeypatch.setattr("worktree_manager.cli.ConfigStore", lambda *a, **kw: store)
+    monkeypatch.setattr("worktree_manager.cli.GitService", lambda *a, **kw: MagicMock())
+    return store
+
+
+def _mock_vm(monkeypatch, worktrees=None, branch_status=None):
+    vm = MagicMock()
+    vm.load_worktrees.return_value = worktrees or []
+    vm.list_branches_with_checkout_status.return_value = branch_status or []
+    vm.is_protected_branch.return_value = False
+    vm.has_uncommitted_changes.return_value = False
+    monkeypatch.setattr(
+        "worktree_manager.main_window_vm.MainWindowViewModel",
+        lambda *a, **kw: vm,
+    )
+    return vm
+
+
+def test_app_load_repo_unconfigured_opens_repo_setup_dialog(qtbot, empty_store):
+    from worktree_manager.cli import App
+    empty_store.get_repo.return_value = None
+    app = App(repo_path=None)
+    qtbot.addWidget(app)
+    with patch("worktree_manager.cli.RepoSetupDialog") as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        app._load_repo("/repos/new-repo")
+    MockDlg.assert_called_once()
+    instance.exec.assert_called_once()
+
+
+def test_app_show_settings_opens_settings_dialog(qtbot, empty_store):
+    from worktree_manager.cli import App
+    cfg = RepoConfig(
+        repo_path="/repos/p", worktree_storage="/repos/p-wt",
+        stale_days=30, last_editor="cursor", last_editor_mode="reuse",
+        last_opened="2026-05-19T10:00:00",
+    )
+    empty_store.get_repo.return_value = cfg
+    app = App(repo_path=None)
+    qtbot.addWidget(app)
+    with patch("worktree_manager.cli.SettingsDialog") as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        app._show_settings("/repos/p")
+    MockDlg.assert_called_once()
+    instance.exec.assert_called_once()
+
+
+def test_app_show_new_worktree_opens_create_dialog(qtbot, empty_store, monkeypatch):
+    from worktree_manager.cli import App
+    vm = _mock_vm(monkeypatch)
+    vm.list_local_branches.return_value = ["main", "feature/x"]
+    vm.list_available_branches.return_value = ["feature/x"]
+    app = App(repo_path=None)
+    qtbot.addWidget(app)
+    with patch("worktree_manager.cli.CreateDialog") as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        app._show_new_worktree(vm)
+    MockDlg.assert_called_once()
+    instance.exec.assert_called_once()
+
+
+def test_app_create_dialog_callback_invokes_vm_create_and_refreshes(
+    qtbot, empty_store, monkeypatch,
+):
+    from worktree_manager.cli import App
+    vm = _mock_vm(monkeypatch)
+    vm.list_local_branches.return_value = ["main"]
+    vm.list_available_branches.return_value = []
+    app = App(repo_path=None)
+    qtbot.addWidget(app)
+    captured = {}
+
+    def fake_dlg_ctor(parent, branches, existing_branches, on_create):
+        captured["on_create"] = on_create
+        d = MagicMock(spec=QDialog)
+        return d
+
+    with patch("worktree_manager.cli.CreateDialog", side_effect=fake_dlg_ctor):
+        app._show_new_worktree(vm)
+    captured["on_create"]("fix/x", "main", False, "fix-x")
+    vm.create_worktree.assert_called_once_with(
+        branch="fix/x", base_branch="main",
+        existing=False, worktree_name="fix-x",
+    )
+
+
+def test_main_window_open_delete_opens_delete_dialog(qtbot, monkeypatch):
+    from worktree_manager.ui.main_window import MainWindow
+    vm = MagicMock()
+    vm.load_worktrees.return_value = []
+    vm.list_branches_with_checkout_status.return_value = []
+    vm.is_protected_branch.return_value = False
+    vm.has_uncommitted_changes.return_value = False
+    win = MainWindow(vm=vm, repo_name="proj",
+                     on_settings=lambda: None, on_cleanup=lambda: None,
+                     on_new=lambda: None)
+    qtbot.addWidget(win)
+    wt = WorktreeModel(
+        path="/r/proj-wt/fix-x", branch="fix/x", is_main=False,
+        last_commit_ts=int(time.time()), is_merged=False, is_stale=False,
+    )
+    with patch("worktree_manager.ui.main_window.DeleteDialog") as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        win._open_delete(wt)
+    MockDlg.assert_called_once()
+    kwargs = MockDlg.call_args.kwargs
+    assert kwargs["wt"] is wt
+    assert kwargs["is_protected"] is False
+    assert kwargs["has_uncommitted"] is False
+    instance.exec.assert_called_once()
+
+
+def test_main_window_delete_dialog_callback_invokes_vm_delete_and_refreshes(
+    qtbot, monkeypatch,
+):
+    from worktree_manager.ui.main_window import MainWindow
+    vm = MagicMock()
+    vm.load_worktrees.return_value = []
+    vm.list_branches_with_checkout_status.return_value = []
+    vm.is_protected_branch.return_value = False
+    vm.has_uncommitted_changes.return_value = False
+    win = MainWindow(vm=vm, repo_name="proj",
+                     on_settings=lambda: None, on_cleanup=lambda: None,
+                     on_new=lambda: None)
+    qtbot.addWidget(win)
+    wt = WorktreeModel(
+        path="/r/proj-wt/fix-x", branch="fix/x", is_main=False,
+        last_commit_ts=int(time.time()), is_merged=False, is_stale=False,
+    )
+    captured = {}
+
+    def fake_dlg_ctor(parent, **kwargs):
+        captured["on_delete"] = kwargs["on_delete"]
+        return MagicMock(spec=QDialog)
+
+    with patch("worktree_manager.ui.main_window.DeleteDialog",
+               side_effect=fake_dlg_ctor):
+        win._open_delete(wt)
+    initial = vm.load_worktrees.call_count
+    captured["on_delete"](wt, True)
+    vm.delete_worktree.assert_called_once_with(
+        path=wt.path, branch=wt.branch, also_delete_branch=True,
+    )
+    assert vm.load_worktrees.call_count > initial
+```
+
+**Production code (Green):**
+
+In `worktree_manager/cli.py`, replace the four stub methods and add the imports:
+
+```python
+# add to the top of cli.py
+from worktree_manager.setup_settings_vm import RepoSetupViewModel, SettingsViewModel
+from worktree_manager.ui.create_dialog import CreateDialog
+from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
+from worktree_manager.ui.settings_panel import SettingsDialog
+```
+
+```python
+def _load_repo(self, repo_path):
+    cfg = self._store.get_repo(repo_path)
+    if cfg is None:
+        vm = RepoSetupViewModel(repo_path=repo_path, config_store=self._store)
+        dlg = RepoSetupDialog(
+            parent=self, vm=vm,
+            on_confirm=lambda: self._show_main(repo_path),
+        )
+        dlg.exec()
+        self._sidebar.populate_repo_rows()
+        return
+    self._show_main(repo_path)
+
+def _show_settings(self, repo_path):
+    vm = SettingsViewModel(repo_path=repo_path, config_store=self._store)
+    dlg = SettingsDialog(parent=self, vm=vm)
+    dlg.exec()
+    self._refresh()
+
+def _show_new_worktree(self, vm):
+    vm.load_worktrees()
+    all_branches = vm.list_local_branches()
+    available = vm.list_available_branches()
+    def _on_create(branch, base_branch, is_existing, worktree_name):
+        try:
+            vm.create_worktree(
+                branch=branch, base_branch=base_branch,
+                existing=is_existing, worktree_name=worktree_name,
+            )
+        except ValueError as e:
+            QMessageBox.critical(self, "Cannot create worktree", str(e))
+            return
+        if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
+            self._current_panel.refresh()
+    dlg = CreateDialog(
+        parent=self, branches=all_branches,
+        existing_branches=available, on_create=_on_create,
+    )
+    dlg.exec()
+```
+
+In `worktree_manager/ui/main_window.py`, replace `_open_delete`:
+
+```python
+# add to the top of main_window.py
+from worktree_manager.ui.delete_dialog import DeleteDialog
+```
+
+```python
+def _open_delete(self, wt: WorktreeModel):
+    def _on_delete(_wt, also_branch):
+        try:
+            self._vm.delete_worktree(
+                path=_wt.path, branch=_wt.branch,
+                also_delete_branch=also_branch,
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Delete failed", str(e))
+            return
+        self.refresh()
+    dlg = DeleteDialog(
+        parent=self, wt=wt, on_delete=_on_delete,
+        is_protected=self._vm.is_protected_branch(wt.branch),
+        has_uncommitted=self._vm.has_uncommitted_changes(wt.path),
+    )
+    dlg.exec()
+```
+
+Also: leave the `_show_cleanup` and `_show_command_center` / `_show_workspace_projects` stubs as-is — they ship in Iterations 2 and 3.
+
+**Done when:** `python3.14 -m pytest tests/test_iteration_1_wiring.py` is green, and a manual launch (`python3.14 -m worktree_manager.cli`) lets you complete the full add-repo-and-create-worktree-and-delete-it-and-edit-settings loop without ever seeing a "Ships in Iteration N" placeholder.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+**Setup**
+- [ ] Run `python3.14 -m worktree_manager.cli` from `worktree-manager/`. The Qt window opens, sidebar visible, landing screen on the right.
+
+**Repo setup flow**
+- [ ] Click "+ Add Repo" and pick a fresh git repo that's NOT yet in `~/.config/worktree-manager/config.json`. The **RepoSetupDialog** opens (title "Worktree Storage"), pre-filled with `<repo-parent>/<repo-name>-worktrees`.
+- [ ] Click Browse — a native folder picker opens. Pick a folder — the entry updates. Cancel Browse — entry stays the same.
+- [ ] Cancel the setup dialog — nothing is saved; the sidebar still doesn't show the repo (or it shows it without a config; either way no MainWindow loads).
+- [ ] Re-add the repo, click Confirm — the dialog closes, the repo appears in the sidebar with ○, and the MainWindow loads on the right.
+
+**Create worktree flow**
+- [ ] Click "+ New". The **CreateDialog** opens in "New branch" mode by default.
+- [ ] Type a branch name like `fix/login`, click "← copy from branch" — the worktree-name field fills with `fix-login`.
+- [ ] Clear the worktree-name field, type `fix-login-2` directly, click "← copy from worktree" — the branch-name field fills with `fix/login-2`.
+- [ ] Switch to "Existing branch" mode — the new-branch fields disappear and the existing-branch dropdown + worktree-name row appear.
+- [ ] Switch back to "New branch" mode. Pick a base branch from the dropdown.
+- [ ] Cancel — nothing is created.
+- [ ] Click Create with the New branch form filled — the dialog closes, the worktree list refreshes, and the new worktree appears as a row.
+- [ ] Click "+ New" again. Try to create a worktree with a branch name that already exists — a red error dialog says the branch already exists; the new-worktree dialog stays open (or re-opens; either way no silent failure).
+
+**Delete worktree flow**
+- [ ] Click the red ✕ next to a non-main worktree row. The **DeleteDialog** opens, shows the branch and path, and the "Also delete branch" checkbox is checked.
+- [ ] Cancel — nothing changes.
+- [ ] Re-open the delete dialog for a `feature/...` (protected) branch — the "Also delete branch" checkbox is **disabled and unchecked** with "(protected)" in the label.
+- [ ] Confirm Delete — the dialog closes, the worktree is gone from the list, and (for non-protected branches) the branch is also deleted (verify by running `git branch` in the repo).
+- [ ] Make uncommitted changes in a worktree (`echo x >> README.md` in that folder), then try to delete it — a warning "⚠ Unstaged or uncommitted changes detected." appears in the dialog, and clicking Delete pops a `QMessageBox.critical` "Cannot delete branch" instead of deleting.
+
+**Settings flow**
+- [ ] Click the ⚙ button in the worktree panel header. The **SettingsDialog** opens, pre-filled with the current worktree storage path and stale days.
+- [ ] Click Browse — folder picker opens, pick a folder, entry updates.
+- [ ] Cancel — no changes saved (verify by re-opening — original values still there).
+- [ ] Change stale threshold to `7` via the spinbox, click Save — dialog closes, settings persisted (re-open to verify; worktrees with last commit > 7 days now show ⚠ stale).
+
+**Regression — Iteration 0 behaviour still works**
+- [ ] Sidebar ▼ REPOS collapse toggle still flips, persists across restarts.
+- [ ] Branch dropdown on a worktree row still switches branches and still shows an error when the chosen branch is checked out elsewhere.
+- [ ] Repo ✕ in the sidebar still asks Yes/No and removes the repo from the store.
+- [ ] OS Light/Dark mode toggle still propagates to the app's chrome.
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
+---
+
 ## Decisions
 
 - **Theme:** Follow OS light/dark preference automatically via `QApplication` palette.
 - **`scroll_fix.py`:** Delete entirely — Qt handles scroll natively, no replacement needed.
 - **UI tests:** Add `pytest-qt` smoke tests alongside the existing VM/service tests.
 - **Segmented button:** Replace `CTkSegmentedButton` with two plain `QRadioButton`s in a row.
+- **Iter 1 tk-facade shims (`_StringVar`, `_BoolVar`, `_EntryFacade`):** Used inside `CreateDialog` / `DeleteDialog` to preserve the underscore-prefixed `_mode_var`, `_branch_entry`, `_also_branch`, etc. attributes that existing `tests/test_ui_smoke.py` cases assert against. These shims are private and disappear naturally as the legacy CTk-era tests get retired.

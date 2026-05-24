@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 
 from worktree_manager.main_window_vm import MainWindowViewModel
 from worktree_manager.models import WorktreeModel
+from worktree_manager.ui.delete_dialog import DeleteDialog
 
 
 def _fmt_age(ts):
@@ -167,5 +168,20 @@ class MainWindow(QWidget):
             return False
 
     def _open_delete(self, wt: WorktreeModel):
-        # Stubbed in Iteration 0 — real DeleteDialog arrives in Iteration 1.
-        print(f"[stub] delete worktree: {wt.path}")
+        def _on_delete(_wt, also_branch):
+            try:
+                self._vm.delete_worktree(
+                    path=_wt.path, branch=_wt.branch,
+                    also_delete_branch=also_branch,
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Delete failed", str(e))
+                return
+            self.refresh()
+
+        dlg = DeleteDialog(
+            parent=self, wt=wt, on_delete=_on_delete,
+            is_protected=self._vm.is_protected_branch(wt.branch),
+            has_uncommitted=self._vm.has_uncommitted_changes(wt.path),
+        )
+        dlg.exec()

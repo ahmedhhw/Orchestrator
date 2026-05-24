@@ -9,6 +9,10 @@ from PySide6.QtWidgets import (
 
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
+from worktree_manager.setup_settings_vm import RepoSetupViewModel, SettingsViewModel
+from worktree_manager.ui.create_dialog import CreateDialog
+from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
+from worktree_manager.ui.settings_panel import SettingsDialog
 
 
 def parse_args(argv):
@@ -95,11 +99,13 @@ class App(QMainWindow):
     def _load_repo(self, repo_path):
         cfg = self._store.get_repo(repo_path)
         if cfg is None:
-            QMessageBox.information(
-                self, "Setup required",
-                f"'{Path(repo_path).name}' is not configured yet. "
-                "Setup dialog ships in Iteration 1.",
+            vm = RepoSetupViewModel(repo_path=repo_path, config_store=self._store)
+            dlg = RepoSetupDialog(
+                parent=self, vm=vm,
+                on_confirm=lambda: self._show_main(repo_path),
             )
+            dlg.exec()
+            self._sidebar.populate_repo_rows()
             return
         self._show_main(repo_path)
 
@@ -151,13 +157,36 @@ class App(QMainWindow):
     # ── stubs for panels arriving in later iterations ───────────────────────
 
     def _show_settings(self, repo_path):
-        QMessageBox.information(self, "Settings", "Ships in Iteration 1.")
+        vm = SettingsViewModel(repo_path=repo_path, config_store=self._store)
+        dlg = SettingsDialog(parent=self, vm=vm)
+        dlg.exec()
+        self._refresh()
 
     def _show_cleanup(self, vm):
         QMessageBox.information(self, "Cleanup Wizard", "Ships in Iteration 3.")
 
     def _show_new_worktree(self, vm):
-        QMessageBox.information(self, "New Worktree", "Ships in Iteration 1.")
+        vm.load_worktrees()
+        all_branches = vm.list_local_branches()
+        available = vm.list_available_branches()
+
+        def _on_create(branch, base_branch, is_existing, worktree_name):
+            try:
+                vm.create_worktree(
+                    branch=branch, base_branch=base_branch,
+                    existing=is_existing, worktree_name=worktree_name,
+                )
+            except ValueError as e:
+                QMessageBox.critical(self, "Cannot create worktree", str(e))
+                return
+            if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
+                self._current_panel.refresh()
+
+        dlg = CreateDialog(
+            parent=self, branches=all_branches,
+            existing_branches=available, on_create=_on_create,
+        )
+        dlg.exec()
 
     def _show_command_center(self):
         QMessageBox.information(self, "Command Center", "Ships in Iteration 2.")

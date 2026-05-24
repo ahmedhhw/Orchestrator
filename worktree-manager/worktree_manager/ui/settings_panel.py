@@ -1,54 +1,65 @@
-import customtkinter as ctk
-from tkinter import filedialog
+from PySide6.QtWidgets import (
+    QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QSpinBox, QVBoxLayout,
+)
+
 from worktree_manager.setup_settings_vm import SettingsViewModel
 
 
-class SettingsPanel(ctk.CTkToplevel):
-    def __init__(self, master, vm: SettingsViewModel):
-        super().__init__(master)
-        self.title("Settings")
-        self.resizable(False, False)
+class SettingsDialog(QDialog):
+    def __init__(self, parent, vm: SettingsViewModel):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setModal(True)
         self._vm = vm
-        self._build()
 
-    def _build(self):
-        ctk.CTkLabel(
-            self, text="Settings", font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(pady=(20, 8))
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(8)
 
-        row = ctk.CTkFrame(self)
-        row.pack(fill="x", padx=24, pady=4)
-        ctk.CTkLabel(row, text="Worktree storage:", width=140, anchor="w").pack(side="left")
-        self._storage_entry = ctk.CTkEntry(row, width=220)
-        self._storage_entry.insert(0, self._vm.worktree_storage)
-        self._storage_entry.pack(side="left")
-        ctk.CTkButton(
-            row, text="Browse", width=70, command=self._browse
-        ).pack(side="left", padx=4)
+        title = QLabel("Settings")
+        title.setStyleSheet("font-weight: bold; font-size: 16px;")
+        outer.addWidget(title)
 
-        row2 = ctk.CTkFrame(self)
-        row2.pack(fill="x", padx=24, pady=4)
-        ctk.CTkLabel(row2, text="Stale threshold:", width=140, anchor="w").pack(side="left")
-        self._stale_entry = ctk.CTkEntry(row2, width=60)
-        self._stale_entry.insert(0, str(self._vm.stale_days))
-        self._stale_entry.pack(side="left")
-        ctk.CTkLabel(row2, text="days").pack(side="left", padx=4)
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Worktree storage:"))
+        self._storage_entry = QLineEdit(vm.worktree_storage)
+        self._storage_entry.setMinimumWidth(240)
+        row1.addWidget(self._storage_entry, 1)
+        browse = QPushButton("Browse")
+        browse.setFixedWidth(80)
+        browse.clicked.connect(self._browse)
+        row1.addWidget(browse)
+        outer.addLayout(row1)
 
-        ctk.CTkButton(self, text="Save", command=self._save).pack(pady=16)
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Stale threshold:"))
+        self._stale_spin = QSpinBox()
+        self._stale_spin.setRange(1, 3650)
+        self._stale_spin.setValue(int(vm.stale_days))
+        row2.addWidget(self._stale_spin)
+        row2.addWidget(QLabel("days"))
+        row2.addStretch(1)
+        outer.addLayout(row2)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        save = QPushButton("Save")
+        save.clicked.connect(self._save)
+        btns.addWidget(save)
+        outer.addLayout(btns)
 
     def _browse(self):
-        path = filedialog.askdirectory()
+        path = QFileDialog.getExistingDirectory(self, "Choose worktree storage")
         if path:
-            self._storage_entry.delete(0, "end")
-            self._storage_entry.insert(0, path)
+            self._storage_entry.setText(path)
 
     def _save(self):
-        try:
-            stale_days = int(self._stale_entry.get())
-        except ValueError:
-            stale_days = 30
         self._vm.save(
-            worktree_storage=self._storage_entry.get(),
-            stale_days=stale_days,
+            worktree_storage=self._storage_entry.text(),
+            stale_days=int(self._stale_spin.value()),
         )
-        self.destroy()
+        self.accept()
