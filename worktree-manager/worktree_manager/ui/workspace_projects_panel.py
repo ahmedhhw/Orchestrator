@@ -2,7 +2,6 @@ import os
 import customtkinter as ctk
 import tkinter.messagebox as mb
 from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
-from worktree_manager.ui.scroll_fix import attach_scroll_fix
 
 
 class WorkspaceProjectsPanel(ctk.CTkFrame):
@@ -42,7 +41,6 @@ class WorkspaceProjectsPanel(ctk.CTkFrame):
 
         self._scroll = ctk.CTkScrollableFrame(self)
         self._scroll.pack(fill="both", expand=True, padx=8, pady=4)
-        attach_scroll_fix(self._scroll)
 
         self._empty_label = ctk.CTkLabel(
             self._scroll,

@@ -6,10 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "worktree-manager"
 version = "0.1.0"
 requires-python = ">=3.9"
-dependencies = ["customtkinter>=5.2"]
+dependencies = ["customtkinter>=5.2", "PySide6>=6.6"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "pytest-qt>=4.2"]
+
+[tool.pytest.ini_options]
+qt_api = "pyside6"
 
 [project.scripts]
 worktree-manager = "worktree_manager.cli:main"
