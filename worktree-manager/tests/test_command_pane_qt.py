@@ -139,4 +139,4 @@ def test_command_pane_popout_button_hidden_when_show_popout_btn_false(qtbot):
         show_popout_btn=False,
     )
     qtbot.addWidget(p)
-    assert not any(b.text() == "⤢" for b in p.findChildren(QPushButton))
+    assert not any(b.toolTip() == "Pop out" for b in p.findChildren(QPushButton))

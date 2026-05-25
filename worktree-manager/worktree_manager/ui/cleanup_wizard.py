@@ -174,10 +174,23 @@ class CleanupWizard(QDialog):
         self._outer.addLayout(btn_row)
         self._refresh_button_labels()
 
+    _ROW_INDENT = 20
+
     def _add_section_label(self, text: str):
         lbl = QLabel(text)
         lbl.setStyleSheet("color: gray;")
         self._list_layout.addWidget(lbl)
+
+    def _add_indented_row(self, *widgets, stretch_last: bool = True) -> None:
+        wrap = QWidget()
+        row = QHBoxLayout(wrap)
+        row.setContentsMargins(self._ROW_INDENT, 0, 0, 0)
+        row.setSpacing(8)
+        for w in widgets:
+            row.addWidget(w)
+        if stretch_last:
+            row.addStretch(1)
+        self._list_layout.addWidget(wrap)
 
     def _add_divider(self):
         line = QFrame()
@@ -188,21 +201,21 @@ class CleanupWizard(QDialog):
     def _render_merged(self, merged: list):
         self._add_section_label("Merged:")
         if not merged:
-            self._add_section_label("  (none)")
+            self._add_indented_row(self._gray_label("(none)"))
             return
         for target, branches in _merged_subgroups(merged):
-            header = QHBoxLayout()
-            tlabel = QLabel(f"  → into {target}")
-            tlabel.setStyleSheet("color: gray;")
-            header.addWidget(tlabel)
-            header.addStretch(1)
+            tlabel = self._gray_label(f"→ into {target}")
             btn = QPushButton("Select all")
             btn.setFixedWidth(90)
             btn.clicked.connect(lambda _=False, t=target: self.trigger_subgroup_select(t))
-            header.addWidget(btn)
             self._subgroup_btns[target] = btn
             wrap = QWidget()
-            wrap.setLayout(header)
+            row = QHBoxLayout(wrap)
+            row.setContentsMargins(self._ROW_INDENT, 0, 0, 0)
+            row.setSpacing(8)
+            row.addWidget(tlabel)
+            row.addStretch(1)
+            row.addWidget(btn)
             self._list_layout.addWidget(wrap)
             for c in branches:
                 self._add_checkbox(c, default_checked=True)
@@ -223,7 +236,7 @@ class CleanupWizard(QDialog):
         wrap.setLayout(header)
         self._list_layout.addWidget(wrap)
         if not stale:
-            self._add_section_label("  (none)")
+            self._add_indented_row(self._gray_label("(none)"))
             return
         for c in stale:
             self._add_checkbox(c, default_checked=True)
@@ -232,7 +245,7 @@ class CleanupWizard(QDialog):
         self._add_divider()
         self._add_section_label("Healthy:")
         if not healthy:
-            self._add_section_label("  (none)")
+            self._add_indented_row(self._gray_label("(none)"))
             return
         for c in healthy:
             self._add_checkbox(c, default_checked=False)
@@ -243,17 +256,11 @@ class CleanupWizard(QDialog):
         self._add_divider()
         self._add_section_label("Protected:")
         for c in protected:
-            row = QHBoxLayout()
             cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
             cb.setEnabled(False)
-            row.addWidget(cb)
             tag = QLabel("⚠ main" if c.branch == "main" else "⚠ feature")
             tag.setStyleSheet("color: orange;")
-            row.addWidget(tag)
-            row.addStretch(1)
-            wrap = QWidget()
-            wrap.setLayout(row)
-            self._list_layout.addWidget(wrap)
+            self._add_indented_row(cb, tag)
             self._protected_pairs.append((c, cb))
 
     def _render_unoperable(self, unoperable: list):
@@ -262,23 +269,22 @@ class CleanupWizard(QDialog):
         self._add_divider()
         self._add_section_label("Cannot delete:")
         for c in unoperable:
-            row = QHBoxLayout()
             txt = QLabel(f"—   {c.branch}  ({_reason(c)})")
             txt.setStyleSheet("color: gray;")
-            row.addWidget(txt)
             tag = QLabel("⚠ uncommitted" if c.has_uncommitted else "⚠ checked out")
             tag.setStyleSheet("color: orange;")
-            row.addWidget(tag)
-            row.addStretch(1)
-            wrap = QWidget()
-            wrap.setLayout(row)
-            self._list_layout.addWidget(wrap)
+            self._add_indented_row(txt, tag)
+
+    def _gray_label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: gray;")
+        return lbl
 
     def _add_checkbox(self, c: CleanupCandidate, default_checked: bool):
         cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
         cb.setChecked(default_checked)
         cb.toggled.connect(lambda _=False: self._refresh_button_labels())
-        self._list_layout.addWidget(cb)
+        self._add_indented_row(cb)
         self._pairs.append((c, cb))
 
     # --- admin mode ---

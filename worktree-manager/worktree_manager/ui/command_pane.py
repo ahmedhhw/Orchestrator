@@ -1,7 +1,7 @@
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractScrollArea, QApplication, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QStyle, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.command_runner import RunHandle, RunStatus
@@ -33,6 +33,7 @@ class CommandPane(QWidget):
         self._status = handle.status
         self._find_matches: list[int] = []
         self._find_cursor = 0
+        self._find_query_len = 0
         self._build()
 
     def _build(self):
@@ -53,28 +54,35 @@ class CommandPane(QWidget):
         header.addWidget(self._label, 1)
 
         if self._show_popout_btn:
-            header.addWidget(self._mk_btn("⤢", self.trigger_maximize))
-        header.addWidget(self._mk_btn("⟳", self.trigger_restart))
-        header.addWidget(self._mk_btn("■", self.trigger_stop))
-        header.addWidget(self._mk_btn("⎘", self.trigger_copy))
-        header.addWidget(self._mk_btn("🔍", self.show_find_bar))
-        header.addWidget(self._mk_btn("✕", self.trigger_remove))
+            header.addWidget(self._mk_icon_btn(
+                QStyle.SP_TitleBarMaxButton, "Pop out", self.trigger_maximize))
+        header.addWidget(self._mk_icon_btn(
+            QStyle.SP_BrowserReload, "Restart", self.trigger_restart))
+        header.addWidget(self._mk_icon_btn(
+            QStyle.SP_MediaStop, "Stop", self.trigger_stop))
+        header.addWidget(self._mk_text_btn("Copy", "Copy output", self.trigger_copy))
+        header.addWidget(self._mk_text_btn("Find", "Find in output", self.show_find_bar))
+        header.addWidget(self._mk_icon_btn(
+            QStyle.SP_TitleBarCloseButton, "Remove", self.trigger_remove))
         outer.addLayout(header)
 
         self._find_bar = QWidget()
         find_layout = QHBoxLayout(self._find_bar)
         find_layout.setContentsMargins(0, 0, 0, 0)
         self._find_entry = QLineEdit()
-        self._find_entry.setPlaceholderText("🔍 search...")
+        self._find_entry.setPlaceholderText("Search…")
         self._find_entry.textChanged.connect(self._apply_find)
         self._find_entry.returnPressed.connect(self._find_next)
         find_layout.addWidget(self._find_entry, 1)
         self._find_count_label = QLabel("")
         self._find_count_label.setFixedWidth(80)
         find_layout.addWidget(self._find_count_label)
-        find_layout.addWidget(self._mk_btn("↑", self._find_prev))
-        find_layout.addWidget(self._mk_btn("↓", self._find_next))
-        find_layout.addWidget(self._mk_btn("×", self.hide_find_bar))
+        find_layout.addWidget(self._mk_icon_btn(
+            QStyle.SP_ArrowUp, "Previous match", self._find_prev))
+        find_layout.addWidget(self._mk_icon_btn(
+            QStyle.SP_ArrowDown, "Next match", self._find_next))
+        find_layout.addWidget(self._mk_icon_btn(
+            QStyle.SP_TitleBarCloseButton, "Close find bar", self.hide_find_bar))
         self._find_bar_visible = False
         self._find_bar.setVisible(False)
         outer.addWidget(self._find_bar)
@@ -87,6 +95,20 @@ class CommandPane(QWidget):
     def _mk_btn(self, label, handler):
         b = QPushButton(label)
         b.setFixedWidth(28)
+        b.clicked.connect(lambda _checked=False: handler())
+        return b
+
+    def _mk_icon_btn(self, standard_pixmap, tooltip, handler):
+        b = QPushButton()
+        b.setIcon(self.style().standardIcon(standard_pixmap))
+        b.setToolTip(tooltip)
+        b.setFixedWidth(28)
+        b.clicked.connect(lambda _checked=False: handler())
+        return b
+
+    def _mk_text_btn(self, label, tooltip, handler):
+        b = QPushButton(label)
+        b.setToolTip(tooltip)
         b.clicked.connect(lambda _checked=False: handler())
         return b
 
@@ -158,6 +180,7 @@ class CommandPane(QWidget):
 
     def find(self, query: str) -> int:
         self._find_matches = []
+        self._find_query_len = len(query)
         self._textbox.setExtraSelections([])
         if not query:
             return 0
@@ -171,43 +194,67 @@ class CommandPane(QWidget):
                 break
             self._find_matches.append(idx)
             start = idx + len(q)
+        self._render_find_highlights()
+        return len(self._find_matches)
+
+    # --- private ---
+
+    def _render_find_highlights(self) -> None:
+        doc = self._textbox.document()
         selections = []
-        for pos in self._find_matches:
+        for i, pos in enumerate(self._find_matches):
             cursor = QTextCursor(doc)
             cursor.setPosition(pos)
-            cursor.setPosition(pos + len(query), QTextCursor.KeepAnchor)
+            cursor.setPosition(pos + self._find_query_len, QTextCursor.KeepAnchor)
             fmt = QTextCharFormat()
-            fmt.setBackground(QColor("yellow"))
+            if i == self._find_cursor:
+                fmt.setBackground(QColor("orange"))
+            else:
+                fmt.setBackground(QColor("yellow"))
             fmt.setForeground(QColor("black"))
             sel = QTextEdit.ExtraSelection()
             sel.cursor = cursor
             sel.format = fmt
             selections.append(sel)
         self._textbox.setExtraSelections(selections)
-        return len(self._find_matches)
 
-    # --- private ---
+    def _update_find_count_label(self) -> None:
+        total = len(self._find_matches)
+        if not self._find_entry.text():
+            self._find_count_label.setText("")
+        elif total == 0:
+            self._find_count_label.setText("0 matches")
+        else:
+            self._find_count_label.setText(f"{self._find_cursor + 1} of {total}")
+
+    def _scroll_to_current_match(self) -> None:
+        if not self._find_matches:
+            return
+        cursor = self._textbox.textCursor()
+        cursor.setPosition(self._find_matches[self._find_cursor])
+        self._textbox.setTextCursor(cursor)
+        self._textbox.ensureCursorVisible()
 
     def _apply_find(self) -> None:
         query = self._find_entry.text() if self._find_bar.isVisible() else ""
-        count = self.find(query)
+        self.find(query)
         self._find_cursor = 0
-        self._find_count_label.setText(
-            f"{count} match{'es' if count != 1 else ''}" if query else ""
-        )
+        self._render_find_highlights()
+        self._scroll_to_current_match()
+        self._update_find_count_label()
 
     def _find_next(self) -> None:
         if not self._find_matches:
             return
         self._find_cursor = (self._find_cursor + 1) % len(self._find_matches)
-        cursor = self._textbox.textCursor()
-        cursor.setPosition(self._find_matches[self._find_cursor])
-        self._textbox.setTextCursor(cursor)
+        self._render_find_highlights()
+        self._scroll_to_current_match()
+        self._update_find_count_label()
 
     def _find_prev(self) -> None:
         if not self._find_matches:
             return
         self._find_cursor = (self._find_cursor - 1) % len(self._find_matches)
-        cursor = self._textbox.textCursor()
-        cursor.setPosition(self._find_matches[self._find_cursor])
-        self._textbox.setTextCursor(cursor)
+        self._render_find_highlights()
+        self._scroll_to_current_match()
+        self._update_find_count_label()
