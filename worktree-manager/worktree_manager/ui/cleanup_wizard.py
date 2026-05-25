@@ -1,38 +1,25 @@
 import time
-import customtkinter as ctk
+
+from PySide6.QtWidgets import (
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
+)
+
 from worktree_manager.models import CleanupCandidate
 
 
 def _fmt_age(ts: int) -> str:
     if ts == 0:
         return "no commits"
-    diff = int(time.time()) - ts
-    return f"{diff // 86400}d"
+    return f"{(int(time.time()) - ts) // 86400}d"
 
 
-def _reason(c) -> str:
+def _reason(c: CleanupCandidate) -> str:
     if c.is_merged:
-        target = c.merged_into or "main"
-        return f"merged into {target}"
+        return f"merged into {c.merged_into or 'main'}"
     if c.is_stale:
         return f"{_fmt_age(c.last_commit_ts)}, stale"
     return f"{_fmt_age(c.last_commit_ts)} ago"
-
-
-def _merge_sort_key(c) -> tuple:
-    target = (c.merged_into or "main").lower()
-    return (target, c.branch.lower())
-
-
-def _merged_subgroups(merged: list) -> list:
-    """Return [(target, [candidates...]), ...] sorted by target name."""
-    groups: dict = {}
-    for c in merged:
-        target = c.merged_into or "main"
-        groups.setdefault(target, []).append(c)
-    for branches in groups.values():
-        branches.sort(key=lambda c: c.branch.lower())
-    return sorted(groups.items(), key=lambda kv: kv[0].lower())
 
 
 def _group_candidates(candidates: list) -> dict:
@@ -42,379 +29,313 @@ def _group_candidates(candidates: list) -> dict:
     merged = [c for c in operable if c.is_merged]
     stale = [c for c in operable if c.is_stale and not c.is_merged]
     healthy = [c for c in operable if not c.is_stale and not c.is_merged]
-    merged.sort(key=_merge_sort_key)
+    merged.sort(key=lambda c: ((c.merged_into or "main").lower(), c.branch.lower()))
     stale.sort(key=lambda c: c.last_commit_ts)
-    return {"merged": merged, "stale": stale, "healthy": healthy, "protected": protected, "unoperable": unoperable}
+    return {"merged": merged, "stale": stale, "healthy": healthy,
+            "protected": protected, "unoperable": unoperable}
 
 
-class CleanupWizard(ctk.CTkToplevel):
-    def __init__(self, master, candidates: list | None, on_delete_selected):
-        super().__init__(master)
-        self.title("Cleanup Wizard")
-        self.resizable(False, False)
-        self._on_delete_selected = on_delete_selected
-        self._all_pairs: list = []
+def _merged_subgroups(merged: list) -> list:
+    groups: dict = {}
+    for c in merged:
+        target = c.merged_into or "main"
+        groups.setdefault(target, []).append(c)
+    for branches in groups.values():
+        branches.sort(key=lambda c: c.branch.lower())
+    return sorted(groups.items(), key=lambda kv: kv[0].lower())
 
-        # Loading state — set when candidates is None (deferred load)
-        self._loading_frame: ctk.CTkFrame | None = None
-        self._progress_bar: ctk.CTkProgressBar | None = None
-        self._progress_label: ctk.CTkLabel | None = None
-        self._progress_count: ctk.CTkLabel | None = None
 
-        self._grouped = {}
-        self._global_btn: ctk.CTkButton | None = None
-        self._subgroup_btn: dict = {}
-        self._stale_btn: ctk.CTkButton | None = None
-        self._admin_mode_var = ctk.BooleanVar(value=False)
-        self._protected_triples: list = []
-        self._admin_banner = None
-        self._admin_only_label = None
+class CleanupWizard(QDialog):
+    def __init__(self, parent, candidates, on_delete_selected):
+        super().__init__(parent)
+        self.setWindowTitle("Cleanup Wizard")
+        self.setModal(True)
+        self.resize(520, 520)
+        self._on_delete = on_delete_selected
+        self._pairs: list[tuple[CleanupCandidate, QCheckBox]] = []
+        self._protected_pairs: list[tuple[CleanupCandidate, QCheckBox]] = []
+        self._subgroup_btns: dict[str, QPushButton] = {}
+        self._stale_btn: QPushButton | None = None
+        self._global_btn: QPushButton | None = None
+        self._admin_mode: bool = False
+        self._admin_banner: QWidget | None = None
+        self._progress_bar: QProgressBar | None = None
+        self._progress_label: QLabel | None = None
+        self._loading: bool = candidates is None
 
-        if candidates is None:
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(24, 16, 24, 16)
+        self._outer.setSpacing(6)
+        if self._loading:
             self._build_loading()
         else:
-            self._init_candidates(candidates)
-            self._build()
-            self._wire_traces()
-            self._refresh_button_labels()
+            self._build(candidates)
 
-    def _init_candidates(self, candidates: list):
-        grouped = _group_candidates(candidates)
-        operable = grouped["merged"] + grouped["stale"] + grouped["healthy"]
-        for c in operable:
-            var = ctk.BooleanVar(value=c.is_stale or c.is_merged)
-            self._all_pairs.append((c, var))
-        self._grouped = grouped
+    # --- loading state ---
 
     def _build_loading(self):
-        ctk.CTkLabel(
-            self, text="Cleanup Wizard", font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(pady=(20, 4))
+        title = QLabel("Cleanup Wizard")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self._outer.addWidget(title)
+        self._progress_label = QLabel("Scanning branches…")
+        self._outer.addWidget(self._progress_label)
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._outer.addWidget(self._progress_bar)
+        self._outer.addStretch(1)
 
-        frame = ctk.CTkFrame(self, fg_color="transparent")
-        frame.pack(fill="x", padx=24, pady=(12, 4))
-        self._loading_frame = frame
+    def is_loading(self) -> bool:
+        return self._loading
 
-        self._progress_label = ctk.CTkLabel(
-            frame, text="Scanning branches…", font=ctk.CTkFont(size=12), anchor="w"
+    def update_progress(self, current: int, total: int, label: str) -> None:
+        if not self._loading or self._progress_bar is None:
+            return
+        pct = int(100 * current / total) if total > 0 else 0
+        self._progress_bar.setValue(pct)
+        self._progress_label.setText(f"{label}  ({current} / {total})")
+
+    def progress_text(self) -> str:
+        return self._progress_label.text() if self._progress_label else ""
+
+    def finish_loading(self, candidates: list) -> None:
+        while self._outer.count():
+            item = self._outer.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        self._progress_bar = None
+        self._progress_label = None
+        self._pairs = []
+        self._protected_pairs = []
+        self._subgroup_btns = {}
+        self._stale_btn = None
+        self._global_btn = None
+        self._admin_banner = None
+        self._loading = False
+        self._build(candidates)
+
+    # --- main UI ---
+
+    def _build(self, candidates: list):
+        title = QLabel("Cleanup Wizard")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self._outer.addWidget(title)
+
+        self._admin_banner = QLabel(
+            "⚠ Admin Mode: Protected branches can be deleted.\n"
+            "    Double-check your selection before deleting."
         )
-        self._progress_label.pack(fill="x", pady=(0, 6))
-
-        self._progress_bar = ctk.CTkProgressBar(frame, mode="determinate")
-        self._progress_bar.set(0)
-        self._progress_bar.pack(fill="x", pady=(0, 4))
-
-        self._progress_count = ctk.CTkLabel(
-            frame, text="", font=ctk.CTkFont(size=11), text_color="gray", anchor="e"
+        self._admin_banner.setStyleSheet(
+            "background-color: #7b2d00; color: white; padding: 6px 12px;"
         )
-        self._progress_count.pack(fill="x")
+        self._admin_banner.setVisible(False)
+        self._outer.addWidget(self._admin_banner)
 
-        # Spacer so the window has a stable size from the start
-        ctk.CTkFrame(self, height=60, fg_color="transparent").pack()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        self._list_layout = QVBoxLayout(container)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(2)
+        scroll.setWidget(container)
+        self._outer.addWidget(scroll, 1)
 
-    def update_progress(self, current: int, total: int, label: str):
-        """Called from background thread via after(); safe to call cross-thread."""
-        def _update():
-            if self._progress_bar is None:
-                return
-            fraction = current / total if total > 0 else 0
-            self._progress_bar.set(fraction)
-            self._progress_label.configure(text=label)
-            self._progress_count.configure(text=f"{current} / {total}")
-        self.after(0, _update)
+        grouped = _group_candidates(candidates)
+        self._render_merged(grouped["merged"])
+        self._render_stale(grouped["stale"])
+        self._render_healthy(grouped["healthy"])
+        self._render_protected(grouped["protected"])
+        self._render_unoperable(grouped["unoperable"])
+        self._list_layout.addStretch(1)
 
-    def finish_loading(self, candidates: list):
-        """Replace the loading screen with the real wizard content."""
-        def _swap():
-            if self._loading_frame:
-                self._loading_frame.destroy()
-                self._loading_frame = None
-                self._progress_bar = None
-                self._progress_label = None
-                self._progress_count = None
-            # Destroy spacer frames (all children not yet part of real UI)
-            for w in self.winfo_children():
-                w.destroy()
-            self._all_pairs = []
-            self._subgroup_btn = {}
-            self._global_btn = None
-            self._stale_btn = None
-            self._admin_banner = None
-            self._admin_only_label = None
-            self._protected_triples = []
-            self._init_candidates(candidates)
-            self._build()
-            self._wire_traces()
-            self._refresh_button_labels()
-        self.after(0, _swap)
+        admin_row = QHBoxLayout()
+        admin_cb = QCheckBox("Admin Mode")
+        admin_cb.toggled.connect(self.set_admin_mode)
+        admin_row.addWidget(admin_cb)
+        admin_warn = QLabel("⚠ Enable only if you know what you're doing")
+        admin_warn.setStyleSheet("color: orange;")
+        admin_row.addWidget(admin_warn)
+        admin_row.addStretch(1)
+        self._outer.addLayout(admin_row)
 
-    def _build(self):
-        ctk.CTkLabel(
-            self, text="Cleanup Wizard", font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(pady=(20, 4))
+        btn_row = QHBoxLayout()
+        self._global_btn = QPushButton("Select All")
+        self._global_btn.clicked.connect(self.trigger_select_all)
+        btn_row.addWidget(self._global_btn)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btn_row.addWidget(cancel)
+        btn_row.addStretch(1)
+        delete = QPushButton("Delete")
+        delete.setStyleSheet("background-color: #c0392b; color: white;")
+        delete.clicked.connect(self.trigger_delete)
+        btn_row.addWidget(delete)
+        self._outer.addLayout(btn_row)
+        self._refresh_button_labels()
 
-        # Warning banner — hidden until Admin Mode is ON
-        self._admin_banner = ctk.CTkFrame(self, fg_color="#7b2d00")
-        ctk.CTkLabel(
-            self._admin_banner,
-            text="⚠ Admin Mode: Protected branches can be deleted.\n    Double-check your selection before deleting.",
-            text_color="white", font=ctk.CTkFont(size=11), anchor="w", justify="left",
-        ).pack(padx=12, pady=6, anchor="w")
+    def _add_section_label(self, text: str):
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: gray;")
+        self._list_layout.addWidget(lbl)
 
-        scroll = ctk.CTkScrollableFrame(self, height=280)
-        scroll.pack(fill="x", padx=24, pady=(4, 8))
-        self._scroll = scroll
+    def _add_divider(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: gray;")
+        self._list_layout.addWidget(line)
 
-        # CTkScrollableFrame registers its MouseWheel handler via bind_all on
-        # the main Tk root. In a CTkToplevel (separate window), those bindings
-        # don't fire. Re-register on the canvas itself so the toplevel window
-        # receives the events.
+    def _render_merged(self, merged: list):
+        self._add_section_label("Merged:")
+        if not merged:
+            self._add_section_label("  (none)")
+            return
+        for target, branches in _merged_subgroups(merged):
+            header = QHBoxLayout()
+            tlabel = QLabel(f"  → into {target}")
+            tlabel.setStyleSheet("color: gray;")
+            header.addWidget(tlabel)
+            header.addStretch(1)
+            btn = QPushButton("Select all")
+            btn.setFixedWidth(90)
+            btn.clicked.connect(lambda _=False, t=target: self.trigger_subgroup_select(t))
+            header.addWidget(btn)
+            self._subgroup_btns[target] = btn
+            wrap = QWidget()
+            wrap.setLayout(header)
+            self._list_layout.addWidget(wrap)
+            for c in branches:
+                self._add_checkbox(c, default_checked=True)
 
-        # Merged section — sub-grouped by target
-        ctk.CTkLabel(
-            scroll, text="Merged:", text_color="gray",
-            font=ctk.CTkFont(size=11), anchor="w",
-        ).pack(fill="x", padx=4, pady=(0, 2))
-        merged = self._grouped["merged"]
-        if merged:
-            for target, branches in _merged_subgroups(merged):
-                sub_header = ctk.CTkFrame(scroll, fg_color="transparent")
-                sub_header.pack(fill="x", pady=(4, 0))
-                ctk.CTkLabel(
-                    sub_header, text=f"  → into {target}", text_color="gray",
-                    font=ctk.CTkFont(size=11), anchor="w",
-                ).pack(side="left", padx=4)
-                btn = ctk.CTkButton(
-                    sub_header, text="Select all", fg_color="gray",
-                    text_color=("black", "white"), width=80, height=20,
-                    font=ctk.CTkFont(size=11),
-                    command=lambda t=target: self._toggle_subgroup(t),
-                )
-                btn.pack(side="right", padx=4)
-                self._subgroup_btn[target] = btn
-                for c in branches:
-                    self._add_item(scroll, c)
-        else:
-            ctk.CTkLabel(
-                scroll, text="(none)", text_color="gray",
-                font=ctk.CTkFont(size=11), anchor="w",
-            ).pack(fill="x", padx=8, pady=(0, 2))
+    def _render_stale(self, stale: list):
+        self._add_divider()
+        header = QHBoxLayout()
+        lbl = QLabel("Stale:")
+        lbl.setStyleSheet("color: gray;")
+        header.addWidget(lbl)
+        header.addStretch(1)
+        if stale:
+            self._stale_btn = QPushButton("Select all")
+            self._stale_btn.setFixedWidth(90)
+            self._stale_btn.clicked.connect(self.trigger_stale_select)
+            header.addWidget(self._stale_btn)
+        wrap = QWidget()
+        wrap.setLayout(header)
+        self._list_layout.addWidget(wrap)
+        if not stale:
+            self._add_section_label("  (none)")
+            return
+        for c in stale:
+            self._add_checkbox(c, default_checked=True)
 
-        # Stale section — with Select all button
-        ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
-        stale_header = ctk.CTkFrame(scroll, fg_color="transparent")
-        stale_header.pack(fill="x", pady=(0, 2))
-        ctk.CTkLabel(
-            stale_header, text="Stale:", text_color="gray",
-            font=ctk.CTkFont(size=11), anchor="w",
-        ).pack(side="left", padx=4)
-        if self._grouped["stale"]:
-            self._stale_btn = ctk.CTkButton(
-                stale_header, text="Select all", fg_color="gray",
-                text_color=("black", "white"), width=80, height=20,
-                font=ctk.CTkFont(size=11),
-                command=self._toggle_stale,
-            )
-            self._stale_btn.pack(side="right", padx=4)
-            for c in self._grouped["stale"]:
-                self._add_item(scroll, c)
-        else:
-            ctk.CTkLabel(
-                scroll, text="(none)", text_color="gray",
-                font=ctk.CTkFont(size=11), anchor="w",
-            ).pack(fill="x", padx=8, pady=(0, 2))
+    def _render_healthy(self, healthy: list):
+        self._add_divider()
+        self._add_section_label("Healthy:")
+        if not healthy:
+            self._add_section_label("  (none)")
+            return
+        for c in healthy:
+            self._add_checkbox(c, default_checked=False)
 
-        # Healthy section
-        ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
-        ctk.CTkLabel(
-            scroll, text="Healthy:", text_color="gray",
-            font=ctk.CTkFont(size=11), anchor="w",
-        ).pack(fill="x", padx=4, pady=(0, 2))
-        if self._grouped["healthy"]:
-            for c in self._grouped["healthy"]:
-                self._add_item(scroll, c)
-        else:
-            ctk.CTkLabel(
-                scroll, text="(none)", text_color="gray",
-                font=ctk.CTkFont(size=11), anchor="w",
-            ).pack(fill="x", padx=8, pady=(0, 2))
+    def _render_protected(self, protected: list):
+        if not protected:
+            return
+        self._add_divider()
+        self._add_section_label("Protected:")
+        for c in protected:
+            row = QHBoxLayout()
+            cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
+            cb.setEnabled(False)
+            row.addWidget(cb)
+            tag = QLabel("⚠ main" if c.branch == "main" else "⚠ feature")
+            tag.setStyleSheet("color: orange;")
+            row.addWidget(tag)
+            row.addStretch(1)
+            wrap = QWidget()
+            wrap.setLayout(row)
+            self._list_layout.addWidget(wrap)
+            self._protected_pairs.append((c, cb))
 
-        if self._grouped["protected"]:
-            ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
-            prot_header = ctk.CTkFrame(scroll, fg_color="transparent")
-            prot_header.pack(fill="x", pady=(0, 2))
-            ctk.CTkLabel(
-                prot_header, text="Protected:", text_color="gray",
-                font=ctk.CTkFont(size=11), anchor="w",
-            ).pack(side="left", padx=4)
-            self._admin_only_label = ctk.CTkLabel(
-                prot_header, text="⚠ admin only", text_color="orange",
-                font=ctk.CTkFont(size=11),
-            )
-            for c in self._grouped["protected"]:
-                self._add_protected_item(scroll, c)
+    def _render_unoperable(self, unoperable: list):
+        if not unoperable:
+            return
+        self._add_divider()
+        self._add_section_label("Cannot delete:")
+        for c in unoperable:
+            row = QHBoxLayout()
+            txt = QLabel(f"—   {c.branch}  ({_reason(c)})")
+            txt.setStyleSheet("color: gray;")
+            row.addWidget(txt)
+            tag = QLabel("⚠ uncommitted" if c.has_uncommitted else "⚠ checked out")
+            tag.setStyleSheet("color: orange;")
+            row.addWidget(tag)
+            row.addStretch(1)
+            wrap = QWidget()
+            wrap.setLayout(row)
+            self._list_layout.addWidget(wrap)
 
-        if self._grouped["unoperable"]:
-            ctk.CTkFrame(scroll, height=1, fg_color="gray50").pack(fill="x", pady=(6, 2))
-            ctk.CTkLabel(
-                scroll, text="Cannot delete:", text_color="gray",
-                font=ctk.CTkFont(size=11), anchor="w",
-            ).pack(fill="x", padx=4, pady=(0, 2))
-            for c in self._grouped["unoperable"]:
-                self._add_unoperable_item(scroll, c)
+    def _add_checkbox(self, c: CleanupCandidate, default_checked: bool):
+        cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
+        cb.setChecked(default_checked)
+        cb.toggled.connect(lambda _=False: self._refresh_button_labels())
+        self._list_layout.addWidget(cb)
+        self._pairs.append((c, cb))
 
-        # Admin Mode toggle
-        admin_row = ctk.CTkFrame(self, fg_color="transparent")
-        admin_row.pack(fill="x", padx=24, pady=(0, 4))
-        ctk.CTkCheckBox(
-            admin_row, text="Admin Mode", variable=self._admin_mode_var,
-            command=self._on_admin_mode_toggle,
-        ).pack(side="left")
-        ctk.CTkLabel(
-            admin_row, text="⚠ Enable only if you know what you're doing",
-            text_color="orange", font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=(8, 0))
+    # --- admin mode ---
 
-        btn_frame = ctk.CTkFrame(self)
-        btn_frame.pack(fill="x", padx=24, pady=(4, 16))
-        self._global_btn = ctk.CTkButton(
-            btn_frame, text="Select All", fg_color="gray",
-            text_color=("black", "white"), command=self._toggle_all,
-        )
-        self._global_btn.pack(side="left", padx=(0, 4))
-        ctk.CTkButton(
-            btn_frame, text="Cancel", fg_color="gray",
-            text_color=("black", "white"), command=self.destroy
-        ).pack(side="left", padx=8)
-        ctk.CTkButton(
-            btn_frame, text="Delete", fg_color="#c0392b",
-            command=self._delete_selected
-        ).pack(side="right")
+    def set_admin_mode(self, on: bool) -> None:
+        self._admin_mode = bool(on)
+        if self._admin_banner is not None:
+            self._admin_banner.setVisible(self._admin_mode)
+        for _, cb in self._protected_pairs:
+            if self._admin_mode:
+                cb.setEnabled(True)
+            else:
+                cb.setChecked(False)
+                cb.setEnabled(False)
 
-    def _add_item(self, parent, c: CleanupCandidate):
-        var = next(v for cand, v in self._all_pairs if cand is c)
-        row = ctk.CTkFrame(parent, fg_color="transparent")
-        row.pack(fill="x", pady=2)
-        ctk.CTkCheckBox(
-            row, text=f"{c.branch}  ({_reason(c)})", variable=var
-        ).pack(side="left", padx=4)
+    # --- selection helpers ---
 
-    def _add_protected_item(self, parent, c: CleanupCandidate):
-        var = ctk.BooleanVar(value=False)
-        row = ctk.CTkFrame(parent, fg_color="transparent")
-        row.pack(fill="x", pady=2)
-        cb = ctk.CTkCheckBox(
-            row, text=f"{c.branch}  ({_reason(c)})", variable=var,
-        )
-        cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
-                     fg_color="gray50", border_color="gray50")
-        cb.pack(side="left", padx=4)
-        tag = "⚠ main" if c.branch == "main" else "⚠ feature"
-        ctk.CTkLabel(
-            row, text=tag, text_color="orange",
-            font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=(6, 0))
-        self._protected_triples.append((c, var, cb))
+    def selection_state(self) -> list:
+        return [(c, cb.isChecked()) for c, cb in self._pairs]
 
-    def _add_unoperable_item(self, parent, c: CleanupCandidate):
-        row = ctk.CTkFrame(parent, fg_color="transparent")
-        row.pack(fill="x", pady=2)
-        ctk.CTkLabel(
-            row, text=f"—   {c.branch}  ({_reason(c)})", text_color="gray50",
-            font=ctk.CTkFont(size=11), anchor="w",
-        ).pack(side="left", padx=4)
-        tag = "⚠ uncommitted" if c.has_uncommitted else "⚠ checked out"
-        ctk.CTkLabel(
-            row, text=tag, text_color="orange",
-            font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=(6, 0))
+    def trigger_select_all(self) -> None:
+        all_checked = bool(self._pairs) and all(cb.isChecked() for _, cb in self._pairs)
+        for _, cb in self._pairs:
+            cb.setChecked(not all_checked)
 
-    def _on_admin_mode_toggle(self):
-        admin_on = self._admin_mode_var.get()
-        if admin_on:
-            self._admin_banner.pack(fill="x", padx=24, pady=(0, 4),
-                                    after=self.pack_slaves()[0])
-            if self._admin_only_label:
-                self._admin_only_label.pack(side="right", padx=4)
-            for _, _, cb in self._protected_triples:
-                cb.configure(state="normal", text_color=("black", "white"),
-                             checkmark_color=("black", "white"),
-                             fg_color=("#3a7ebf", "#1f538d"), border_color=("gray50", "gray50"))
-        else:
-            self._admin_banner.pack_forget()
-            if self._admin_only_label:
-                self._admin_only_label.pack_forget()
-            for _, var, cb in self._protected_triples:
-                var.set(False)
-                cb.configure(state="disabled", text_color="gray50", checkmark_color="gray50",
-                             fg_color="gray50", border_color="gray50")
-        self.update_idletasks()
+    def trigger_subgroup_select(self, target: str) -> None:
+        pairs = [(c, cb) for c, cb in self._pairs
+                 if c.is_merged and (c.merged_into or "main") == target]
+        all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+        for _, cb in pairs:
+            cb.setChecked(not all_checked)
 
-    def _wire_traces(self):
-        for _, v in self._all_pairs:
-            v.trace_add("write", lambda *_: self._refresh_button_labels())
+    def trigger_stale_select(self) -> None:
+        pairs = [(c, cb) for c, cb in self._pairs if c.is_stale and not c.is_merged]
+        all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+        for _, cb in pairs:
+            cb.setChecked(not all_checked)
 
-    def _refresh_button_labels(self):
+    def _refresh_button_labels(self) -> None:
         if self._global_btn:
-            all_checked = bool(self._all_pairs) and all(v.get() for _, v in self._all_pairs)
-            self._global_btn.configure(text="Deselect All" if all_checked else "Select All")
+            all_checked = bool(self._pairs) and all(cb.isChecked() for _, cb in self._pairs)
+            self._global_btn.setText("Deselect All" if all_checked else "Select All")
+        for target, btn in self._subgroup_btns.items():
+            pairs = [(c, cb) for c, cb in self._pairs
+                     if c.is_merged and (c.merged_into or "main") == target]
+            all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+            btn.setText("Deselect all" if all_checked else "Select all")
+        if self._stale_btn is not None:
+            pairs = [(c, cb) for c, cb in self._pairs if c.is_stale and not c.is_merged]
+            all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+            self._stale_btn.setText("Deselect all" if all_checked else "Select all")
 
-        for target, btn in self._subgroup_btn.items():
-            group_pairs = [(c, v) for c, v in self._all_pairs if c.is_merged and (c.merged_into or "main") == target]
-            all_checked = bool(group_pairs) and all(v.get() for _, v in group_pairs)
-            btn.configure(text="Deselect all" if all_checked else "Select all")
+    # --- delete ---
 
-        if self._stale_btn:
-            stale_pairs = [(c, v) for c, v in self._all_pairs if c.is_stale and not c.is_merged]
-            all_checked = bool(stale_pairs) and all(v.get() for _, v in stale_pairs)
-            self._stale_btn.configure(text="Deselect all" if all_checked else "Select all")
-
-    def _toggle_all(self):
-        all_checked = bool(self._all_pairs) and all(v.get() for _, v in self._all_pairs)
-        if all_checked:
-            self._deselect_all()
-        else:
-            self._select_all()
-
-    def _toggle_subgroup(self, target: str):
-        group_pairs = [(c, v) for c, v in self._all_pairs if c.is_merged and (c.merged_into or "main") == target]
-        all_checked = bool(group_pairs) and all(v.get() for _, v in group_pairs)
-        if all_checked:
-            for _, v in group_pairs:
-                v.set(False)
-        else:
-            self._select_subgroup(target)
-
-    def _toggle_stale(self):
-        stale_pairs = [(c, v) for c, v in self._all_pairs if c.is_stale and not c.is_merged]
-        all_checked = bool(stale_pairs) and all(v.get() for _, v in stale_pairs)
-        if all_checked:
-            for _, v in stale_pairs:
-                v.set(False)
-        else:
-            self._select_stale()
-
-    def _select_stale(self):
-        for c, v in self._all_pairs:
-            if c.is_stale and not c.is_merged:
-                v.set(True)
-
-    def _select_subgroup(self, target: str):
-        for c, v in self._all_pairs:
-            if c.is_merged and (c.merged_into or "main") == target:
-                v.set(True)
-
-    def _select_all(self):
-        for _, v in self._all_pairs:
-            v.set(True)
-
-    def _deselect_all(self):
-        for _, v in self._all_pairs:
-            v.set(False)
-
-    def _delete_selected(self):
-        selected = [(c, v) for c, v in self._all_pairs if v.get()]
-        if self._admin_mode_var.get():
-            selected += [(c, v) for c, v, _ in self._protected_triples if v.get()]
-        self._on_delete_selected(selected)
-        self.destroy()
+    def trigger_delete(self) -> None:
+        selected = [c for c, cb in self._pairs if cb.isChecked()]
+        if self._admin_mode:
+            selected += [c for c, cb in self._protected_pairs if cb.isChecked()]
+        self._on_delete(selected)
+        self.accept()

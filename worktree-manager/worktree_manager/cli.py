@@ -1,7 +1,9 @@
 import argparse
 import sys
+import threading
 from pathlib import Path
 
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QHBoxLayout, QMainWindow, QMessageBox,
     QWidget,
@@ -11,10 +13,19 @@ from worktree_manager.command_center_vm import CommandCenterViewModel
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
 from worktree_manager.setup_settings_vm import RepoSetupViewModel, SettingsViewModel
+from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
+from worktree_manager.workspace_service import WorkspaceService
+from worktree_manager.ui.cleanup_wizard import CleanupWizard
 from worktree_manager.ui.command_center_panel import CommandCenterPanel
 from worktree_manager.ui.create_dialog import CreateDialog
 from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
 from worktree_manager.ui.settings_panel import SettingsDialog
+from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+
+
+class _CleanupLoadBridge(QObject):
+    progress_updated = Signal(int, int, str)
+    loading_finished = Signal(list)
 
 
 def parse_args(argv):
@@ -166,7 +177,36 @@ class App(QMainWindow):
         self._refresh()
 
     def _show_cleanup(self, vm):
-        QMessageBox.information(self, "Cleanup Wizard", "Ships in Iteration 3.")
+        def _on_delete(selected: list):
+            vm.delete_cleanup_candidates(selected, also_delete_branches=True)
+            if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
+                self._current_panel.refresh()
+
+        wizard = CleanupWizard(
+            parent=self, candidates=None, on_delete_selected=_on_delete,
+        )
+
+        bridge = _CleanupLoadBridge()
+        bridge.progress_updated.connect(wizard.update_progress)
+        bridge.loading_finished.connect(
+            lambda candidates: self._on_cleanup_loaded(wizard, candidates)
+        )
+
+        def _load():
+            def _on_progress(current, total, label):
+                bridge.progress_updated.emit(current, total, label)
+            candidates = vm.all_cleanup_candidates(on_progress=_on_progress)
+            bridge.loading_finished.emit(candidates)
+
+        threading.Thread(target=_load, daemon=True).start()
+        wizard.exec()
+
+    def _on_cleanup_loaded(self, wizard, candidates: list) -> None:
+        if not candidates:
+            wizard.reject()
+            QMessageBox.information(self, "Cleanup", "No branches to clean up.")
+            return
+        wizard.finish_loading(candidates)
 
     def _show_new_worktree(self, vm):
         vm.load_worktrees()
@@ -206,7 +246,14 @@ class App(QMainWindow):
         self._show_empty_main()
 
     def _show_workspace_projects(self):
-        QMessageBox.information(self, "Workspace Projects", "Ships in Iteration 3.")
+        vm = WorkspaceProjectsViewModel(
+            config_store=self._store,
+            git_service=self._git,
+            workspace_service=WorkspaceService(),
+        )
+        self._set_panel(WorkspaceProjectsPanel(
+            parent=self, vm=vm, on_close=self._show_empty_main,
+        ))
 
 
 def main():

@@ -4776,3 +4776,1542 @@ Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan
 - **Segmented button:** Replace `CTkSegmentedButton` with two plain `QRadioButton`s in a row.
 - **Iter 1 tk-facade shims (`_StringVar`, `_BoolVar`, `_EntryFacade`):** Used inside `CreateDialog` / `DeleteDialog` to preserve the underscore-prefixed `_mode_var`, `_branch_entry`, `_also_branch`, etc. attributes that existing `tests/test_ui_smoke.py` cases assert against. These shims are private and disappear naturally as the legacy CTk-era tests get retired.
 - **Iter 2 thread bridging:** `CommandCenterPanel` defines a `_VMBridge(QObject)` with Qt `Signal`s and routes `vm.on_run_added` / `on_output` / `on_status_changed` / `on_run_id_changed` through it. The CommandRunner fires those callbacks from background streaming threads; Qt's queued signal delivery marshals them onto the GUI thread automatically (no `QTimer.singleShot` or thread-affinity gymnastics needed in the panel itself).
+- **Iter 3 scope tweak:** `NewProjectDialog` is dead code in production (panel only imports `ProjectOperationsDialog`, which handles both create and edit). It is deleted in Phase 3.6 rather than migrated. The original Iteration 3 scope listed both — this is a simplification, not a deferral.
+- **Iter 3 cleanup wizard delete contract:** Original CTk callback passed `list[(c, var)]` tuples. The Qt rewrite simplifies the callback signature to plain `list[CleanupCandidate]` — the wizard internally manages its `(candidate, QCheckBox)` pairs and resolves selected candidates before invoking the callback. Wiring in `cli.py` is updated to match.
+- **Iter 3 thread bridging:** `CleanupWizard` defines its own `_LoadBridge(QObject)` with `progress_updated = Signal(int, int, str)` and `loading_finished = Signal(list)` signals. `App._show_cleanup()` spawns a background thread that calls `vm.all_cleanup_candidates(on_progress=…)` and emits these signals — Qt's queued delivery moves them onto the GUI thread for safe widget updates.
+
+---
+
+## Iteration 3 — Cleanup Wizard & Workspace Projects
+
+Six phases. **Phase 3.1** migrates `CleanupWizard`. **Phase 3.2** migrates `ProjectOperationsDialog`. **Phase 3.3** migrates `WorkspaceProjectsPanel`. **Phase 3.4** wires Cleanup Wizard into `App`. **Phase 3.5** wires Workspace Projects into `App`. **Phase 3.6** deletes all legacy CTk source + test files (`new_project_dialog.py`, the old CTk `cleanup_wizard.py` / `workspace_projects_panel.py` / `project_operations_dialog.py` test files, and the long-obsolete `scroll_fix.py` if still present).
+
+### Phase 3.1 — CleanupWizard (QDialog)
+
+**What it covers:** Cleanup Wizard rewritten as a `QDialog`. Supports a deferred-load mode (`candidates=None` with `update_progress(current, total, label)` + `finish_loading(candidates)` API for the background scan), groups candidates into Merged / Stale / Healthy / Protected / Cannot delete sections, defaults merged + stale checkboxes to checked, supports global / per-subgroup / stale "Select all/Deselect all" toggles, and unlocks the Protected section only when Admin Mode is enabled. The on-delete callback receives `list[CleanupCandidate]` (simplified from the CTk `list[(c, var)]` contract).
+
+**Tests (Red) — write these first:** new file `tests/test_cleanup_wizard_qt.py`
+
+```python
+import time
+from unittest.mock import MagicMock
+
+from PySide6.QtWidgets import QDialog, QCheckBox, QPushButton
+
+from worktree_manager.models import CleanupCandidate
+from worktree_manager.ui.cleanup_wizard import CleanupWizard
+
+
+def _c(branch="feat", is_merged=False, is_stale=False, is_protected=False,
+       has_uncommitted=False, is_checked_out=False, merged_into=None,
+       last_commit_ts=None):
+    return CleanupCandidate(
+        branch=branch,
+        is_merged=is_merged, is_stale=is_stale, is_protected=is_protected,
+        has_uncommitted=has_uncommitted, is_checked_out=is_checked_out,
+        merged_into=merged_into,
+        last_commit_ts=last_commit_ts if last_commit_ts is not None else int(time.time()),
+    )
+
+
+def _wiz(qtbot, candidates=None, on_delete=None):
+    w = CleanupWizard(parent=None, candidates=candidates,
+                      on_delete_selected=on_delete or (lambda _sel: None))
+    qtbot.addWidget(w)
+    return w
+
+
+def test_cleanup_wizard_is_qdialog(qtbot):
+    assert isinstance(_wiz(qtbot, candidates=[]), QDialog)
+
+
+def test_cleanup_wizard_shows_merged_branches(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="feature-a", is_merged=True, merged_into="main")])
+    texts = " ".join(cb.text() for cb in w.findChildren(QCheckBox))
+    assert "feature-a" in texts
+
+
+def test_cleanup_wizard_merged_branches_default_checked(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="m", is_merged=True)])
+    box = next(cb for cb in w.findChildren(QCheckBox) if "m" in cb.text() and cb.isEnabled())
+    assert box.isChecked() is True
+
+
+def test_cleanup_wizard_stale_branches_default_checked(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="old", is_stale=True)])
+    box = next(cb for cb in w.findChildren(QCheckBox) if "old" in cb.text() and cb.isEnabled())
+    assert box.isChecked() is True
+
+
+def test_cleanup_wizard_healthy_branches_default_unchecked(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="fresh")])
+    box = next(cb for cb in w.findChildren(QCheckBox) if "fresh" in cb.text() and cb.isEnabled())
+    assert box.isChecked() is False
+
+
+def test_cleanup_wizard_protected_branches_disabled_by_default(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="main", is_protected=True)])
+    box = next(cb for cb in w.findChildren(QCheckBox) if "main" in cb.text())
+    assert box.isEnabled() is False
+
+
+def test_cleanup_wizard_admin_mode_enables_protected(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="main", is_protected=True)])
+    w.set_admin_mode(True)
+    box = next(cb for cb in w.findChildren(QCheckBox) if "main" in cb.text())
+    assert box.isEnabled() is True
+
+
+def test_cleanup_wizard_admin_mode_off_resets_protected_selection(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="main", is_protected=True)])
+    w.set_admin_mode(True)
+    box = next(cb for cb in w.findChildren(QCheckBox) if "main" in cb.text())
+    box.setChecked(True)
+    w.set_admin_mode(False)
+    assert box.isChecked() is False
+    assert box.isEnabled() is False
+
+
+def test_cleanup_wizard_unoperable_branches_not_selectable(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="dirty", has_uncommitted=True)])
+    boxes = [cb for cb in w.findChildren(QCheckBox) if "dirty" in cb.text()]
+    assert boxes == []  # unoperable rows are plain labels, not checkboxes
+
+
+def test_cleanup_wizard_select_all_toggles_all_operable(qtbot):
+    w = _wiz(qtbot, candidates=[_c(branch="fresh"), _c(branch="m", is_merged=True)])
+    w.trigger_select_all()
+    assert all(v for _, v in w.selection_state())
+    w.trigger_select_all()
+    assert all(not v for _, v in w.selection_state())
+
+
+def test_cleanup_wizard_subgroup_select_all_targets_merged_into(qtbot):
+    w = _wiz(qtbot, candidates=[
+        _c(branch="a", is_merged=True, merged_into="main"),
+        _c(branch="b", is_merged=True, merged_into="dev"),
+    ])
+    # uncheck both first
+    w.trigger_select_all()
+    w.trigger_select_all()
+    w.trigger_subgroup_select("main")
+    state = dict((c.branch, v) for c, v in w.selection_state())
+    assert state["a"] is True
+    assert state["b"] is False
+
+
+def test_cleanup_wizard_delete_passes_selected_candidates(qtbot):
+    captured = []
+    w = _wiz(qtbot, candidates=[_c(branch="m", is_merged=True), _c(branch="fresh")],
+             on_delete=lambda sel: captured.append(sel))
+    w.trigger_delete()
+    assert len(captured) == 1
+    names = [c.branch for c in captured[0]]
+    assert names == ["m"]  # only checked-by-default merged branch
+
+
+def test_cleanup_wizard_delete_includes_protected_when_admin_mode(qtbot):
+    captured = []
+    w = _wiz(qtbot, candidates=[_c(branch="main", is_protected=True)],
+             on_delete=lambda sel: captured.append(sel))
+    w.set_admin_mode(True)
+    box = next(cb for cb in w.findChildren(QCheckBox) if "main" in cb.text())
+    box.setChecked(True)
+    w.trigger_delete()
+    assert [c.branch for c in captured[0]] == ["main"]
+
+
+def test_cleanup_wizard_deferred_load_shows_progress(qtbot):
+    w = _wiz(qtbot, candidates=None)
+    assert w.is_loading() is True
+    w.update_progress(3, 10, "Scanning origin/feature-x …")
+    assert "3" in w.progress_text()
+    assert "10" in w.progress_text()
+
+
+def test_cleanup_wizard_finish_loading_swaps_to_real_ui(qtbot):
+    w = _wiz(qtbot, candidates=None)
+    w.finish_loading([_c(branch="m", is_merged=True)])
+    assert w.is_loading() is False
+    texts = " ".join(cb.text() for cb in w.findChildren(QCheckBox))
+    assert "m" in texts
+
+
+def test_cleanup_wizard_cancel_does_not_invoke_callback(qtbot):
+    captured = []
+    w = _wiz(qtbot, candidates=[_c(branch="m", is_merged=True)],
+             on_delete=lambda sel: captured.append(sel))
+    cancel = next(b for b in w.findChildren(QPushButton) if b.text() == "Cancel")
+    cancel.click()
+    assert captured == []
+```
+
+**Production code (Green):** new file `worktree_manager/ui/cleanup_wizard.py` (replaces CTk version in-place)
+
+```python
+import time
+
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import (
+    QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
+)
+
+from worktree_manager.models import CleanupCandidate
+
+
+def _fmt_age(ts: int) -> str:
+    if ts == 0:
+        return "no commits"
+    return f"{(int(time.time()) - ts) // 86400}d"
+
+
+def _reason(c: CleanupCandidate) -> str:
+    if c.is_merged:
+        return f"merged into {c.merged_into or 'main'}"
+    if c.is_stale:
+        return f"{_fmt_age(c.last_commit_ts)}, stale"
+    return f"{_fmt_age(c.last_commit_ts)} ago"
+
+
+def _group_candidates(candidates: list) -> dict:
+    unoperable = [c for c in candidates if c.has_uncommitted or c.is_checked_out]
+    protected = [c for c in candidates if c.is_protected and not c.has_uncommitted and not c.is_checked_out]
+    operable = [c for c in candidates if not c.is_protected and not c.has_uncommitted and not c.is_checked_out]
+    merged = [c for c in operable if c.is_merged]
+    stale = [c for c in operable if c.is_stale and not c.is_merged]
+    healthy = [c for c in operable if not c.is_stale and not c.is_merged]
+    merged.sort(key=lambda c: ((c.merged_into or "main").lower(), c.branch.lower()))
+    stale.sort(key=lambda c: c.last_commit_ts)
+    return {"merged": merged, "stale": stale, "healthy": healthy,
+            "protected": protected, "unoperable": unoperable}
+
+
+def _merged_subgroups(merged: list) -> list:
+    groups: dict = {}
+    for c in merged:
+        target = c.merged_into or "main"
+        groups.setdefault(target, []).append(c)
+    for branches in groups.values():
+        branches.sort(key=lambda c: c.branch.lower())
+    return sorted(groups.items(), key=lambda kv: kv[0].lower())
+
+
+class CleanupWizard(QDialog):
+    def __init__(self, parent, candidates, on_delete_selected):
+        super().__init__(parent)
+        self.setWindowTitle("Cleanup Wizard")
+        self.setModal(True)
+        self.resize(520, 520)
+        self._on_delete = on_delete_selected
+        self._pairs: list[tuple[CleanupCandidate, QCheckBox]] = []
+        self._protected_pairs: list[tuple[CleanupCandidate, QCheckBox]] = []
+        self._subgroup_btns: dict[str, QPushButton] = {}
+        self._stale_btn: QPushButton | None = None
+        self._global_btn: QPushButton | None = None
+        self._admin_mode: bool = False
+        self._admin_banner: QWidget | None = None
+        self._progress_bar: QProgressBar | None = None
+        self._progress_label: QLabel | None = None
+        self._loading: bool = candidates is None
+
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(24, 16, 24, 16)
+        self._outer.setSpacing(6)
+        if self._loading:
+            self._build_loading()
+        else:
+            self._build(candidates)
+
+    # --- loading state ---
+
+    def _build_loading(self):
+        title = QLabel("Cleanup Wizard")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self._outer.addWidget(title)
+        self._progress_label = QLabel("Scanning branches…")
+        self._outer.addWidget(self._progress_label)
+        self._progress_bar = QProgressBar()
+        self._progress_bar.setRange(0, 100)
+        self._progress_bar.setValue(0)
+        self._outer.addWidget(self._progress_bar)
+        self._outer.addStretch(1)
+
+    def is_loading(self) -> bool:
+        return self._loading
+
+    def update_progress(self, current: int, total: int, label: str) -> None:
+        if not self._loading or self._progress_bar is None:
+            return
+        pct = int(100 * current / total) if total > 0 else 0
+        self._progress_bar.setValue(pct)
+        self._progress_label.setText(f"{label}  ({current} / {total})")
+
+    def progress_text(self) -> str:
+        return self._progress_label.text() if self._progress_label else ""
+
+    def finish_loading(self, candidates: list) -> None:
+        while self._outer.count():
+            item = self._outer.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        self._progress_bar = None
+        self._progress_label = None
+        self._loading = False
+        self._build(candidates)
+
+    # --- main UI ---
+
+    def _build(self, candidates: list):
+        title = QLabel("Cleanup Wizard")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self._outer.addWidget(title)
+
+        self._admin_banner = QLabel(
+            "⚠ Admin Mode: Protected branches can be deleted.\n"
+            "    Double-check your selection before deleting."
+        )
+        self._admin_banner.setStyleSheet(
+            "background-color: #7b2d00; color: white; padding: 6px 12px;"
+        )
+        self._admin_banner.setVisible(False)
+        self._outer.addWidget(self._admin_banner)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        self._list_layout = QVBoxLayout(container)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(2)
+        scroll.setWidget(container)
+        self._outer.addWidget(scroll, 1)
+
+        grouped = _group_candidates(candidates)
+        self._render_merged(grouped["merged"])
+        self._render_stale(grouped["stale"])
+        self._render_healthy(grouped["healthy"])
+        self._render_protected(grouped["protected"])
+        self._render_unoperable(grouped["unoperable"])
+        self._list_layout.addStretch(1)
+
+        admin_row = QHBoxLayout()
+        admin_cb = QCheckBox("Admin Mode")
+        admin_cb.toggled.connect(self.set_admin_mode)
+        admin_row.addWidget(admin_cb)
+        admin_warn = QLabel("⚠ Enable only if you know what you're doing")
+        admin_warn.setStyleSheet("color: orange;")
+        admin_row.addWidget(admin_warn)
+        admin_row.addStretch(1)
+        self._outer.addLayout(admin_row)
+
+        btn_row = QHBoxLayout()
+        self._global_btn = QPushButton("Select All")
+        self._global_btn.clicked.connect(self.trigger_select_all)
+        btn_row.addWidget(self._global_btn)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btn_row.addWidget(cancel)
+        btn_row.addStretch(1)
+        delete = QPushButton("Delete")
+        delete.setStyleSheet("background-color: #c0392b; color: white;")
+        delete.clicked.connect(self.trigger_delete)
+        btn_row.addWidget(delete)
+        self._outer.addLayout(btn_row)
+        self._refresh_button_labels()
+
+    def _add_section_label(self, text: str):
+        lbl = QLabel(text)
+        lbl.setStyleSheet("color: gray;")
+        self._list_layout.addWidget(lbl)
+
+    def _add_divider(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: gray;")
+        self._list_layout.addWidget(line)
+
+    def _render_merged(self, merged: list):
+        self._add_section_label("Merged:")
+        if not merged:
+            self._add_section_label("  (none)")
+            return
+        for target, branches in _merged_subgroups(merged):
+            header = QHBoxLayout()
+            tlabel = QLabel(f"  → into {target}")
+            tlabel.setStyleSheet("color: gray;")
+            header.addWidget(tlabel)
+            header.addStretch(1)
+            btn = QPushButton("Select all")
+            btn.setFixedWidth(90)
+            btn.clicked.connect(lambda _=False, t=target: self.trigger_subgroup_select(t))
+            header.addWidget(btn)
+            self._subgroup_btns[target] = btn
+            wrap = QWidget()
+            wrap.setLayout(header)
+            self._list_layout.addWidget(wrap)
+            for c in branches:
+                self._add_checkbox(c, default_checked=True)
+
+    def _render_stale(self, stale: list):
+        self._add_divider()
+        header = QHBoxLayout()
+        lbl = QLabel("Stale:")
+        lbl.setStyleSheet("color: gray;")
+        header.addWidget(lbl)
+        header.addStretch(1)
+        if stale:
+            self._stale_btn = QPushButton("Select all")
+            self._stale_btn.setFixedWidth(90)
+            self._stale_btn.clicked.connect(self.trigger_stale_select)
+            header.addWidget(self._stale_btn)
+        wrap = QWidget()
+        wrap.setLayout(header)
+        self._list_layout.addWidget(wrap)
+        if not stale:
+            self._add_section_label("  (none)")
+            return
+        for c in stale:
+            self._add_checkbox(c, default_checked=True)
+
+    def _render_healthy(self, healthy: list):
+        self._add_divider()
+        self._add_section_label("Healthy:")
+        if not healthy:
+            self._add_section_label("  (none)")
+            return
+        for c in healthy:
+            self._add_checkbox(c, default_checked=False)
+
+    def _render_protected(self, protected: list):
+        if not protected:
+            return
+        self._add_divider()
+        self._add_section_label("Protected:")
+        for c in protected:
+            row = QHBoxLayout()
+            cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
+            cb.setEnabled(False)
+            row.addWidget(cb)
+            tag = QLabel("⚠ main" if c.branch == "main" else "⚠ feature")
+            tag.setStyleSheet("color: orange;")
+            row.addWidget(tag)
+            row.addStretch(1)
+            wrap = QWidget()
+            wrap.setLayout(row)
+            self._list_layout.addWidget(wrap)
+            self._protected_pairs.append((c, cb))
+
+    def _render_unoperable(self, unoperable: list):
+        if not unoperable:
+            return
+        self._add_divider()
+        self._add_section_label("Cannot delete:")
+        for c in unoperable:
+            row = QHBoxLayout()
+            txt = QLabel(f"—   {c.branch}  ({_reason(c)})")
+            txt.setStyleSheet("color: gray;")
+            row.addWidget(txt)
+            tag = QLabel("⚠ uncommitted" if c.has_uncommitted else "⚠ checked out")
+            tag.setStyleSheet("color: orange;")
+            row.addWidget(tag)
+            row.addStretch(1)
+            wrap = QWidget()
+            wrap.setLayout(row)
+            self._list_layout.addWidget(wrap)
+
+    def _add_checkbox(self, c: CleanupCandidate, default_checked: bool):
+        cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
+        cb.setChecked(default_checked)
+        cb.toggled.connect(lambda _=False: self._refresh_button_labels())
+        self._list_layout.addWidget(cb)
+        self._pairs.append((c, cb))
+
+    # --- admin mode ---
+
+    def set_admin_mode(self, on: bool) -> None:
+        self._admin_mode = bool(on)
+        if self._admin_banner is not None:
+            self._admin_banner.setVisible(self._admin_mode)
+        for _, cb in self._protected_pairs:
+            if self._admin_mode:
+                cb.setEnabled(True)
+            else:
+                cb.setChecked(False)
+                cb.setEnabled(False)
+
+    # --- selection helpers ---
+
+    def selection_state(self) -> list:
+        return [(c, cb.isChecked()) for c, cb in self._pairs]
+
+    def trigger_select_all(self) -> None:
+        all_checked = bool(self._pairs) and all(cb.isChecked() for _, cb in self._pairs)
+        for _, cb in self._pairs:
+            cb.setChecked(not all_checked)
+
+    def trigger_subgroup_select(self, target: str) -> None:
+        pairs = [(c, cb) for c, cb in self._pairs
+                 if c.is_merged and (c.merged_into or "main") == target]
+        all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+        for _, cb in pairs:
+            cb.setChecked(not all_checked)
+
+    def trigger_stale_select(self) -> None:
+        pairs = [(c, cb) for c, cb in self._pairs if c.is_stale and not c.is_merged]
+        all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+        for _, cb in pairs:
+            cb.setChecked(not all_checked)
+
+    def _refresh_button_labels(self) -> None:
+        if self._global_btn:
+            all_checked = bool(self._pairs) and all(cb.isChecked() for _, cb in self._pairs)
+            self._global_btn.setText("Deselect All" if all_checked else "Select All")
+        for target, btn in self._subgroup_btns.items():
+            pairs = [(c, cb) for c, cb in self._pairs
+                     if c.is_merged and (c.merged_into or "main") == target]
+            all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+            btn.setText("Deselect all" if all_checked else "Select all")
+        if self._stale_btn is not None:
+            pairs = [(c, cb) for c, cb in self._pairs if c.is_stale and not c.is_merged]
+            all_checked = bool(pairs) and all(cb.isChecked() for _, cb in pairs)
+            self._stale_btn.setText("Deselect all" if all_checked else "Select all")
+
+    # --- delete ---
+
+    def trigger_delete(self) -> None:
+        selected = [c for c, cb in self._pairs if cb.isChecked()]
+        if self._admin_mode:
+            selected += [c for c, cb in self._protected_pairs if cb.isChecked()]
+        self._on_delete(selected)
+        self.accept()
+```
+
+**Done when:** All 16 tests pass. `python3.14 -m pytest tests/test_cleanup_wizard_qt.py` is green; the wizard renders all five sections correctly, admin mode toggles the protected section enable/check state, and trigger_delete passes plain `list[CleanupCandidate]` to the callback.
+
+---
+
+### Phase 3.2 — ProjectOperationsDialog (QDialog)
+
+**What it covers:** `ProjectOperationsDialog` rewritten as `QDialog`, supporting both create (`existing_project=None`) and edit modes. Includes project-name entry with validation, repo + worktree pickers with an "+ Add" button, a scroll-list of selected entries with per-row delete, and submit / cancel buttons. Reused by both the "+ New" and per-project "Edit" buttons on the panel.
+
+**Tests (Red) — write these first:** new file `tests/test_project_operations_dialog_qt.py`
+
+```python
+from unittest.mock import MagicMock
+
+from PySide6.QtWidgets import QComboBox, QDialog, QLineEdit, QPushButton
+
+from worktree_manager.models import WorkspaceEntry, WorkspaceProject, WorktreeModel
+from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialog
+
+
+def _wt(path="/r/proj", branch="main", is_main=True):
+    return WorktreeModel(
+        path=path, branch=branch, is_main=is_main,
+        last_commit_ts=0, is_merged=False, is_stale=False,
+    )
+
+
+def _vm(worktrees=None):
+    vm = MagicMock()
+    vm.list_worktrees_for_repo.return_value = worktrees or [_wt()]
+    return vm
+
+
+def _dlg(qtbot, vm=None, repos=None, on_create=None, on_edit=None,
+         existing_project=None):
+    d = ProjectOperationsDialog(
+        parent=None, vm=vm or _vm(),
+        repos=repos or {"/repos/proj": MagicMock()},
+        on_create=on_create or (lambda name, entries: None),
+        on_edit=on_edit, existing_project=existing_project,
+    )
+    qtbot.addWidget(d)
+    return d
+
+
+def test_project_operations_dialog_is_qdialog(qtbot):
+    assert isinstance(_dlg(qtbot), QDialog)
+
+
+def test_project_operations_dialog_title_create_mode(qtbot):
+    d = _dlg(qtbot)
+    assert "New" in d.windowTitle()
+
+
+def test_project_operations_dialog_title_edit_mode(qtbot):
+    proj = WorkspaceProject(name="myproj", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    d = _dlg(qtbot, existing_project=proj, on_edit=lambda *_: None)
+    assert "Edit" in d.windowTitle()
+
+
+def test_project_operations_dialog_edit_mode_prepopulates(qtbot):
+    proj = WorkspaceProject(name="myproj", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    d = _dlg(qtbot, existing_project=proj, on_edit=lambda *_: None)
+    assert d.get_name() == "myproj"
+    assert "/r/proj" in d.get_entries()
+
+
+def test_project_operations_dialog_add_entry_via_picker(qtbot):
+    d = _dlg(qtbot)
+    d.trigger_add_entry("/r/proj")
+    assert "/r/proj" in d.get_entries()
+
+
+def test_project_operations_dialog_add_entry_is_idempotent(qtbot):
+    d = _dlg(qtbot)
+    d.trigger_add_entry("/r/proj")
+    d.trigger_add_entry("/r/proj")
+    assert d.get_entries().count("/r/proj") == 1
+
+
+def test_project_operations_dialog_remove_entry(qtbot):
+    d = _dlg(qtbot)
+    d.trigger_add_entry("/r/proj")
+    d.trigger_remove_entry("/r/proj")
+    assert d.get_entries() == []
+
+
+def test_project_operations_dialog_confirm_create_calls_callback(qtbot):
+    captured = []
+    d = _dlg(qtbot, on_create=lambda n, e: captured.append((n, e)))
+    d._name_edit.setText("newproj")
+    d.trigger_add_entry("/r/proj")
+    d.trigger_confirm()
+    assert len(captured) == 1
+    name, entries = captured[0]
+    assert name == "newproj"
+    assert [e.worktree_path for e in entries] == ["/r/proj"]
+
+
+def test_project_operations_dialog_confirm_blank_name_shows_warning(qtbot):
+    captured = []
+    d = _dlg(qtbot, on_create=lambda n, e: captured.append((n, e)))
+    d.trigger_add_entry("/r/proj")
+    d.trigger_confirm()
+    assert captured == []
+    assert "required" in d._name_warn.text().lower()
+
+
+def test_project_operations_dialog_confirm_no_entries_shows_warning(qtbot):
+    captured = []
+    d = _dlg(qtbot, on_create=lambda n, e: captured.append((n, e)))
+    d._name_edit.setText("p")
+    d.trigger_confirm()
+    assert captured == []
+    assert "worktree" in d._entries_warn.text().lower() or "at least one" in d._entries_warn.text().lower()
+
+
+def test_project_operations_dialog_confirm_edit_calls_on_edit(qtbot):
+    proj = WorkspaceProject(name="old", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    captured = []
+    d = _dlg(qtbot, existing_project=proj,
+             on_edit=lambda old, new, ents: captured.append((old, new, ents)))
+    d._name_edit.setText("renamed")
+    d.trigger_confirm()
+    assert len(captured) == 1
+    old, new, entries = captured[0]
+    assert old == "old"
+    assert new == "renamed"
+    assert [e.worktree_path for e in entries] == ["/r/proj"]
+
+
+def test_project_operations_dialog_cancel_does_not_invoke_callbacks(qtbot):
+    captured = []
+    d = _dlg(qtbot, on_create=lambda n, e: captured.append((n, e)))
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    cancel.click()
+    assert captured == []
+```
+
+**Production code (Green):** `worktree_manager/ui/project_operations_dialog.py` (replaces CTk version in-place)
+
+```python
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
+)
+
+from worktree_manager.models import WorkspaceEntry
+
+
+class ProjectOperationsDialog(QDialog):
+    def __init__(self, parent, vm, repos: dict, on_create=None, on_edit=None,
+                 existing_project=None):
+        super().__init__(parent)
+        self._vm = vm
+        self._repos = repos
+        self._on_create = on_create
+        self._on_edit = on_edit
+        self._existing_project = existing_project
+        self._editing = existing_project is not None
+        self._entries: list[str] = []
+        self._worktree_path_map: dict[str, str] = {}
+
+        self.setWindowTitle("Edit Project" if self._editing else "New Workspace Project")
+        self.setModal(True)
+        self.resize(460, 460)
+        self._build()
+        if self._editing:
+            self._prepopulate(existing_project)
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 16, 24, 16)
+        outer.setSpacing(4)
+
+        title = QLabel("Edit Project" if self._editing else "New Workspace Project")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        outer.addWidget(title)
+
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("Project name:"))
+        self._name_edit = QLineEdit()
+        self._name_edit.textChanged.connect(lambda _t: self._name_warn.setText(""))
+        name_row.addWidget(self._name_edit, 1)
+        outer.addLayout(name_row)
+
+        self._name_warn = QLabel("")
+        self._name_warn.setStyleSheet("color: #e74c3c;")
+        outer.addWidget(self._name_warn)
+
+        outer.addWidget(QLabel("Add worktrees:"))
+        picker = QHBoxLayout()
+        picker.addWidget(QLabel("Repo:"))
+        self._repo_combo = QComboBox()
+        repo_names = list(self._repos.keys())
+        self._repo_label_map = {Path(p).name: p for p in repo_names}
+        self._repo_combo.addItems(list(self._repo_label_map.keys()) or ["(no repos)"])
+        self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
+        picker.addWidget(self._repo_combo, 1)
+        picker.addWidget(QLabel("Worktree:"))
+        self._wt_combo = QComboBox()
+        picker.addWidget(self._wt_combo, 1)
+        add_btn = QPushButton("+ Add")
+        add_btn.clicked.connect(self._add_selected)
+        picker.addWidget(add_btn)
+        outer.addLayout(picker)
+
+        if repo_names:
+            self._refresh_worktrees(repo_names[0])
+
+        outer.addWidget(QLabel("Entries:"))
+        self._list_scroll = QScrollArea()
+        self._list_scroll.setWidgetResizable(True)
+        self._list_container = QWidget()
+        self._list_layout = QVBoxLayout(self._list_container)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(2)
+        self._list_scroll.setWidget(self._list_container)
+        outer.addWidget(self._list_scroll, 1)
+
+        self._entries_warn = QLabel("")
+        self._entries_warn.setStyleSheet("color: #e74c3c;")
+        outer.addWidget(self._entries_warn)
+
+        btn_row = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btn_row.addWidget(cancel)
+        btn_row.addStretch(1)
+        confirm = QPushButton("Save Changes" if self._editing else "Create Project")
+        confirm.clicked.connect(self.trigger_confirm)
+        btn_row.addWidget(confirm)
+        outer.addLayout(btn_row)
+        self._refresh_entry_list()
+
+    def _on_repo_changed(self, display_name: str) -> None:
+        path = self._repo_label_map.get(display_name, "")
+        if path:
+            self._refresh_worktrees(path)
+
+    def _refresh_worktrees(self, repo_path: str) -> None:
+        try:
+            worktrees = self._vm.list_worktrees_for_repo(repo_path)
+        except Exception:
+            worktrees = []
+        paths = [wt.path for wt in worktrees]
+        display = [
+            f"(main): {wt.branch}" if wt.is_main else f"{Path(wt.path).name or wt.path}: {wt.branch}"
+            for wt in worktrees
+        ]
+        self._worktree_path_map = dict(zip(display, paths))
+        self._wt_combo.clear()
+        self._wt_combo.addItems(display or ["(none)"])
+
+    def _add_selected(self) -> None:
+        display = self._wt_combo.currentText()
+        if not display or display in ("(none)", "(select repo first)"):
+            return
+        path = self._worktree_path_map.get(display, display)
+        if path:
+            self.trigger_add_entry(path)
+
+    def trigger_add_entry(self, path: str) -> None:
+        if path in self._entries:
+            return
+        self._entries.append(path)
+        self._entries_warn.setText("")
+        self._refresh_entry_list()
+
+    def trigger_remove_entry(self, path: str) -> None:
+        if path in self._entries:
+            self._entries.remove(path)
+        self._refresh_entry_list()
+
+    def _refresh_entry_list(self) -> None:
+        while self._list_layout.count():
+            item = self._list_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        if not self._entries:
+            empty = QLabel("(none)")
+            empty.setStyleSheet("color: gray;")
+            self._list_layout.addWidget(empty)
+            self._list_layout.addStretch(1)
+            return
+        for path in list(self._entries):
+            row = QHBoxLayout()
+            lbl = QLabel(path)
+            row.addWidget(lbl, 1)
+            rm = QPushButton("✕")
+            rm.setFixedWidth(28)
+            rm.setStyleSheet("background-color: #c0392b; color: white;")
+            rm.clicked.connect(lambda _=False, p=path: self.trigger_remove_entry(p))
+            row.addWidget(rm)
+            wrap = QWidget()
+            wrap.setLayout(row)
+            self._list_layout.addWidget(wrap)
+        self._list_layout.addStretch(1)
+
+    def _prepopulate(self, project) -> None:
+        self._name_edit.setText(project.name)
+        for entry in project.entries:
+            self.trigger_add_entry(entry.worktree_path)
+
+    def trigger_confirm(self) -> None:
+        name = self._name_edit.text().strip()
+        valid = True
+        if not name:
+            self._name_warn.setText("Project name is required.")
+            valid = False
+        if not self._entries:
+            self._entries_warn.setText("Add at least one worktree.")
+            valid = False
+        if not valid:
+            return
+        entries = [WorkspaceEntry(worktree_path=p) for p in self._entries]
+        try:
+            if self._editing:
+                self._on_edit(self._existing_project.name, name, entries)
+            else:
+                self._on_create(name, entries)
+        except Exception as e:
+            self._name_warn.setText(f"Error: {e}")
+            return
+        self.accept()
+
+    # --- public test API ---
+
+    def get_name(self) -> str:
+        return self._name_edit.text()
+
+    def get_entries(self) -> list[str]:
+        return list(self._entries)
+```
+
+**Done when:** All 12 tests pass. Create and edit modes both work; entries can be added / removed; validation triggers warnings; cancel exits without invoking callbacks.
+
+---
+
+### Phase 3.3 — WorkspaceProjectsPanel (QWidget)
+
+**What it covers:** Workspace Projects panel rewritten as `QWidget` — sidebar-content panel for the main area. Provides the project list with collapsible per-project rows (▶/▼), Open/Edit/✕ buttons, per-entry rows with branch picker (`QComboBox` calling `vm.switch_branch_in_project`), top-bar editor selection (cursor/vscode via `QRadioButton`s, persisted via `vm._store.set_ui_pref("projects_editor", …)`), and an empty state. Hosts the `ProjectOperationsDialog` for + New and Edit actions.
+
+**Tests (Red) — write these first:** new file `tests/test_workspace_projects_panel_qt.py`
+
+```python
+from unittest.mock import MagicMock, patch
+
+from PySide6.QtWidgets import QComboBox, QDialog, QPushButton, QRadioButton
+
+from worktree_manager.models import WorkspaceEntry, WorkspaceProject
+from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+
+
+def _vm(projects=None, editor="cursor", collapsed=None,
+        branches=("main", "feat-a"), current_branch="main"):
+    vm = MagicMock()
+    vm.load_projects.return_value = projects or []
+    vm._store.get_ui_pref.side_effect = lambda key, default: {
+        "projects_editor": editor,
+        "projects_collapsed": collapsed or [],
+    }.get(key, default)
+    vm._store.all_repos.return_value = {"/r/proj": MagicMock()}
+    vm.list_branches_for_worktree.return_value = list(branches)
+    vm._git.checked_out_branch.return_value = current_branch
+    return vm
+
+
+def _panel(qtbot, vm=None, on_close=None):
+    p = WorkspaceProjectsPanel(
+        parent=None, vm=vm or _vm(),
+        on_close=on_close or (lambda: None),
+    )
+    qtbot.addWidget(p)
+    return p
+
+
+def test_workspace_panel_toolbar_has_new_and_close(qtbot):
+    p = _panel(qtbot)
+    texts = [b.text() for b in p.findChildren(QPushButton)]
+    assert any("New" in t for t in texts)
+    assert "×" in texts
+
+
+def test_workspace_panel_editor_radio_defaults_from_pref(qtbot):
+    p = _panel(qtbot, vm=_vm(editor="vscode"))
+    vscode = next(r for r in p.findChildren(QRadioButton) if r.text() == "vscode")
+    assert vscode.isChecked() is True
+
+
+def test_workspace_panel_editor_radio_change_persists_pref(qtbot):
+    vm = _vm(editor="cursor")
+    p = _panel(qtbot, vm=vm)
+    vscode = next(r for r in p.findChildren(QRadioButton) if r.text() == "vscode")
+    vscode.setChecked(True)
+    vm._store.set_ui_pref.assert_any_call("projects_editor", "vscode")
+
+
+def test_workspace_panel_empty_state_when_no_projects(qtbot):
+    p = _panel(qtbot, vm=_vm(projects=[]))
+    assert p.empty_state_visible() is True
+
+
+def test_workspace_panel_shows_project_rows(qtbot):
+    proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    p = _panel(qtbot, vm=_vm(projects=[proj]))
+    texts = " ".join(b.text() for b in p.findChildren(QPushButton))
+    assert "alpha" in texts
+
+
+def test_workspace_panel_collapse_toggles_persisted(qtbot):
+    proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    vm = _vm(projects=[proj])
+    p = _panel(qtbot, vm=vm)
+    p.toggle_collapse("alpha")
+    vm._store.set_ui_pref.assert_any_call("projects_collapsed", ["alpha"])
+
+
+def test_workspace_panel_open_invokes_vm(qtbot):
+    proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    vm = _vm(projects=[proj])
+    p = _panel(qtbot, vm=vm)
+    p.open_project("alpha")
+    vm.open_project.assert_called_once_with("alpha", "cursor")
+
+
+def test_workspace_panel_delete_invokes_vm_and_refreshes(qtbot):
+    proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    vm = _vm(projects=[proj])
+    p = _panel(qtbot, vm=vm)
+    p.delete_project("alpha")
+    vm.delete_project.assert_called_once_with("alpha")
+
+
+def test_workspace_panel_close_invokes_callback(qtbot):
+    calls = []
+    p = _panel(qtbot, on_close=lambda: calls.append("x"))
+    p.trigger_close()
+    assert calls == ["x"]
+
+
+def test_workspace_panel_new_button_opens_operations_dialog(qtbot):
+    p = _panel(qtbot)
+    with patch(
+        "worktree_manager.ui.workspace_projects_panel.ProjectOperationsDialog"
+    ) as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        p._open_new_dialog()
+    MockDlg.assert_called_once()
+
+
+def test_workspace_panel_edit_button_opens_operations_dialog(qtbot):
+    proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    p = _panel(qtbot, vm=_vm(projects=[proj]))
+    with patch(
+        "worktree_manager.ui.workspace_projects_panel.ProjectOperationsDialog"
+    ) as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        p._edit_project(proj)
+    MockDlg.assert_called_once()
+
+
+def test_workspace_panel_branch_switch_calls_vm(qtbot):
+    proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    vm = _vm(projects=[proj])
+    p = _panel(qtbot, vm=vm)
+    p.switch_branch("/r/proj", "feat-a")
+    vm.switch_branch_in_project.assert_called_once_with("/r/proj", "feat-a")
+```
+
+**Production code (Green):** `worktree_manager/ui/workspace_projects_panel.py` (replaces CTk version in-place)
+
+```python
+import os
+from pathlib import Path
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QRadioButton, QScrollArea, QVBoxLayout, QWidget,
+)
+
+from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialog
+
+
+class WorkspaceProjectsPanel(QWidget):
+    def __init__(self, parent, vm, on_close):
+        super().__init__(parent)
+        self._vm = vm
+        self._on_close = on_close
+        self._collapsed: set[str] = set(vm._store.get_ui_pref("projects_collapsed", []))
+        self._editor: str = vm._store.get_ui_pref("projects_editor", "cursor")
+        self._empty_visible: bool = True
+        self._build()
+        self.refresh()
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(4)
+
+        toolbar = QHBoxLayout()
+        title = QLabel("Workspace Projects")
+        title.setStyleSheet("font-weight: bold; font-size: 15px;")
+        toolbar.addWidget(title)
+        toolbar.addStretch(1)
+        new_btn = QPushButton("+ New")
+        new_btn.clicked.connect(self._open_new_dialog)
+        toolbar.addWidget(new_btn)
+        close_btn = QPushButton("×")
+        close_btn.setFixedWidth(32)
+        close_btn.clicked.connect(self.trigger_close)
+        toolbar.addWidget(close_btn)
+        outer.addLayout(toolbar)
+
+        editor_row = QHBoxLayout()
+        editor_row.addWidget(QLabel("Editor:"))
+        self._editor_group = QButtonGroup(self)
+        for name in ("cursor", "vscode"):
+            rb = QRadioButton(name)
+            rb.setChecked(name == self._editor)
+            rb.toggled.connect(lambda checked, n=name: checked and self._set_editor(n))
+            self._editor_group.addButton(rb)
+            editor_row.addWidget(rb)
+        editor_row.addStretch(1)
+        outer.addLayout(editor_row)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll_container = QWidget()
+        self._scroll_layout = QVBoxLayout(self._scroll_container)
+        self._scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._scroll_layout.setSpacing(4)
+        self._scroll.setWidget(self._scroll_container)
+        outer.addWidget(self._scroll, 1)
+
+        self._empty_label = QLabel("No projects yet.\nClick [+ New] to create one.")
+        self._empty_label.setAlignment(Qt.AlignCenter)
+        self._empty_label.setStyleSheet("color: gray;")
+        self._scroll_layout.addWidget(self._empty_label)
+        self._scroll_layout.addStretch(1)
+
+    def _set_editor(self, name: str):
+        self._editor = name
+        self._vm._store.set_ui_pref("projects_editor", name)
+
+    def refresh(self):
+        while self._scroll_layout.count():
+            item = self._scroll_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        projects = self._vm.load_projects()
+        if not projects:
+            self._empty_label = QLabel("No projects yet.\nClick [+ New] to create one.")
+            self._empty_label.setAlignment(Qt.AlignCenter)
+            self._empty_label.setStyleSheet("color: gray;")
+            self._scroll_layout.addWidget(self._empty_label)
+            self._scroll_layout.addStretch(1)
+            self._empty_visible = True
+            return
+        self._empty_visible = False
+        for project in projects:
+            self._add_project_row(project)
+        self._scroll_layout.addStretch(1)
+
+    def empty_state_visible(self) -> bool:
+        return self._empty_visible
+
+    def _add_project_row(self, project):
+        name = project.name
+        is_collapsed = name in self._collapsed
+
+        header = QHBoxLayout()
+        toggle = QPushButton(f"{'▶' if is_collapsed else '▼'} {name}")
+        toggle.setStyleSheet("text-align: left; padding: 4px;")
+        toggle.clicked.connect(lambda _=False, n=name: self.toggle_collapse(n))
+        header.addWidget(toggle, 1)
+        open_btn = QPushButton("Open")
+        open_btn.setFixedWidth(56)
+        open_btn.clicked.connect(lambda _=False, n=name: self.open_project(n))
+        header.addWidget(open_btn)
+        edit_btn = QPushButton("Edit")
+        edit_btn.setFixedWidth(48)
+        edit_btn.clicked.connect(lambda _=False, p=project: self._edit_project(p))
+        header.addWidget(edit_btn)
+        del_btn = QPushButton("✕")
+        del_btn.setFixedWidth(28)
+        del_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        del_btn.clicked.connect(lambda _=False, n=name: self.delete_project(n))
+        header.addWidget(del_btn)
+        wrap = QWidget()
+        wrap.setLayout(header)
+        self._scroll_layout.addWidget(wrap)
+
+        if not is_collapsed:
+            for entry in project.entries:
+                self._add_entry_row(entry.worktree_path)
+
+    def _add_entry_row(self, worktree_path: str):
+        try:
+            current_branch = self._vm._git.checked_out_branch(worktree_path)
+            branches = self._vm.list_branches_for_worktree(worktree_path)
+        except Exception:
+            current_branch = "(unknown)"
+            branches = []
+        wt_name = os.path.basename(worktree_path) or worktree_path
+        home = os.path.expanduser("~")
+        short = "~" + worktree_path[len(home):] if worktree_path.startswith(home) else worktree_path
+
+        row = QHBoxLayout()
+        lbl = QLabel(f"    {wt_name}: {short}")
+        lbl.setStyleSheet("color: gray;")
+        row.addWidget(lbl, 1)
+        if branches:
+            combo = QComboBox()
+            combo.addItems(branches)
+            if current_branch in branches:
+                combo.setCurrentText(current_branch)
+            combo.setFixedWidth(180)
+            combo.currentTextChanged.connect(
+                lambda new, p=worktree_path, orig=current_branch:
+                    self._on_branch_changed(p, orig, new)
+            )
+            row.addWidget(combo)
+        else:
+            row.addWidget(QLabel(current_branch))
+        wrap = QWidget()
+        wrap.setLayout(row)
+        self._scroll_layout.addWidget(wrap)
+
+    def _on_branch_changed(self, path: str, orig: str, new: str):
+        if new == orig:
+            return
+        try:
+            self.switch_branch(path, new)
+        except ValueError as e:
+            QMessageBox.critical(self, "Cannot switch", str(e))
+        self.refresh()
+
+    # --- public API ---
+
+    def switch_branch(self, worktree_path: str, new_branch: str) -> None:
+        self._vm.switch_branch_in_project(worktree_path, new_branch)
+
+    def toggle_collapse(self, name: str) -> None:
+        if name in self._collapsed:
+            self._collapsed.discard(name)
+        else:
+            self._collapsed.add(name)
+        self._vm._store.set_ui_pref("projects_collapsed", list(self._collapsed))
+        self.refresh()
+
+    def open_project(self, name: str) -> None:
+        self._vm.open_project(name, self._editor)
+
+    def delete_project(self, name: str) -> None:
+        self._vm.delete_project(name)
+        self.refresh()
+
+    def trigger_close(self) -> None:
+        self._on_close()
+
+    def _open_new_dialog(self) -> None:
+        dlg = ProjectOperationsDialog(
+            parent=self, vm=self._vm,
+            repos=self._vm._store.all_repos(),
+            on_create=self._handle_create,
+        )
+        dlg.exec()
+
+    def _edit_project(self, project) -> None:
+        dlg = ProjectOperationsDialog(
+            parent=self, vm=self._vm,
+            repos=self._vm._store.all_repos(),
+            on_edit=self._handle_edit,
+            existing_project=project,
+        )
+        dlg.exec()
+
+    def _handle_create(self, name: str, entries: list) -> None:
+        self._vm.create_project(name=name, entries=entries)
+        self.refresh()
+
+    def _handle_edit(self, old_name: str, new_name: str, entries: list) -> None:
+        self._vm.update_project(old_name=old_name, new_name=new_name, entries=entries)
+        self.refresh()
+```
+
+**Done when:** All 12 tests pass. Panel lists projects, collapses/expands, opens dialogs, supports editor radio with pref persistence, and triggers branch switching via the VM.
+
+---
+
+### Phase 3.4 — Wire CleanupWizard into App._show_cleanup
+
+**What it covers:** Wire the Qt CleanupWizard into `App._show_cleanup()` with a background-thread scan that emits progress signals onto the GUI thread via a `_LoadBridge(QObject)`. On finish, swap the dialog into its real list state; if no candidates were found, close the dialog and show a `QMessageBox.information`. Selected candidates flow through `vm.delete_cleanup_candidates(…, also_delete_branches=True)`, then the active worktree panel is refreshed.
+
+**Tests (Red) — write these first:** new file `tests/test_cleanup_wiring.py`
+
+```python
+from unittest.mock import MagicMock, patch
+
+from worktree_manager.cli import App
+
+
+def _make_app(qtbot):
+    with (
+        patch("worktree_manager.cli.ConfigStore") as MockStore,
+        patch("worktree_manager.cli.GitService"),
+    ):
+        MockStore.return_value.get_repo.return_value = None
+        app = App(repo_path=None)
+        qtbot.addWidget(app)
+    return app
+
+
+def test_show_cleanup_creates_wizard_dialog(qtbot):
+    app = _make_app(qtbot)
+    vm = MagicMock()
+    vm.all_cleanup_candidates.return_value = []
+    with (
+        patch("worktree_manager.cli.CleanupWizard") as MockWiz,
+        patch("worktree_manager.cli.threading.Thread") as MockThread,
+    ):
+        MockThread.return_value.start = MagicMock()
+        app._show_cleanup(vm)
+    MockWiz.assert_called_once()
+    kwargs = MockWiz.call_args.kwargs
+    assert kwargs.get("candidates") is None  # deferred load
+    assert callable(kwargs.get("on_delete_selected"))
+
+
+def test_show_cleanup_spawns_background_thread(qtbot):
+    app = _make_app(qtbot)
+    vm = MagicMock()
+    with (
+        patch("worktree_manager.cli.CleanupWizard"),
+        patch("worktree_manager.cli.threading.Thread") as MockThread,
+    ):
+        thread_instance = MagicMock()
+        MockThread.return_value = thread_instance
+        app._show_cleanup(vm)
+    MockThread.assert_called_once()
+    assert MockThread.call_args.kwargs.get("daemon") is True
+    thread_instance.start.assert_called_once()
+
+
+def test_cleanup_delete_callback_invokes_vm(qtbot):
+    app = _make_app(qtbot)
+    vm = MagicMock()
+    with (
+        patch("worktree_manager.cli.CleanupWizard") as MockWiz,
+        patch("worktree_manager.cli.threading.Thread"),
+    ):
+        app._show_cleanup(vm)
+        on_delete = MockWiz.call_args.kwargs["on_delete_selected"]
+        candidates = [MagicMock(), MagicMock()]
+        on_delete(candidates)
+    vm.delete_cleanup_candidates.assert_called_once_with(
+        candidates, also_delete_branches=True,
+    )
+```
+
+**Production code (Green):** `worktree_manager/cli.py` — add `import threading`, import `CleanupWizard` at module top, replace `_show_cleanup` stub.
+
+```python
+# at top of file, with the other Qt UI imports:
+import threading
+from worktree_manager.ui.cleanup_wizard import CleanupWizard
+```
+
+```python
+    def _show_cleanup(self, vm):
+        def _on_delete(selected: list):
+            vm.delete_cleanup_candidates(selected, also_delete_branches=True)
+            if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
+                self._current_panel.refresh()
+
+        wizard = CleanupWizard(
+            parent=self, candidates=None, on_delete_selected=_on_delete,
+        )
+
+        bridge = _CleanupLoadBridge()
+        bridge.progress_updated.connect(wizard.update_progress)
+        bridge.loading_finished.connect(
+            lambda candidates: self._on_cleanup_loaded(wizard, candidates)
+        )
+
+        def _load():
+            def _on_progress(current, total, label):
+                bridge.progress_updated.emit(current, total, label)
+            candidates = vm.all_cleanup_candidates(on_progress=_on_progress)
+            bridge.loading_finished.emit(candidates)
+
+        threading.Thread(target=_load, daemon=True).start()
+        wizard.exec()
+
+    def _on_cleanup_loaded(self, wizard, candidates: list) -> None:
+        if not candidates:
+            wizard.reject()
+            QMessageBox.information(self, "Cleanup", "No branches to clean up.")
+            return
+        wizard.finish_loading(candidates)
+```
+
+Also append the bridge class near the top of `cli.py` (after the imports, before `App`):
+
+```python
+from PySide6.QtCore import QObject, Signal
+
+
+class _CleanupLoadBridge(QObject):
+    progress_updated = Signal(int, int, str)
+    loading_finished = Signal(list)
+```
+
+**Done when:** All 3 wiring tests pass. Manually launching the Cleanup Wizard in the app shows the progress bar, then either swaps to the candidate list or shows the "No branches to clean up." info dialog.
+
+---
+
+### Phase 3.5 — Wire WorkspaceProjectsPanel into App._show_workspace_projects
+
+**What it covers:** Wire the Qt `WorkspaceProjectsPanel` into `App._show_workspace_projects()`. Constructs (or reuses) a `WorkspaceProjectsViewModel` with `WorkspaceService` + `GitService` + `ConfigStore`; swaps the panel into the main central area via `_set_panel`. Close button (×) returns to the empty landing screen.
+
+**Tests (Red) — write these first:** new file `tests/test_workspace_projects_wiring.py`
+
+```python
+from unittest.mock import MagicMock, patch
+
+from worktree_manager.cli import App
+from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+
+
+def _make_app(qtbot):
+    with (
+        patch("worktree_manager.cli.ConfigStore") as MockStore,
+        patch("worktree_manager.cli.GitService"),
+    ):
+        MockStore.return_value.get_repo.return_value = None
+        app = App(repo_path=None)
+        qtbot.addWidget(app)
+    return app
+
+
+def test_show_workspace_projects_creates_panel(qtbot):
+    app = _make_app(qtbot)
+    with (
+        patch("worktree_manager.cli.WorkspaceProjectsViewModel") as MockVM,
+        patch("worktree_manager.cli.WorkspaceService"),
+    ):
+        vm = MagicMock()
+        vm.load_projects.return_value = []
+        vm._store.get_ui_pref.side_effect = lambda key, default: default
+        vm._store.all_repos.return_value = {}
+        MockVM.return_value = vm
+        app._show_workspace_projects()
+    assert isinstance(app._current_panel, WorkspaceProjectsPanel)
+
+
+def test_show_workspace_projects_close_returns_to_landing(qtbot):
+    app = _make_app(qtbot)
+    with (
+        patch("worktree_manager.cli.WorkspaceProjectsViewModel") as MockVM,
+        patch("worktree_manager.cli.WorkspaceService"),
+    ):
+        vm = MagicMock()
+        vm.load_projects.return_value = []
+        vm._store.get_ui_pref.side_effect = lambda key, default: default
+        vm._store.all_repos.return_value = {}
+        MockVM.return_value = vm
+        app._show_workspace_projects()
+    panel = app._current_panel
+    panel.trigger_close()
+    assert not isinstance(app._current_panel, WorkspaceProjectsPanel)
+```
+
+**Production code (Green):** `worktree_manager/cli.py` — add imports at module top, replace `_show_workspace_projects` stub.
+
+```python
+from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
+from worktree_manager.workspace_service import WorkspaceService
+from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+```
+
+```python
+    def _show_workspace_projects(self):
+        vm = WorkspaceProjectsViewModel(
+            config_store=self._store,
+            git_service=self._git,
+            workspace_service=WorkspaceService(),
+        )
+        self._set_panel(WorkspaceProjectsPanel(
+            parent=self, vm=vm, on_close=self._show_empty_main,
+        ))
+```
+
+**Done when:** Both wiring tests pass. Manually clicking Workspace Projects in the sidebar shows the panel; clicking × returns to the empty landing screen.
+
+---
+
+### Phase 3.6 — Legacy CTk Cleanup
+
+**What it covers:** Delete every remaining CTk-bound test for the components migrated in this iteration, plus the dead `new_project_dialog.py` (and its tests). Also delete `scroll_fix.py` if still present (it's CTk-only). Verify with explicit "does not exist" assertions.
+
+**Files to delete:**
+- `tests/test_cleanup_wizard_admin_mode.py`
+- `tests/test_cleanup_protected_branches.py`
+- `tests/test_cleanup_wizard_iter0.py`
+- `tests/test_cleanup_wizard_merged_into.py`
+- `tests/test_cleanup_wizard_toggle_buttons.py`
+- `tests/test_cleanup_wizard_merged_subgroups.py`
+- `tests/test_new_project_dialog.py`
+- `tests/test_project_operations_dialog.py` (CTk version — replaced by `_qt.py`)
+- `tests/test_workspace_projects_panel.py` (CTk version — replaced by `_qt.py`)
+- `worktree_manager/ui/new_project_dialog.py` (dead code)
+- `worktree_manager/scroll_fix.py` (if it still exists)
+
+**Tests (Red) — write these first:** new file `tests/test_iteration_3_cleanup.py`
+
+```python
+import os
+
+
+def _tests_dir():
+    return os.path.dirname(__file__)
+
+
+def _project_root():
+    return os.path.dirname(_tests_dir())
+
+
+def test_legacy_cleanup_admin_mode_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_cleanup_wizard_admin_mode.py"))
+
+
+def test_legacy_cleanup_protected_branches_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_cleanup_protected_branches.py"))
+
+
+def test_legacy_cleanup_wizard_iter0_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_cleanup_wizard_iter0.py"))
+
+
+def test_legacy_cleanup_wizard_merged_into_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_cleanup_wizard_merged_into.py"))
+
+
+def test_legacy_cleanup_wizard_toggle_buttons_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_cleanup_wizard_toggle_buttons.py"))
+
+
+def test_legacy_cleanup_wizard_merged_subgroups_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_cleanup_wizard_merged_subgroups.py"))
+
+
+def test_legacy_new_project_dialog_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_new_project_dialog.py"))
+
+
+def test_legacy_project_operations_dialog_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_project_operations_dialog.py"))
+
+
+def test_legacy_workspace_projects_panel_test_deleted():
+    assert not os.path.exists(os.path.join(_tests_dir(), "test_workspace_projects_panel.py"))
+
+
+def test_dead_new_project_dialog_source_deleted():
+    assert not os.path.exists(os.path.join(
+        _project_root(), "worktree_manager", "ui", "new_project_dialog.py",
+    ))
+
+
+def test_scroll_fix_module_deleted():
+    assert not os.path.exists(os.path.join(
+        _project_root(), "worktree_manager", "scroll_fix.py",
+    ))
+```
+
+**Production "code":** Simply `rm` the listed files.
+
+**Done when:** All 11 cleanup tests pass, AND the full project test suite passes with no collection errors or regressions.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. Do not declare the feature complete until every item below is checked off.
+
+**Setup:** `cd worktree-manager && python3.14 -m worktree_manager.cli`
+
+**Cleanup Wizard**
+- [ ] Open a repo, then click **Cleanup** (or whatever button calls `_show_cleanup`) in the worktree panel — the wizard opens immediately in loading state with a progress bar and "Scanning branches…" label that updates as the background scan progresses.
+- [ ] If branches are found, the dialog swaps to the real list: Merged (grouped by `→ into <target>`), Stale, Healthy, Protected, Cannot delete sections render correctly.
+- [ ] Merged + Stale checkboxes are checked by default; Healthy unchecked; Protected disabled; "Cannot delete" rows are plain labels (no checkbox).
+- [ ] Click **Select All** — all operable checkboxes flip; button text becomes "Deselect All"; click again — all clear, label flips back.
+- [ ] In a merged subgroup with multiple branches, click the per-subgroup **Select all** — only that subgroup toggles; other subgroups unchanged.
+- [ ] In the Stale section with multiple stale branches, click the section **Select all** — only stale flips.
+- [ ] Toggle **Admin Mode** — orange warning banner appears at the top, Protected checkboxes become enabled. Toggle off — checkboxes clear and re-disable; banner hides.
+- [ ] Select a Protected branch in Admin Mode, click **Delete** — that branch is included in the `delete_cleanup_candidates` call (verify by checking the worktree list after — branch should be gone).
+- [ ] If no branches need cleanup, the wizard auto-closes and shows a "No branches to clean up." info dialog.
+- [ ] Click **Cancel** — wizard closes with no deletions performed.
+
+**Workspace Projects**
+- [ ] Click **Workspace Projects** in the sidebar — the panel replaces the main content area; if no projects exist, the empty state is visible.
+- [ ] Click **+ New** — the ProjectOperationsDialog opens titled "New Workspace Project". Enter a name, pick a repo + worktree, click **+ Add** — the path appears in the Entries list. Click **Create Project** — dialog closes and the new project appears in the panel.
+- [ ] Submit with an empty name — red "Project name is required." warning appears, no callback fires.
+- [ ] Submit with a name but no entries — red "Add at least one worktree." warning appears, no callback fires.
+- [ ] Click a project's ▼ to collapse — the entries hide; reload the panel (close + reopen) — collapsed state persists across sessions.
+- [ ] Click **Edit** on a project — dialog opens titled "Edit Project" pre-populated with the name and entries; rename, add an entry, click **Save Changes** — panel refreshes with the new name + entries.
+- [ ] Pick a different branch from a per-entry dropdown — the worktree switches branches (verify on disk); if the branch is checked out elsewhere, an error dialog appears and the dropdown reverts.
+- [ ] Click **Open** on a project — your selected editor (cursor or vscode) launches with the `.code-workspace` file.
+- [ ] Switch the editor radio from cursor to vscode — open another project — vscode launches instead; switch back — the choice persists across re-opens of the panel.
+- [ ] Click **✕** on a project — it's removed from the list; the `.code-workspace` file is also deleted from disk.
+- [ ] Click **×** in the toolbar — the panel closes and the empty landing screen returns.
+
+**Regression — Iterations 0, 1, 2 still work**
+- [ ] Sidebar still lists repos, add/remove repo still works, switching repos still loads MainWindow correctly.
+- [ ] + New / Delete (✕) / ⚙ Settings / RepoSetup dialogs all still function.
+- [ ] Command Center still opens, can launch / stop / restart / remove commands, search filter works, popouts open, vm callbacks marshal across threads cleanly.
+- [ ] No CTk imports remain in production code (verify with `grep -r "customtkinter\|import ctk" worktree_manager/` — should be empty).
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply **"Iteration 3 confirmed"** (or describe any failures) — once confirmed, I'll run the full test suite as the Stage 7 bookend and declare the feature done.
