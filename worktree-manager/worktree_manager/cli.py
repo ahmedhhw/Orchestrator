@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import threading
 from pathlib import Path
@@ -18,6 +19,7 @@ from worktree_manager.workspace_service import WorkspaceService
 from worktree_manager.ui.cleanup_wizard import CleanupWizard
 from worktree_manager.ui.command_center_panel import CommandCenterPanel
 from worktree_manager.ui.create_dialog import CreateDialog
+from worktree_manager.ui.main_window import MainWindow
 from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
 from worktree_manager.ui.settings_panel import SettingsDialog
 from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
@@ -141,6 +143,7 @@ class App(QMainWindow):
             on_settings=lambda: self._show_settings(repo_path),
             on_cleanup=lambda: self._show_cleanup(vm),
             on_new=lambda: self._show_new_worktree(vm),
+            on_generate_project=self._on_generate_project,
         ))
 
     def _confirm_delete_repo(self, repo_path, is_active):
@@ -254,6 +257,20 @@ class App(QMainWindow):
         self._set_panel(WorkspaceProjectsPanel(
             parent=self, vm=vm, on_close=self._show_empty_main,
         ))
+
+    def _on_generate_project(self, worktree_path: str) -> None:
+        from worktree_manager.models import WorkspaceEntry, WorkspaceProject
+        name = os.path.basename(worktree_path) or worktree_path
+        project = WorkspaceProject(
+            name=name,
+            entries=[WorkspaceEntry(worktree_path=worktree_path)],
+        )
+        svc = WorkspaceService()
+        svc.generate_code_workspace(project)
+        action = "updated" if self._store.get_project(name) else "created"
+        self._store.save_project(project)
+        if isinstance(self._current_panel, MainWindow):
+            self._current_panel.show_toast(f"✅ Project \"{name}\" {action}")
 
 
 def main():

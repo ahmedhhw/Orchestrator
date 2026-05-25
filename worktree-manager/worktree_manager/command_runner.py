@@ -18,7 +18,7 @@ class RunHandle:
     repo_path: str
     repo_name: str
     worktree_path: str
-    command: list
+    command: str
     status: RunStatus = RunStatus.RUNNING
     returncode: int | None = None
     output_lines: list = field(default_factory=list)
@@ -37,7 +37,7 @@ class CommandRunner:
 
     def start(
         self,
-        command: list[str],
+        command_str: str,
         cwd: str | None = None,
         cmd_name: str = "",
         repo_path: str = "",
@@ -51,10 +51,10 @@ class CommandRunner:
             repo_path=repo_path,
             repo_name=repo_name,
             worktree_path=worktree_path,
-            command=command,
+            command=command_str,
         )
         proc = subprocess.Popen(
-            command,
+            ["bash", "-c", command_str],
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

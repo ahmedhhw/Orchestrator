@@ -1,4 +1,3 @@
-import shlex
 from pathlib import Path
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.command_runner import CommandRunner, RunHandle, RunStatus
@@ -57,9 +56,8 @@ class CommandCenterViewModel:
             ):
                 raise DuplicateRunError(handle.run_id)
 
-        command = shlex.split(command_str)
         handle = self._runner.start(
-            command=command,
+            command_str=command_str,
             cwd=worktree_path,
             cmd_name=cmd_name,
             repo_path=repo_path,

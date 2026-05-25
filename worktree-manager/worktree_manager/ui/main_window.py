@@ -1,9 +1,10 @@
 import os
 import time
 
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea,
-    QVBoxLayout, QWidget,
+    QComboBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.main_window_vm import MainWindowViewModel
@@ -24,13 +25,17 @@ def _fmt_age(ts):
 
 class MainWindow(QWidget):
     def __init__(self, vm: MainWindowViewModel, repo_name: str,
-                 on_settings, on_cleanup, on_new, parent=None):
+                 on_settings, on_cleanup, on_new,
+                 on_generate_project=None, parent=None):
         super().__init__(parent)
         self._vm = vm
         self._repo_name = repo_name
         self._on_settings = on_settings
         self._on_cleanup = on_cleanup
         self._on_new = on_new
+        self._on_generate_project = on_generate_project
+        self._worktree_rows: list[QWidget] = []
+        self._toast_timer: QTimer | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 8)
@@ -50,6 +55,14 @@ class MainWindow(QWidget):
         header.addWidget(cleanup_btn)
         header.addWidget(settings_btn)
         outer.addLayout(header)
+
+        self._toast_label = QLabel("")
+        self._toast_label.setStyleSheet(
+            "color: #27ae60; background: #eafaf1; border: 1px solid #a9dfbf;"
+            " padding: 4px 8px; border-radius: 4px;"
+        )
+        self._toast_label.setVisible(False)
+        outer.addWidget(self._toast_label)
 
         sub = QHBoxLayout()
         sub_label = QLabel("Worktrees")
@@ -80,6 +93,7 @@ class MainWindow(QWidget):
             w = item.widget()
             if w is not None:
                 w.deleteLater()
+        self._worktree_rows.clear()
 
         worktrees = self._vm.load_worktrees()
         branch_status = self._vm.list_branches_with_checkout_status()
@@ -89,6 +103,10 @@ class MainWindow(QWidget):
 
     def _add_row(self, wt: WorktreeModel, branch_status):
         row = QWidget()
+        row.setContextMenuPolicy(Qt.CustomContextMenu)
+        row.customContextMenuRequested.connect(
+            lambda pos, w=wt: self._show_context_menu(w.path, pos, row)
+        )
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 2, 0, 2)
 
@@ -156,7 +174,28 @@ class MainWindow(QWidget):
             del_btn.clicked.connect(lambda _checked=False, w=wt: self._open_delete(w))
             layout.addWidget(del_btn)
 
+        self._worktree_rows.append(row)
         self._list_layout.addWidget(row)
+
+    def _show_context_menu(self, worktree_path: str, pos, row: QWidget):
+        menu = QMenu(self)
+        gen_act = menu.addAction("Generate Project")
+        gen_act.triggered.connect(lambda: self._trigger_generate_project(worktree_path))
+        menu.exec(row.mapToGlobal(pos))
+
+    def _trigger_generate_project(self, worktree_path: str):
+        if self._on_generate_project:
+            self._on_generate_project(worktree_path)
+
+    def show_toast(self, message: str):
+        self._toast_label.setText(message)
+        self._toast_label.setVisible(True)
+        if self._toast_timer:
+            self._toast_timer.stop()
+        self._toast_timer = QTimer(self)
+        self._toast_timer.setSingleShot(True)
+        self._toast_timer.timeout.connect(lambda: self._toast_label.setVisible(False))
+        self._toast_timer.start(3000)
 
     def _switch_branch(self, worktree_path, new_branch):
         try:
