@@ -1,66 +1,89 @@
 from pathlib import Path
-import customtkinter as ctk
+
+from PySide6.QtWidgets import (
+    QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+)
+
+from worktree_manager.ui.add_command_dialog import AddCommandDialog
 
 
-class ManageCommandsDialog(ctk.CTkToplevel):
-    def __init__(self, master, vm):
-        super().__init__(master)
-        self.title("Manage Commands")
-        self.resizable(False, False)
+class ManageCommandsDialog(QDialog):
+    def __init__(self, parent, vm):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Commands")
+        self.setModal(True)
+        self.resize(520, 480)
         self._vm = vm
-        self._editing_name: str | None = None  # name of the command currently being edited
-        self._all_action_buttons: list[ctk.CTkButton] = []
-        self._done_btn: ctk.CTkButton | None = None
+        self._editing_name: str | None = None
+        self._action_buttons: list[QPushButton] = []
+        self._done_btn: QPushButton | None = None
         self._build()
-        self.grab_set()
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build(self):
-        repos = self._vm.all_repos()
-        self._repo_paths = list(repos.keys())
-        self._repo_map = {Path(p).name: p for p in self._repo_paths}
-        display_names = [Path(p).name for p in self._repo_paths]
+        repo_paths = list(self._vm.all_repos().keys())
+        self._repo_map = {Path(p).name: p for p in repo_paths}
+        display_names = list(self._repo_map.keys())
 
-        top = ctk.CTkFrame(self, fg_color="transparent")
-        top.pack(fill="x", padx=24, pady=(20, 8))
-        ctk.CTkLabel(top, text="Manage Commands",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        ctk.CTkButton(top, text="+ Add Command", width=120,
-                      command=self._open_add_command_dialog).pack(side="right")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(8)
 
-        repo_row = ctk.CTkFrame(self, fg_color="transparent")
-        repo_row.pack(fill="x", padx=24, pady=(0, 8))
-        ctk.CTkLabel(repo_row, text="Repository:", width=80, anchor="w").pack(side="left")
+        top = QHBoxLayout()
+        title = QLabel("Manage Commands")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        top.addWidget(title)
+        top.addStretch(1)
+        add_btn = QPushButton("+ Add Command")
+        add_btn.clicked.connect(self._open_add_command_dialog)
+        top.addWidget(add_btn)
+        outer.addLayout(top)
+
+        repo_row = QHBoxLayout()
+        repo_row.addWidget(QLabel("Repository:"))
         last_used = (
-            self._vm.get_last_used_repo() if hasattr(self._vm, "get_last_used_repo") else None
+            self._vm.get_last_used_repo()
+            if hasattr(self._vm, "get_last_used_repo") else None
         )
-        if last_used and last_used in self._repo_paths:
+        if last_used and last_used in repo_paths:
             default_name = Path(last_used).name
         elif display_names:
             default_name = display_names[0]
         else:
             default_name = ""
-        self._repo_var = ctk.StringVar(value=default_name)
-        ctk.CTkOptionMenu(
-            repo_row, variable=self._repo_var, values=display_names,
-            command=self._on_repo_changed, width=220,
-            fg_color=("gray85", "gray25"), button_color=("gray70", "gray35"),
-            button_hover_color=("gray60", "gray45"),
-            text_color=("gray10", "gray90"),
-        ).pack(side="left")
+        self._repo_combo = QComboBox()
+        self._repo_combo.addItems(display_names)
+        if default_name:
+            self._repo_combo.setCurrentText(default_name)
+        self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
+        repo_row.addWidget(self._repo_combo, 1)
+        outer.addLayout(repo_row)
 
-        self._list_frame = ctk.CTkScrollableFrame(self, width=440, height=300)
-        self._list_frame.pack(fill="both", expand=True, padx=24, pady=(0, 8))
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._list_container = QWidget()
+        self._list_layout = QVBoxLayout(self._list_container)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(0)
+        self._list_layout.addStretch(1)
+        self._scroll.setWidget(self._list_container)
+        outer.addWidget(self._scroll, 1)
 
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=24, pady=(0, 16))
-        self._count_label = ctk.CTkLabel(footer, text="", text_color="gray", anchor="w")
-        self._count_label.pack(side="left")
-        self._done_btn = ctk.CTkButton(footer, text="Done", width=80, command=self._on_close)
-        self._done_btn.pack(side="right")
+        footer = QHBoxLayout()
+        self._count_label = QLabel("")
+        self._count_label.setStyleSheet("color: gray;")
+        footer.addWidget(self._count_label)
+        footer.addStretch(1)
+        self._done_btn = QPushButton("Done")
+        self._done_btn.clicked.connect(self._on_done)
+        footer.addWidget(self._done_btn)
+        outer.addLayout(footer)
 
         if display_names:
             self._refresh_list()
+
+    def _current_repo_path(self) -> str:
+        return self._repo_map.get(self._repo_combo.currentText(), "")
 
     def _on_repo_changed(self, _: str) -> None:
         self._editing_name = None
@@ -68,130 +91,115 @@ class ManageCommandsDialog(ctk.CTkToplevel):
             self._vm.set_last_used_repo(self._current_repo_path())
         self._refresh_list()
 
-    def _current_repo_path(self) -> str:
-        return self._repo_map.get(self._repo_var.get(), "")
-
     def _refresh_list(self) -> None:
-        for w in self._list_frame.winfo_children():
-            w.destroy()
-        self._all_action_buttons = []
+        while self._list_layout.count():
+            item = self._list_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        self._action_buttons = []
 
         repo_path = self._current_repo_path()
         commands = self._vm.saved_commands(repo_path)
         n = len(commands)
-        self._count_label.configure(
-            text=f"{n} command{'s' if n != 1 else ''} saved for this repo"
+        self._count_label.setText(
+            f"{n} command{'s' if n != 1 else ''} saved for this repo"
         )
 
         if not commands:
-            ctk.CTkLabel(
-                self._list_frame,
-                text='No commands saved for this repo yet.\nUse "+ Add Command" in the toolbar to create one.',
-                text_color="gray",
-                justify="center",
-            ).pack(pady=40)
+            empty = QLabel(
+                'No commands saved for this repo yet.\n'
+                'Use "+ Add Command" in the toolbar to create one.'
+            )
+            empty.setStyleSheet("color: gray;")
+            self._list_layout.addWidget(empty)
+            self._list_layout.addStretch(1)
+            self._apply_lock_state()
             return
 
         for i, cmd in enumerate(commands):
             if i > 0:
-                ctk.CTkFrame(self._list_frame, height=1,
-                             fg_color=("gray80", "gray30")).pack(fill="x", pady=(2, 0))
-
+                sep = QFrame()
+                sep.setFrameShape(QFrame.HLine)
+                sep.setStyleSheet("color: gray;")
+                self._list_layout.addWidget(sep)
             if cmd.name == self._editing_name:
-                self._build_edit_row(cmd.name, cmd.command)
+                self._list_layout.addWidget(self._build_edit_row(cmd.name, cmd.command))
             else:
-                self._build_view_row(cmd.name, cmd.command)
+                self._list_layout.addWidget(self._build_view_row(cmd.name, cmd.command))
 
+        self._list_layout.addStretch(1)
         self._apply_lock_state()
 
-    def _build_view_row(self, name: str, command: str) -> None:
-        row = ctk.CTkFrame(self._list_frame, fg_color="transparent")
-        row.pack(fill="x", pady=(4, 2))
+    def _build_view_row(self, name: str, command: str) -> QWidget:
+        row = QWidget()
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(0, 4, 0, 4)
 
-        text_col = ctk.CTkFrame(row, fg_color="transparent")
-        text_col.pack(fill="x", pady=(0, 2))
-        ctk.CTkLabel(text_col, text=name, anchor="w",
-                     font=ctk.CTkFont(weight="bold")).pack(anchor="w")
-        ctk.CTkLabel(text_col, text=command, anchor="w",
-                     text_color="gray", font=ctk.CTkFont(size=11)).pack(anchor="w")
+        name_label = QLabel(name)
+        name_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(name_label)
+        cmd_label = QLabel(command)
+        cmd_label.setStyleSheet("color: gray; font-size: 11px;")
+        cmd_label.setWordWrap(True)
+        layout.addWidget(cmd_label)
 
-        btn_row = ctk.CTkFrame(row, fg_color="transparent")
-        btn_row.pack(fill="x")
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        del_btn = QPushButton("Delete")
+        del_btn.setStyleSheet("background-color: #b04545; color: white;")
+        del_btn.clicked.connect(lambda _c=False, n=name: self._delete(n))
+        btn_row.addWidget(del_btn)
+        copy_btn = QPushButton("⎘")
+        copy_btn.setFixedWidth(36)
+        copy_btn.clicked.connect(lambda _c=False, cmd=command: self._copy_command(cmd))
+        btn_row.addWidget(copy_btn)
+        edit_btn = QPushButton("Edit")
+        edit_btn.clicked.connect(lambda _c=False, n=name: self._start_edit(n))
+        btn_row.addWidget(edit_btn)
+        layout.addLayout(btn_row)
 
-        edit_btn = ctk.CTkButton(
-            btn_row, text="Edit", width=70,
-            fg_color=("gray75", "gray30"), text_color=("black", "white"),
-            hover_color=("gray65", "gray40"),
-            command=lambda n=name: self._start_edit(n),
+        self._action_buttons.extend([del_btn, copy_btn, edit_btn])
+        return row
+
+    def _build_edit_row(self, name: str, command: str) -> QWidget:
+        row = QFrame()
+        row.setFrameShape(QFrame.StyledPanel)
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(10, 8, 10, 8)
+
+        layout.addWidget(QLabel("Name"))
+        name_entry = QLineEdit(name)
+        layout.addWidget(name_entry)
+
+        layout.addWidget(QLabel("Command"))
+        cmd_text = QPlainTextEdit(command)
+        cmd_text.setMinimumHeight(80)
+        layout.addWidget(cmd_text)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self._cancel_edit)
+        btn_row.addWidget(cancel_btn)
+        save_btn = QPushButton("Save")
+        save_btn.clicked.connect(
+            lambda _c=False: self._save_edit(
+                name, name_entry.text(), cmd_text.toPlainText(),
+            )
         )
-        edit_btn.pack(side="right", padx=(4, 0))
+        btn_row.addWidget(save_btn)
+        layout.addLayout(btn_row)
 
-        copy_btn = ctk.CTkButton(
-            btn_row, text="⎘", width=36,
-            fg_color=("gray75", "gray30"), text_color=("black", "white"),
-            hover_color=("gray65", "gray40"),
-            command=lambda c=command: self._copy_command(c),
-        )
-        copy_btn.pack(side="right", padx=(4, 0))
-
-        del_btn = ctk.CTkButton(
-            btn_row, text="Delete", width=70,
-            fg_color="#b04545", hover_color="#8a3535",
-            command=lambda n=name: self._delete(n),
-        )
-        del_btn.pack(side="right")
-
-        self._all_action_buttons.extend([edit_btn, copy_btn, del_btn])
-
-    def _build_edit_row(self, name: str, command: str) -> None:
-        row = ctk.CTkFrame(self._list_frame, border_width=1,
-                           border_color=("gray60", "gray50"), corner_radius=6)
-        row.pack(fill="x", pady=(4, 2))
-
-        ctk.CTkLabel(row, text="Name", anchor="w",
-                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=10, pady=(8, 0))
-        name_entry = ctk.CTkEntry(row)
-        name_entry.insert(0, name)
-        name_entry.pack(fill="x", padx=10, pady=(2, 6))
-
-        ctk.CTkLabel(row, text="Command", anchor="w",
-                     font=ctk.CTkFont(size=11)).pack(anchor="w", padx=10)
-        cmd_text = ctk.CTkTextbox(row, height=80)
-        cmd_text.insert("1.0", command)
-        cmd_text.pack(fill="x", padx=10, pady=(2, 8))
-
-        def _get_cmd() -> str:
-            return cmd_text.get("1.0", "end").strip()
-
-        btn_row = ctk.CTkFrame(row, fg_color="transparent")
-        btn_row.pack(fill="x", padx=10, pady=(0, 10))
-
-        cancel_btn = ctk.CTkButton(
-            btn_row, text="Cancel", width=80,
-            fg_color="transparent", border_width=1,
-            command=self._cancel_edit,
-        )
-        cancel_btn.pack(side="right", padx=(4, 0))
-
-        save_btn = ctk.CTkButton(
-            btn_row, text="Save", width=80,
-            command=lambda: self._save_edit(name, name_entry.get(), _get_cmd()),
-        )
-        save_btn.pack(side="right")
-
-        name_entry.bind("<Return>", lambda e: self._save_edit(name, name_entry.get(), _get_cmd()))
-        name_entry.bind("<Escape>", lambda e: self._cancel_edit())
-        cmd_text.bind("<Escape>", lambda e: self._cancel_edit())
-
-        name_entry.focus_set()
+        name_entry.setFocus()
+        return row
 
     def _apply_lock_state(self) -> None:
         editing = self._editing_name is not None
-        state = "disabled" if editing else "normal"
-        for btn in self._all_action_buttons:
-            btn.configure(state=state)
+        for btn in self._action_buttons:
+            btn.setEnabled(not editing)
         if self._done_btn:
-            self._done_btn.configure(state=state)
+            self._done_btn.setEnabled(not editing)
 
     def _start_edit(self, name: str) -> None:
         self._editing_name = name
@@ -213,22 +221,22 @@ class ManageCommandsDialog(ctk.CTkToplevel):
         self._editing_name = None
         self._refresh_list()
 
-    def _copy_command(self, command: str) -> None:
-        self.clipboard_clear()
-        self.clipboard_append(command)
-
     def _delete(self, name: str) -> None:
         self._vm.delete_command(self._current_repo_path(), name)
         self._refresh_list()
 
-    def _open_add_command_dialog(self) -> None:
-        from worktree_manager.ui.add_command_dialog import AddCommandDialog
-        def _on_saved():
-            self._refresh_list()
-        AddCommandDialog(self, vm=self._vm, initial_repo=self._current_repo_path(),
-                         on_saved=_on_saved)
+    def _copy_command(self, command: str) -> None:
+        QApplication.clipboard().setText(command)
 
-    def _on_close(self) -> None:
+    def _open_add_command_dialog(self) -> None:
+        dlg = AddCommandDialog(
+            parent=self, vm=self._vm,
+            initial_repo=self._current_repo_path(),
+            on_saved=self._refresh_list,
+        )
+        dlg.exec()
+
+    def _on_done(self) -> None:
         if self._editing_name is not None:
             return
-        self.destroy()
+        self.accept()

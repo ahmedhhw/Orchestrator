@@ -7,9 +7,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from worktree_manager.command_center_vm import CommandCenterViewModel
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
 from worktree_manager.setup_settings_vm import RepoSetupViewModel, SettingsViewModel
+from worktree_manager.ui.command_center_panel import CommandCenterPanel
 from worktree_manager.ui.create_dialog import CreateDialog
 from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
 from worktree_manager.ui.settings_panel import SettingsDialog
@@ -42,6 +44,7 @@ class App(QMainWindow):
         self._git = GitService()
         self._active_repo_path = None
         self._current_panel = None
+        self._command_center_vm: CommandCenterViewModel | None = None
 
         central = QWidget()
         self._central_layout = QHBoxLayout(central)
@@ -189,7 +192,18 @@ class App(QMainWindow):
         dlg.exec()
 
     def _show_command_center(self):
-        QMessageBox.information(self, "Command Center", "Ships in Iteration 2.")
+        if self._command_center_vm is None:
+            self._command_center_vm = CommandCenterViewModel(
+                config_store=self._store, git_service=self._git,
+            )
+        self._set_panel(CommandCenterPanel(
+            parent=self,
+            vm=self._command_center_vm,
+            on_close=self._on_command_center_close,
+        ))
+
+    def _on_command_center_close(self):
+        self._show_empty_main()
 
     def _show_workspace_projects(self):
         QMessageBox.information(self, "Workspace Projects", "Ships in Iteration 3.")

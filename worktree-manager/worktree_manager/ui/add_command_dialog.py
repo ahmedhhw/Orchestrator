@@ -1,82 +1,80 @@
 from pathlib import Path
-import customtkinter as ctk
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QPushButton, QVBoxLayout,
+)
 
 
-class AddCommandDialog(ctk.CTkToplevel):
-    def __init__(self, master, vm, initial_repo: str | None = None, on_saved=None):
-        super().__init__(master)
-        self.title("Add Saved Command")
-        self.resizable(False, False)
+class AddCommandDialog(QDialog):
+    def __init__(self, parent, vm, initial_repo: str | None = None, on_saved=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Saved Command")
+        self.setModal(True)
         self._vm = vm
         self._on_saved = on_saved
         self._build(initial_repo)
-        self.grab_set()
 
-    def _build(self, initial_repo: str | None):
-        ctk.CTkLabel(self, text="Add Saved Command",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(16, 8), padx=24, anchor="w")
+    def _build(self, initial_repo):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 16, 24, 16)
+        outer.setSpacing(8)
 
-        repos = self._vm.all_repos()
-        repo_paths = list(repos.keys())
+        title = QLabel("Add Saved Command")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        outer.addWidget(title)
+
+        repo_paths = list(self._vm.all_repos().keys())
         self._repo_map = {Path(p).name: p for p in repo_paths}
-        display_names = [Path(p).name for p in repo_paths]
+        display_names = list(self._repo_map.keys())
 
-        # Determine initial selection: explicit arg → last used → first available
         last_used = initial_repo or (
-            self._vm.get_last_used_repo() if hasattr(self._vm, "get_last_used_repo") else None
+            self._vm.get_last_used_repo()
+            if hasattr(self._vm, "get_last_used_repo") else None
         )
-        default_name = ""
         if last_used and last_used in repo_paths:
             default_name = Path(last_used).name
         elif display_names:
             default_name = display_names[0]
+        else:
+            default_name = ""
 
-        row1 = ctk.CTkFrame(self)
-        row1.pack(fill="x", padx=24, pady=4)
-        ctk.CTkLabel(row1, text="Repo:", width=70, anchor="w").pack(side="left")
-        self._repo_var = ctk.StringVar(value=default_name)
-        ctk.CTkOptionMenu(row1, variable=self._repo_var, values=display_names, width=200,
-                          fg_color=("gray85", "gray25"), button_color=("gray70", "gray35"),
-                          button_hover_color=("gray60", "gray45"),
-                          text_color=("gray10", "gray90")).pack(side="left")
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Repo:"))
+        self._repo_combo = QComboBox()
+        self._repo_combo.addItems(display_names)
+        if default_name:
+            self._repo_combo.setCurrentText(default_name)
+        self._repo_combo.setMinimumWidth(220)
+        row1.addWidget(self._repo_combo, 1)
+        outer.addLayout(row1)
 
-        row2 = ctk.CTkFrame(self)
-        row2.pack(fill="x", padx=24, pady=4)
-        ctk.CTkLabel(row2, text="Name:", width=70, anchor="w").pack(side="left")
-        self._name_entry = ctk.CTkEntry(row2, width=200)
-        self._name_entry.pack(side="left")
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Name:"))
+        self._name_entry = QLineEdit()
+        self._name_entry.setMinimumWidth(220)
+        row2.addWidget(self._name_entry, 1)
+        outer.addLayout(row2)
 
-        ctk.CTkLabel(self, text="Command:", anchor="w").pack(fill="x", padx=24, pady=(8, 2))
-        self._cmd_text = ctk.CTkTextbox(self, height=80, width=320)
-        self._cmd_text.pack(padx=24, pady=(0, 8))
+        outer.addWidget(QLabel("Command:"))
+        self._cmd_text = QPlainTextEdit()
+        self._cmd_text.setMinimumHeight(80)
+        outer.addWidget(self._cmd_text)
 
-        btns = ctk.CTkFrame(self)
-        btns.pack(fill="x", padx=24, pady=(4, 16))
-        ctk.CTkButton(btns, text="Cancel", fg_color="transparent",
-                      border_width=1, command=self.trigger_cancel).pack(side="left", padx=4)
-        ctk.CTkButton(btns, text="Save", command=self.trigger_save).pack(side="right", padx=4)
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        save = QPushButton("Save")
+        save.clicked.connect(self._save)
+        btns.addWidget(save)
+        outer.addLayout(btns)
 
-    # --- public API for tests ---
-
-    def repo_choices(self) -> list[str]:
-        return list(self._repo_map.values())
-
-    def set_repo(self, repo_path: str) -> None:
-        name = Path(repo_path).name
-        self._repo_var.set(name)
-
-    def set_name(self, name: str) -> None:
-        self._name_entry.delete(0, "end")
-        self._name_entry.insert(0, name)
-
-    def set_command(self, cmd: str) -> None:
-        self._cmd_text.delete("1.0", "end")
-        self._cmd_text.insert("1.0", cmd)
-
-    def trigger_save(self) -> None:
-        name = self._name_entry.get().strip()
-        cmd = self._cmd_text.get("1.0", "end").strip()
-        repo_name = self._repo_var.get()
+    def _save(self) -> None:
+        name = self._name_entry.text().strip()
+        cmd = self._cmd_text.toPlainText().strip()
+        repo_name = self._repo_combo.currentText()
         repo_path = self._repo_map.get(repo_name, "")
         if not name or not cmd or not repo_path:
             return
@@ -85,7 +83,4 @@ class AddCommandDialog(ctk.CTkToplevel):
             self._vm.set_last_used_repo(repo_path)
         if self._on_saved:
             self._on_saved()
-        self.destroy()
-
-    def trigger_cancel(self) -> None:
-        self.destroy()
+        self.accept()

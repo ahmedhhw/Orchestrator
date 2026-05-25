@@ -1,95 +1,124 @@
 from pathlib import Path
-import customtkinter as ctk
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
+)
+
+from worktree_manager.command_runner import RunStatus
 from worktree_manager.models import SavedCommand, WorktreeModel
 
 
-class LaunchDialog(ctk.CTkToplevel):
-    def __init__(self, master, vm):
-        super().__init__(master)
-        self.title("Launch Command")
-        self.resizable(True, True)
+class _TrackableButton(QPushButton):
+    """QPushButton that reports its intended visibility even before the parent is shown."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._shown = True
+
+    def set_shown(self, value: bool) -> None:
+        self._shown = value
+        self.setVisible(value)
+
+    def isVisible(self) -> bool:
+        return self._shown
+
+
+class LaunchDialog(QDialog):
+    def __init__(self, parent, vm):
+        super().__init__(parent)
+        self.setWindowTitle("Launch Command")
+        self.setModal(True)
+        self.resize(440, 460)
         self._vm = vm
         self._commands: list[SavedCommand] = []
         self._worktrees: list[WorktreeModel] = []
         self._selected_cmd: SavedCommand | None = None
-        self._cmd_rows: list[ctk.CTkFrame] = []
+        self._cmd_row_widgets: list[QPushButton] = []
+        self._conflict_run_id: str | None = None
         self._build()
-        self.grab_set()
 
     def _build(self):
-        ctk.CTkLabel(self, text="Launch Command",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(pady=(16, 8), padx=24, anchor="w")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 16, 24, 16)
+        outer.setSpacing(6)
 
-        repos = self._vm.all_repos()
-        self._repo_paths = list(repos.keys())
-        self._repo_map = {Path(p).name: p for p in self._repo_paths}
-        display_names = [Path(p).name for p in self._repo_paths]
+        title = QLabel("Launch Command")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        outer.addWidget(title)
+
+        repo_paths = list(self._vm.all_repos().keys())
+        self._repo_map = {Path(p).name: p for p in repo_paths}
+        display_names = list(self._repo_map.keys())
 
         last_used = (
-            self._vm.get_last_used_repo() if hasattr(self._vm, "get_last_used_repo") else None
+            self._vm.get_last_used_repo()
+            if hasattr(self._vm, "get_last_used_repo") else None
         )
-        if last_used and last_used in self._repo_paths:
+        if last_used and last_used in repo_paths:
             default_name = Path(last_used).name
         elif display_names:
             default_name = display_names[0]
         else:
             default_name = ""
 
-        # Row: Repo
-        row1 = ctk.CTkFrame(self, fg_color="transparent")
-        row1.pack(fill="x", padx=24, pady=(0, 4))
-        ctk.CTkLabel(row1, text="Repo:", width=70, anchor="w").pack(side="left")
-        self._repo_var = ctk.StringVar(value=default_name)
-        ctk.CTkOptionMenu(row1, variable=self._repo_var, values=display_names,
-                          command=self._on_repo_changed, width=200,
-                          fg_color=("gray85", "gray25"), button_color=("gray70", "gray35"),
-                          button_hover_color=("gray60", "gray45"),
-                          text_color=("gray10", "gray90")).pack(side="left")
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Repo:"))
+        self._repo_combo = QComboBox()
+        self._repo_combo.addItems(display_names)
+        if default_name:
+            self._repo_combo.setCurrentText(default_name)
+        self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
+        self._repo_combo.setMinimumWidth(200)
+        row1.addWidget(self._repo_combo, 1)
+        outer.addLayout(row1)
 
-        # Row: Worktree
-        row2 = ctk.CTkFrame(self, fg_color="transparent")
-        row2.pack(fill="x", padx=24, pady=(0, 4))
-        ctk.CTkLabel(row2, text="Worktree:", width=70, anchor="w").pack(side="left")
-        self._wt_var = ctk.StringVar()
-        self._wt_menu = ctk.CTkOptionMenu(row2, variable=self._wt_var, values=[], width=200,
-                                          fg_color=("gray85", "gray25"), button_color=("gray70", "gray35"),
-                                          button_hover_color=("gray60", "gray45"),
-                                          text_color=("gray10", "gray90"))
-        self._wt_menu.pack(side="left")
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Worktree:"))
+        self._wt_combo = QComboBox()
+        self._wt_combo.setMinimumWidth(200)
+        row2.addWidget(self._wt_combo, 1)
+        outer.addLayout(row2)
 
-        # Command list
-        cmd_header = ctk.CTkFrame(self, fg_color="transparent")
-        cmd_header.pack(fill="x", padx=24, pady=(8, 2))
-        ctk.CTkLabel(cmd_header, text="Command:", anchor="w").pack(side="left")
-        self._cmd_filter_var = ctk.StringVar()
-        self._cmd_filter_var.trace_add("write", self._on_filter_changed)
-        ctk.CTkEntry(cmd_header, placeholder_text="Filter…",
-                     textvariable=self._cmd_filter_var, width=160).pack(side="right")
-        self._cmd_list = ctk.CTkScrollableFrame(self, height=160)
-        self._cmd_list.pack(fill="x", padx=24, pady=(0, 8))
+        cmd_row = QHBoxLayout()
+        cmd_row.addWidget(QLabel("Command:"))
+        cmd_row.addStretch(1)
+        self._cmd_filter = QLineEdit()
+        self._cmd_filter.setPlaceholderText("Filter…")
+        self._cmd_filter.setFixedWidth(160)
+        self._cmd_filter.textChanged.connect(self._render_cmd_list)
+        cmd_row.addWidget(self._cmd_filter)
+        outer.addLayout(cmd_row)
 
-        self._empty_cmd_label = ctk.CTkLabel(
-            self._cmd_list, text="No saved commands for this repo.", text_color="gray"
-        )
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setMinimumHeight(160)
+        self._cmd_container = QWidget()
+        self._cmd_layout = QVBoxLayout(self._cmd_container)
+        self._cmd_layout.setContentsMargins(0, 0, 0, 0)
+        self._cmd_layout.setSpacing(1)
+        self._cmd_layout.addStretch(1)
+        self._scroll.setWidget(self._cmd_container)
+        outer.addWidget(self._scroll, 1)
 
-        self._conflict_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._conflict_frame.pack(fill="x", padx=24)
-        self._conflict_label = ctk.CTkLabel(
-            self._conflict_frame, text="", text_color="red", wraplength=260, justify="left", anchor="w"
-        )
-        self._conflict_label.pack(side="left", fill="x", expand=True)
-        self._restart_btn = ctk.CTkButton(
-            self._conflict_frame, text="Restart", width=80,
-            command=self._trigger_conflict_restart,
-        )
+        self._conflict_label = QLabel("")
+        self._conflict_label.setStyleSheet("color: red;")
+        self._conflict_label.setWordWrap(True)
+        outer.addWidget(self._conflict_label)
+        self._restart_btn = _TrackableButton("Restart")
+        self._restart_btn.setFixedWidth(80)
+        self._restart_btn.clicked.connect(self._trigger_conflict_restart)
+        self._restart_btn.set_shown(False)
+        outer.addWidget(self._restart_btn)
 
-        btns = ctk.CTkFrame(self, fg_color="transparent")
-        btns.pack(fill="x", padx=24, pady=(4, 16))
-        ctk.CTkButton(btns, text="Cancel", fg_color="transparent",
-                      border_width=1, command=self.trigger_cancel).pack(side="left", padx=4)
-        ctk.CTkButton(btns, text="Launch", command=self.trigger_launch).pack(side="right", padx=4)
-
-        self._conflict_run_id: str | None = None
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        launch = QPushButton("Launch")
+        launch.clicked.connect(self.trigger_launch)
+        btns.addWidget(launch)
+        outer.addLayout(btns)
 
         if default_name:
             self._on_repo_changed(default_name)
@@ -98,63 +127,65 @@ class LaunchDialog(ctk.CTkToplevel):
         repo_path = self._repo_map.get(repo_name, "")
         self._commands = self._vm.saved_commands(repo_path)
         self._selected_cmd = None
-        self._cmd_filter_var.set("")
-
+        self._cmd_filter.blockSignals(True)
+        self._cmd_filter.setText("")
+        self._cmd_filter.blockSignals(False)
         self._worktrees = self._vm.list_worktrees(repo_path)
         wt_labels = [f"{wt.branch}  ({wt.path})" for wt in self._worktrees]
-        self._wt_menu.configure(values=wt_labels)
-        self._wt_var.set(wt_labels[0] if wt_labels else "")
-
+        self._wt_combo.clear()
+        self._wt_combo.addItems(wt_labels)
         self._render_cmd_list()
 
-    def _on_filter_changed(self, *_) -> None:
-        self._selected_cmd = None
-        self._render_cmd_list()
+    def _visible_cmds(self) -> list[SavedCommand]:
+        term = self._cmd_filter.text().strip().lower()
+        return [
+            c for c in self._commands
+            if not term or term in c.name.lower() or term in c.command.lower()
+        ]
 
     def _render_cmd_list(self) -> None:
-        for row in self._cmd_rows:
-            row.destroy()
-        self._cmd_rows = []
-        self._empty_cmd_label.pack_forget()
+        while self._cmd_layout.count():
+            item = self._cmd_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        self._cmd_row_widgets = []
 
-        term = self._cmd_filter_var.get().strip().lower()
-        visible = [cmd for cmd in self._commands
-                   if not term or term in cmd.name.lower() or term in cmd.command.lower()]
-
+        visible = self._visible_cmds()
         if not visible:
-            self._empty_cmd_label.pack(pady=12)
+            empty = QLabel("No saved commands for this repo.")
+            empty.setStyleSheet("color: gray;")
+            self._cmd_layout.addWidget(empty)
+            self._cmd_layout.addStretch(1)
             return
 
         for cmd in visible:
-            row = ctk.CTkFrame(self._cmd_list, corner_radius=4, cursor="hand2")
-            row.pack(fill="x", pady=1)
-            ctk.CTkLabel(row, text=cmd.name, anchor="w",
-                         font=ctk.CTkFont(weight="bold")).pack(side="left", padx=(10, 4), pady=6)
-            ctk.CTkLabel(row, text=cmd.command, anchor="w",
-                         text_color="gray", font=ctk.CTkFont(size=11)).pack(side="left", padx=(0, 8))
-            row.bind("<Button-1>", lambda e, c=cmd: self._select_cmd(c))
-            for child in row.winfo_children():
-                child.bind("<Button-1>", lambda e, c=cmd: self._select_cmd(c))
-            self._cmd_rows.append(row)
+            row = QPushButton(f"{cmd.name}   —   {cmd.command}")
+            row.setStyleSheet("text-align: left; padding: 6px;")
+            row.clicked.connect(lambda _c=False, c=cmd: self._select_cmd(c))
+            self._cmd_layout.addWidget(row)
+            self._cmd_row_widgets.append(row)
 
-        # auto-select first visible
+        self._cmd_layout.addStretch(1)
         self._select_cmd(visible[0])
 
     def _select_cmd(self, cmd: SavedCommand) -> None:
         self._selected_cmd = cmd
-        for row, visible_cmd in zip(self._cmd_rows, [
-            c for c in self._commands
-            if not self._cmd_filter_var.get().strip()
-            or self._cmd_filter_var.get().strip().lower() in c.name.lower()
-            or self._cmd_filter_var.get().strip().lower() in c.command.lower()
-        ]):
-            row.configure(fg_color=("gray75", "gray30") if visible_cmd is cmd else "transparent")
+        visible = self._visible_cmds()
+        for row, vcmd in zip(self._cmd_row_widgets, visible):
+            if vcmd is cmd:
+                row.setStyleSheet(
+                    "text-align: left; padding: 6px;"
+                    " background-color: #4a90d9; color: white;"
+                )
+            else:
+                row.setStyleSheet("text-align: left; padding: 6px;")
 
     def _current_repo_path(self) -> str:
-        return self._repo_map.get(self._repo_var.get(), "")
+        return self._repo_map.get(self._repo_combo.currentText(), "")
 
     def _current_worktree_path(self) -> str:
-        label = self._wt_var.get()
+        label = self._wt_combo.currentText()
         for wt in self._worktrees:
             if wt.path in label:
                 return wt.path
@@ -175,16 +206,14 @@ class LaunchDialog(ctk.CTkToplevel):
                 return
 
     def set_worktree(self, path: str) -> None:
-        for wt in self._worktrees:
+        for i, wt in enumerate(self._worktrees):
             if wt.path == path:
-                self._wt_var.set(f"{wt.branch}  ({wt.path})")
+                self._wt_combo.setCurrentIndex(i)
                 return
-        self._wt_var.set(path)
 
     def trigger_launch(self) -> None:
         if self._selected_cmd is None:
             return
-        from worktree_manager.command_runner import RunStatus
         cmd_obj = self._selected_cmd
         repo_path = self._current_repo_path()
         worktree_path = self._current_worktree_path()
@@ -192,46 +221,39 @@ class LaunchDialog(ctk.CTkToplevel):
 
         existing = None
         if hasattr(self._vm, "find_existing_run"):
-            existing = self._vm.find_existing_run(cmd_obj.name, repo_path, worktree_path)
+            existing = self._vm.find_existing_run(
+                cmd_obj.name, repo_path, worktree_path,
+            )
 
         if existing is not None:
             if existing.status == RunStatus.RUNNING:
                 self._show_conflict(
                     f'"{cmd_obj.name}" is already running in this worktree.',
-                    show_restart=False,
-                    run_id=None,
+                    show_restart=False, run_id=None,
                 )
             else:
                 self._show_conflict(
                     f'"{cmd_obj.name}" already exists but is stopped. Restart it?',
-                    show_restart=True,
-                    run_id=existing.run_id,
+                    show_restart=True, run_id=existing.run_id,
                 )
             return
 
         self._vm.launch(
-            repo_path=repo_path,
-            repo_name=repo_name,
-            cmd_name=cmd_obj.name,
-            command_str=cmd_obj.command,
+            repo_path=repo_path, repo_name=repo_name,
+            cmd_name=cmd_obj.name, command_str=cmd_obj.command,
             worktree_path=worktree_path,
         )
         if hasattr(self._vm, "set_last_used_repo"):
             self._vm.set_last_used_repo(repo_path)
-        self.destroy()
+        self.accept()
 
-    def _show_conflict(self, message: str, show_restart: bool, run_id: str | None) -> None:
-        self._conflict_label.configure(text=message)
+    def _show_conflict(self, message: str, show_restart: bool,
+                       run_id: str | None) -> None:
+        self._conflict_label.setText(message)
         self._conflict_run_id = run_id
-        if show_restart:
-            self._restart_btn.pack(side="right")
-        else:
-            self._restart_btn.pack_forget()
+        self._restart_btn.set_shown(show_restart)
 
     def _trigger_conflict_restart(self) -> None:
         if self._conflict_run_id and hasattr(self._vm, "restart"):
             self._vm.restart(self._conflict_run_id)
-        self.destroy()
-
-    def trigger_cancel(self) -> None:
-        self.destroy()
+        self.accept()

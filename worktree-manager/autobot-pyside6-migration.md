@@ -2640,6 +2640,2134 @@ Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan
 
 ---
 
+## Iteration 2 — Command Center
+
+### Phase 2.1 — CommandPane Widget (Qt)
+
+**What it covers:** Replace `CommandPane` (CTkFrame) with a Qt `QWidget`. Shows a coloured status dot, a header label `<cmd_name> · <repo_name> : <wt_name>`, header buttons (⤢ popout, ⟳ restart, ■ stop, ⎘ copy, 🔍 find, ✕ remove), an optional find bar with prev/next/close controls, and a `QPlainTextEdit` (read-only) for streaming output. The `_run_id` attribute and the `update_run_id`, `update_callbacks`, `append_line`, `set_status`, `clear_output`, `find`, `find_bar_visible`, `header_text`, `status_dot_color`, `get_output_text`, `trigger_stop`, `trigger_restart`, `trigger_remove`, `trigger_copy`, `trigger_maximize`, `show_find_bar`, `hide_find_bar` methods are preserved so the panel and popout can drive the pane.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_command_pane_qt.py
+from unittest.mock import MagicMock
+
+from PySide6.QtWidgets import QLabel, QPlainTextEdit, QPushButton
+
+from worktree_manager.command_runner import RunHandle, RunStatus
+from worktree_manager.ui.command_pane import CommandPane
+
+
+def _handle(status=RunStatus.RUNNING, run_id="r1"):
+    return RunHandle(
+        run_id=run_id, cmd_name="frontend", repo_path="/r/proj",
+        repo_name="proj", worktree_path="/r/proj-wt/feature-x",
+        command=["echo", "hi"], status=status,
+    )
+
+
+def _pane(qtbot, **overrides):
+    callbacks = dict(
+        handle=_handle(),
+        on_maximize=lambda p: None,
+        on_stop=lambda: None,
+        on_restart=lambda: None,
+        on_remove=lambda: None,
+    )
+    callbacks.update(overrides)
+    p = CommandPane(parent=None, **callbacks)
+    qtbot.addWidget(p)
+    return p
+
+
+def _button_with(pane, label):
+    return next(b for b in pane.findChildren(QPushButton) if b.text() == label)
+
+
+def test_command_pane_header_shows_cmd_repo_wt(qtbot):
+    p = _pane(qtbot)
+    assert "frontend" in p.header_text()
+    assert "proj" in p.header_text()
+    assert "feature-x" in p.header_text()
+
+
+def test_command_pane_initial_status_dot_running(qtbot):
+    p = _pane(qtbot)
+    assert p.status_dot_color() == "green"
+
+
+def test_command_pane_set_status_changes_dot_color(qtbot):
+    p = _pane(qtbot)
+    p.set_status(RunStatus.ERROR)
+    assert p.status_dot_color() == "red"
+    p.set_status(RunStatus.STOPPED)
+    assert p.status_dot_color() == "gray"
+
+
+def test_command_pane_append_line_renders_in_output(qtbot):
+    p = _pane(qtbot)
+    p.append_line("hello world")
+    assert "hello world" in p.get_output_text()
+
+
+def test_command_pane_clear_output_empties_the_textbox(qtbot):
+    p = _pane(qtbot)
+    p.append_line("noise")
+    p.clear_output()
+    assert "noise" not in p.get_output_text()
+
+
+def test_command_pane_stop_button_invokes_callback(qtbot):
+    calls = []
+    p = _pane(qtbot, on_stop=lambda: calls.append("stop"))
+    p.trigger_stop()
+    assert calls == ["stop"]
+
+
+def test_command_pane_restart_button_invokes_callback(qtbot):
+    calls = []
+    p = _pane(qtbot, on_restart=lambda: calls.append("restart"))
+    p.trigger_restart()
+    assert calls == ["restart"]
+
+
+def test_command_pane_remove_button_invokes_callback(qtbot):
+    calls = []
+    p = _pane(qtbot, on_remove=lambda: calls.append("remove"))
+    p.trigger_remove()
+    assert calls == ["remove"]
+
+
+def test_command_pane_maximize_button_invokes_callback_with_self(qtbot):
+    calls = []
+    p = _pane(qtbot, on_maximize=lambda x: calls.append(x))
+    p.trigger_maximize()
+    assert calls == [p]
+
+
+def test_command_pane_show_and_hide_find_bar(qtbot):
+    p = _pane(qtbot)
+    assert p.find_bar_visible() is False
+    p.show_find_bar()
+    assert p.find_bar_visible() is True
+    p.hide_find_bar()
+    assert p.find_bar_visible() is False
+
+
+def test_command_pane_find_counts_matches(qtbot):
+    p = _pane(qtbot)
+    p.append_line("foo bar foo")
+    p.append_line("baz foo")
+    assert p.find("foo") == 3
+    assert p.find("nope") == 0
+    assert p.find("") == 0
+
+
+def test_command_pane_update_run_id_changes_attribute(qtbot):
+    p = _pane(qtbot)
+    p.update_run_id("new-id")
+    assert p._run_id == "new-id"
+
+
+def test_command_pane_update_callbacks_replaces_handlers(qtbot):
+    p = _pane(qtbot)
+    calls = []
+    p.update_callbacks(
+        on_stop=lambda: calls.append("s"),
+        on_restart=lambda: calls.append("r"),
+        on_remove=lambda: calls.append("x"),
+    )
+    p.trigger_stop()
+    p.trigger_restart()
+    p.trigger_remove()
+    assert calls == ["s", "r", "x"]
+
+
+def test_command_pane_popout_button_hidden_when_show_popout_btn_false(qtbot):
+    p = CommandPane(
+        parent=None, handle=_handle(),
+        on_maximize=lambda x: None, on_stop=lambda: None,
+        on_restart=lambda: None, on_remove=lambda: None,
+        show_popout_btn=False,
+    )
+    qtbot.addWidget(p)
+    assert not any(b.text() == "⤢" for b in p.findChildren(QPushButton))
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/command_pane.py`:
+
+```python
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCharFormat, QTextCursor, QColor
+from PySide6.QtWidgets import (
+    QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout,
+    QWidget, QApplication,
+)
+
+from worktree_manager.command_runner import RunHandle, RunStatus
+
+
+_STATUS_COLORS = {
+    RunStatus.RUNNING: "green",
+    RunStatus.STOPPED: "gray",
+    RunStatus.ERROR: "red",
+}
+
+_STATUS_DOTS = {
+    RunStatus.RUNNING: "●",
+    RunStatus.STOPPED: "○",
+    RunStatus.ERROR: "✕",
+}
+
+
+class CommandPane(QWidget):
+    def __init__(self, parent, handle: RunHandle, on_maximize, on_stop,
+                 on_restart, on_remove=None, show_popout_btn=True):
+        super().__init__(parent)
+        self._handle = handle
+        self._run_id = handle.run_id
+        self._on_maximize = on_maximize
+        self._on_stop = on_stop
+        self._on_restart = on_restart
+        self._on_remove = on_remove
+        self._show_popout_btn = show_popout_btn
+        self._status = handle.status
+        self._find_matches: list[int] = []
+        self._find_cursor = 0
+        self._build()
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setSpacing(2)
+
+        header = QHBoxLayout()
+        self._dot = QLabel(_STATUS_DOTS[self._status])
+        self._dot.setStyleSheet(f"color: {_STATUS_COLORS[self._status]};")
+        self._dot.setFixedWidth(16)
+        header.addWidget(self._dot)
+
+        wt_name = self._handle.worktree_path.split("/")[-1]
+        self._label = QLabel(
+            f"{self._handle.cmd_name} · {self._handle.repo_name} : {wt_name}"
+        )
+        header.addWidget(self._label, 1)
+
+        if self._show_popout_btn:
+            header.addWidget(self._mk_btn("⤢", self.trigger_maximize))
+        header.addWidget(self._mk_btn("⟳", self.trigger_restart))
+        header.addWidget(self._mk_btn("■", self.trigger_stop))
+        header.addWidget(self._mk_btn("⎘", self.trigger_copy))
+        header.addWidget(self._mk_btn("🔍", self.show_find_bar))
+        header.addWidget(self._mk_btn("✕", self.trigger_remove))
+        outer.addLayout(header)
+
+        self._find_bar = QWidget()
+        find_layout = QHBoxLayout(self._find_bar)
+        find_layout.setContentsMargins(0, 0, 0, 0)
+        self._find_entry = QLineEdit()
+        self._find_entry.setPlaceholderText("🔍 search...")
+        self._find_entry.textChanged.connect(self._apply_find)
+        self._find_entry.returnPressed.connect(self._find_next)
+        find_layout.addWidget(self._find_entry, 1)
+        self._find_count_label = QLabel("")
+        self._find_count_label.setFixedWidth(80)
+        find_layout.addWidget(self._find_count_label)
+        find_layout.addWidget(self._mk_btn("↑", self._find_prev))
+        find_layout.addWidget(self._mk_btn("↓", self._find_next))
+        find_layout.addWidget(self._mk_btn("×", self.hide_find_bar))
+        self._find_bar.setVisible(False)
+        outer.addWidget(self._find_bar)
+
+        self._textbox = QPlainTextEdit()
+        self._textbox.setReadOnly(True)
+        self._textbox.setMinimumHeight(140)
+        outer.addWidget(self._textbox, 1)
+
+    def _mk_btn(self, label, handler):
+        b = QPushButton(label)
+        b.setFixedWidth(28)
+        b.clicked.connect(lambda _checked=False: handler())
+        return b
+
+    # --- public API ---
+
+    def header_text(self) -> str:
+        return self._label.text()
+
+    def append_line(self, line: str) -> None:
+        self._textbox.appendPlainText(line)
+        sb = self._textbox.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        if self._find_bar.isVisible():
+            self._apply_find()
+
+    def get_output_text(self) -> str:
+        return self._textbox.toPlainText()
+
+    def clear_output(self) -> None:
+        self._textbox.clear()
+
+    def set_status(self, status: RunStatus) -> None:
+        self._status = status
+        self._dot.setText(_STATUS_DOTS[status])
+        self._dot.setStyleSheet(f"color: {_STATUS_COLORS[status]};")
+
+    def status_dot_color(self) -> str:
+        return _STATUS_COLORS[self._status]
+
+    def update_run_id(self, run_id: str) -> None:
+        self._run_id = run_id
+
+    def update_callbacks(self, on_stop, on_restart, on_remove=None) -> None:
+        self._on_stop = on_stop
+        self._on_restart = on_restart
+        if on_remove is not None:
+            self._on_remove = on_remove
+
+    def trigger_remove(self) -> None:
+        if self._on_remove:
+            self._on_remove()
+
+    def trigger_stop(self) -> None:
+        self._on_stop()
+
+    def trigger_restart(self) -> None:
+        self._on_restart()
+
+    def trigger_maximize(self) -> None:
+        self._on_maximize(self)
+
+    def trigger_copy(self) -> None:
+        QApplication.clipboard().setText(self.get_output_text())
+
+    def show_find_bar(self) -> None:
+        self._find_bar.setVisible(True)
+        self._find_entry.setFocus()
+        self._apply_find()
+
+    def hide_find_bar(self) -> None:
+        self._find_bar.setVisible(False)
+        self._textbox.setExtraSelections([])
+        self._find_count_label.setText("")
+
+    def find_bar_visible(self) -> bool:
+        return self._find_bar.isVisible()
+
+    def find(self, query: str) -> int:
+        self._find_matches = []
+        self._textbox.setExtraSelections([])
+        if not query:
+            return 0
+        doc = self._textbox.document()
+        text = doc.toPlainText().lower()
+        q = query.lower()
+        start = 0
+        while True:
+            idx = text.find(q, start)
+            if idx == -1:
+                break
+            self._find_matches.append(idx)
+            start = idx + len(q)
+        # apply highlights
+        selections = []
+        for pos in self._find_matches:
+            cursor = QTextCursor(doc)
+            cursor.setPosition(pos)
+            cursor.setPosition(pos + len(query), QTextCursor.KeepAnchor)
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor("yellow"))
+            fmt.setForeground(QColor("black"))
+            sel = QPlainTextEdit.ExtraSelection()
+            sel.cursor = cursor
+            sel.format = fmt
+            selections.append(sel)
+        self._textbox.setExtraSelections(selections)
+        return len(self._find_matches)
+
+    # --- private ---
+
+    def _apply_find(self) -> None:
+        query = self._find_entry.text() if self._find_bar.isVisible() else ""
+        count = self.find(query)
+        self._find_cursor = 0
+        self._find_count_label.setText(
+            f"{count} match{'es' if count != 1 else ''}" if query else ""
+        )
+
+    def _find_next(self) -> None:
+        if not self._find_matches:
+            return
+        self._find_cursor = (self._find_cursor + 1) % len(self._find_matches)
+        cursor = self._textbox.textCursor()
+        cursor.setPosition(self._find_matches[self._find_cursor])
+        self._textbox.setTextCursor(cursor)
+
+    def _find_prev(self) -> None:
+        if not self._find_matches:
+            return
+        self._find_cursor = (self._find_cursor - 1) % len(self._find_matches)
+        cursor = self._textbox.textCursor()
+        cursor.setPosition(self._find_matches[self._find_cursor])
+        self._textbox.setTextCursor(cursor)
+```
+
+**Done when:** `python3.14 -m pytest tests/test_command_pane_qt.py` is green, and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 2.2 — CommandPopout Dialog (Qt)
+
+**What it covers:** Replace `CommandPopout` (CTkToplevel) with a Qt `QDialog` that hosts a single `CommandPane` (with the popout button hidden) and forwards `append_line`, `set_status`, `clear_output` to it.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_command_popout_qt.py
+from PySide6.QtWidgets import QDialog
+
+from worktree_manager.command_runner import RunHandle, RunStatus
+from worktree_manager.ui.command_pane import CommandPane
+from worktree_manager.ui.command_popout import CommandPopout
+
+
+def _handle():
+    return RunHandle(
+        run_id="r1", cmd_name="frontend", repo_path="/r/proj",
+        repo_name="proj", worktree_path="/r/proj-wt/feature-x",
+        command=["echo", "hi"], status=RunStatus.RUNNING,
+    )
+
+
+def _popout(qtbot, **overrides):
+    callbacks = dict(
+        handle=_handle(),
+        on_stop=lambda: None,
+        on_restart=lambda: None,
+        on_remove=lambda: None,
+    )
+    callbacks.update(overrides)
+    p = CommandPopout(parent=None, **callbacks)
+    qtbot.addWidget(p)
+    return p
+
+
+def test_command_popout_is_qdialog(qtbot):
+    p = _popout(qtbot)
+    assert isinstance(p, QDialog)
+
+
+def test_command_popout_title_contains_cmd_repo_wt(qtbot):
+    p = _popout(qtbot)
+    title = p.windowTitle()
+    assert "frontend" in title
+    assert "proj" in title
+    assert "feature-x" in title
+
+
+def test_command_popout_contains_a_command_pane(qtbot):
+    p = _popout(qtbot)
+    assert p.findChild(CommandPane) is not None
+
+
+def test_command_popout_append_line_routes_to_pane(qtbot):
+    p = _popout(qtbot)
+    p.append_line("hello")
+    assert "hello" in p._pane.get_output_text()
+
+
+def test_command_popout_set_status_routes_to_pane(qtbot):
+    p = _popout(qtbot)
+    p.set_status(RunStatus.ERROR)
+    assert p._pane.status_dot_color() == "red"
+
+
+def test_command_popout_clear_output_routes_to_pane(qtbot):
+    p = _popout(qtbot)
+    p.append_line("noise")
+    p.clear_output()
+    assert "noise" not in p._pane.get_output_text()
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/command_popout.py`:
+
+```python
+from PySide6.QtWidgets import QDialog, QVBoxLayout
+
+from worktree_manager.command_runner import RunHandle, RunStatus
+from worktree_manager.ui.command_pane import CommandPane
+
+
+class CommandPopout(QDialog):
+    def __init__(self, parent, handle: RunHandle, on_stop, on_restart, on_remove):
+        super().__init__(parent)
+        wt_name = handle.worktree_path.split("/")[-1]
+        self.setWindowTitle(
+            f"{handle.cmd_name} · {handle.repo_name} : {wt_name}"
+        )
+        self.resize(900, 600)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        self._pane = CommandPane(
+            parent=self, handle=handle,
+            on_maximize=lambda p: None,
+            on_stop=on_stop, on_restart=on_restart, on_remove=on_remove,
+            show_popout_btn=False,
+        )
+        layout.addWidget(self._pane)
+
+    def append_line(self, line: str) -> None:
+        self._pane.append_line(line)
+
+    def set_status(self, status: RunStatus) -> None:
+        self._pane.set_status(status)
+
+    def clear_output(self) -> None:
+        self._pane.clear_output()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_command_popout_qt.py` is green and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 2.3 — AddCommandDialog (Qt)
+
+**What it covers:** Replace `AddCommandDialog` (CTkToplevel) with a Qt `QDialog`. Repo dropdown defaults to (1) explicit `initial_repo`, (2) `vm.get_last_used_repo()`, (3) first repo. Name `QLineEdit`, command `QPlainTextEdit`, Cancel/Save buttons. Save calls `vm.save_command(repo_path, name, cmd)`, `vm.set_last_used_repo(repo_path)`, fires `on_saved()`, then closes. Save no-ops when name or command is blank.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_add_command_dialog_qt.py
+from unittest.mock import MagicMock
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QLineEdit, QPlainTextEdit, QPushButton,
+)
+
+from worktree_manager.ui.add_command_dialog import AddCommandDialog
+
+
+def _vm(repos=None, last_used=None):
+    vm = MagicMock()
+    vm.all_repos.return_value = repos or {
+        "/repos/proj": MagicMock(), "/repos/api": MagicMock(),
+    }
+    vm.get_last_used_repo.return_value = last_used
+    return vm
+
+
+def _dlg(qtbot, vm=None, initial_repo=None, on_saved=None):
+    d = AddCommandDialog(
+        parent=None, vm=vm or _vm(),
+        initial_repo=initial_repo, on_saved=on_saved,
+    )
+    qtbot.addWidget(d)
+    return d
+
+
+def test_add_command_dialog_is_qdialog(qtbot):
+    assert isinstance(_dlg(qtbot), QDialog)
+
+
+def test_add_command_dialog_defaults_repo_to_initial_repo(qtbot):
+    d = _dlg(qtbot, initial_repo="/repos/api")
+    combo = d.findChild(QComboBox)
+    assert combo.currentText() == "api"
+
+
+def test_add_command_dialog_defaults_repo_to_last_used_when_no_initial(qtbot):
+    vm = _vm(last_used="/repos/api")
+    d = _dlg(qtbot, vm=vm)
+    combo = d.findChild(QComboBox)
+    assert combo.currentText() == "api"
+
+
+def test_add_command_dialog_defaults_repo_to_first_when_no_pref(qtbot):
+    d = _dlg(qtbot)
+    combo = d.findChild(QComboBox)
+    assert combo.currentText() in ("proj", "api")
+
+
+def test_add_command_dialog_cancel_does_not_save(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    cancel.click()
+    vm.save_command.assert_not_called()
+
+
+def test_add_command_dialog_save_calls_vm_with_values(qtbot):
+    vm = _vm()
+    saved = []
+    d = _dlg(qtbot, vm=vm, initial_repo="/repos/api",
+             on_saved=lambda: saved.append("ok"))
+    d.findChild(QLineEdit).setText("build")
+    d.findChild(QPlainTextEdit).setPlainText("make build")
+    save = next(b for b in d.findChildren(QPushButton) if b.text() == "Save")
+    save.click()
+    vm.save_command.assert_called_once_with("/repos/api", "build", "make build")
+    vm.set_last_used_repo.assert_called_once_with("/repos/api")
+    assert saved == ["ok"]
+
+
+def test_add_command_dialog_save_with_blank_name_does_nothing(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm, initial_repo="/repos/api")
+    d.findChild(QPlainTextEdit).setPlainText("make build")
+    save = next(b for b in d.findChildren(QPushButton) if b.text() == "Save")
+    save.click()
+    vm.save_command.assert_not_called()
+
+
+def test_add_command_dialog_save_with_blank_command_does_nothing(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm, initial_repo="/repos/api")
+    d.findChild(QLineEdit).setText("build")
+    save = next(b for b in d.findChildren(QPushButton) if b.text() == "Save")
+    save.click()
+    vm.save_command.assert_not_called()
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/add_command_dialog.py`:
+
+```python
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QPushButton, QVBoxLayout,
+)
+
+
+class AddCommandDialog(QDialog):
+    def __init__(self, parent, vm, initial_repo: str | None = None, on_saved=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Saved Command")
+        self.setModal(True)
+        self._vm = vm
+        self._on_saved = on_saved
+        self._build(initial_repo)
+
+    def _build(self, initial_repo):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 16, 24, 16)
+        outer.setSpacing(8)
+
+        title = QLabel("Add Saved Command")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        outer.addWidget(title)
+
+        repo_paths = list(self._vm.all_repos().keys())
+        self._repo_map = {Path(p).name: p for p in repo_paths}
+        display_names = list(self._repo_map.keys())
+
+        last_used = initial_repo or (
+            self._vm.get_last_used_repo()
+            if hasattr(self._vm, "get_last_used_repo") else None
+        )
+        if last_used and last_used in repo_paths:
+            default_name = Path(last_used).name
+        elif display_names:
+            default_name = display_names[0]
+        else:
+            default_name = ""
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Repo:"))
+        self._repo_combo = QComboBox()
+        self._repo_combo.addItems(display_names)
+        if default_name:
+            self._repo_combo.setCurrentText(default_name)
+        self._repo_combo.setMinimumWidth(220)
+        row1.addWidget(self._repo_combo, 1)
+        outer.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Name:"))
+        self._name_entry = QLineEdit()
+        self._name_entry.setMinimumWidth(220)
+        row2.addWidget(self._name_entry, 1)
+        outer.addLayout(row2)
+
+        outer.addWidget(QLabel("Command:"))
+        self._cmd_text = QPlainTextEdit()
+        self._cmd_text.setMinimumHeight(80)
+        outer.addWidget(self._cmd_text)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        save = QPushButton("Save")
+        save.clicked.connect(self._save)
+        btns.addWidget(save)
+        outer.addLayout(btns)
+
+    def _save(self) -> None:
+        name = self._name_entry.text().strip()
+        cmd = self._cmd_text.toPlainText().strip()
+        repo_name = self._repo_combo.currentText()
+        repo_path = self._repo_map.get(repo_name, "")
+        if not name or not cmd or not repo_path:
+            return
+        self._vm.save_command(repo_path, name, cmd)
+        if hasattr(self._vm, "set_last_used_repo"):
+            self._vm.set_last_used_repo(repo_path)
+        if self._on_saved:
+            self._on_saved()
+        self.accept()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_add_command_dialog_qt.py` is green and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 2.4 — ManageCommandsDialog (Qt)
+
+**What it covers:** Replace `ManageCommandsDialog` (CTkToplevel) with a Qt `QDialog`. Repo dropdown + scrollable list of saved commands. Each row in view mode shows name/command/Edit/Delete/Copy buttons. Clicking Edit swaps that row to an edit form (name `QLineEdit` + command `QPlainTextEdit` + Save/Cancel). While editing, the Done button and all other rows' action buttons are disabled. + Add Command button opens `AddCommandDialog`. Delete calls `vm.delete_command(...)`. Save writes (deleting the old name first if it was renamed).
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_manage_commands_dialog_qt.py
+from unittest.mock import MagicMock, patch
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QLineEdit, QPlainTextEdit, QPushButton,
+)
+
+from worktree_manager.models import SavedCommand
+from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
+
+
+def _vm(commands=None, repos=None, last_used="/repos/proj"):
+    vm = MagicMock()
+    vm.all_repos.return_value = repos or {"/repos/proj": MagicMock()}
+    vm.get_last_used_repo.return_value = last_used
+    vm.saved_commands.return_value = commands or [
+        SavedCommand(name="build", command="make build"),
+        SavedCommand(name="test", command="pytest"),
+    ]
+    return vm
+
+
+def _dlg(qtbot, vm=None):
+    d = ManageCommandsDialog(parent=None, vm=vm or _vm())
+    qtbot.addWidget(d)
+    return d
+
+
+def _buttons(d):
+    return [b.text() for b in d.findChildren(QPushButton)]
+
+
+def test_manage_commands_dialog_is_qdialog(qtbot):
+    assert isinstance(_dlg(qtbot), QDialog)
+
+
+def test_manage_commands_dialog_lists_saved_commands(qtbot):
+    d = _dlg(qtbot)
+    labels = [w.text() for w in d.findChildren(QPushButton)]
+    # commands shown as buttons or labels; either way names must appear somewhere
+    from PySide6.QtWidgets import QLabel
+    all_text = " ".join(l.text() for l in d.findChildren(QLabel))
+    assert "build" in all_text
+    assert "test" in all_text
+
+
+def test_manage_commands_dialog_has_add_command_button(qtbot):
+    d = _dlg(qtbot)
+    assert any("Add Command" in t for t in _buttons(d))
+
+
+def test_manage_commands_dialog_has_done_button(qtbot):
+    d = _dlg(qtbot)
+    assert "Done" in _buttons(d)
+
+
+def test_manage_commands_dialog_delete_calls_vm(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d._delete("build")
+    vm.delete_command.assert_called_once_with("/repos/proj", "build")
+
+
+def test_manage_commands_dialog_start_edit_swaps_row(qtbot):
+    d = _dlg(qtbot)
+    d._start_edit("build")
+    assert d._editing_name == "build"
+    # edit form widgets present
+    assert d.findChild(QLineEdit) is not None
+    assert d.findChild(QPlainTextEdit) is not None
+
+
+def test_manage_commands_dialog_save_edit_same_name(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d._save_edit("build", "build", "make build -j")
+    vm.save_command.assert_called_once_with("/repos/proj", "build", "make build -j")
+    vm.delete_command.assert_not_called()
+
+
+def test_manage_commands_dialog_save_edit_rename_deletes_old_first(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d._save_edit("build", "compile", "make build -j")
+    vm.delete_command.assert_called_once_with("/repos/proj", "build")
+    vm.save_command.assert_called_once_with("/repos/proj", "compile", "make build -j")
+
+
+def test_manage_commands_dialog_save_edit_blank_name_is_noop(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d._save_edit("build", "  ", "make build")
+    vm.save_command.assert_not_called()
+
+
+def test_manage_commands_dialog_cancel_edit_clears_editing_state(qtbot):
+    d = _dlg(qtbot)
+    d._start_edit("build")
+    d._cancel_edit()
+    assert d._editing_name is None
+
+
+def test_manage_commands_dialog_repo_change_refreshes(qtbot):
+    vm = _vm(repos={"/repos/proj": MagicMock(), "/repos/api": MagicMock()})
+    d = _dlg(qtbot, vm=vm)
+    combo = d.findChild(QComboBox)
+    combo.setCurrentText("api")
+    # after change, set_last_used_repo called and saved_commands called again for new repo
+    vm.set_last_used_repo.assert_called_with("/repos/api")
+
+
+def test_manage_commands_dialog_add_command_opens_add_dialog(qtbot):
+    d = _dlg(qtbot)
+    with patch(
+        "worktree_manager.ui.manage_commands_dialog.AddCommandDialog"
+    ) as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        d._open_add_command_dialog()
+    MockDlg.assert_called_once()
+    instance.exec.assert_called_once()
+
+
+def test_manage_commands_dialog_empty_repo_shows_empty_label(qtbot):
+    vm = _vm(commands=[])
+    d = _dlg(qtbot, vm=vm)
+    from PySide6.QtWidgets import QLabel
+    all_text = " ".join(l.text() for l in d.findChildren(QLabel))
+    assert "No commands saved" in all_text
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/manage_commands_dialog.py`:
+
+```python
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+)
+
+
+class ManageCommandsDialog(QDialog):
+    def __init__(self, parent, vm):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Commands")
+        self.setModal(True)
+        self.resize(520, 480)
+        self._vm = vm
+        self._editing_name: str | None = None
+        self._action_buttons: list[QPushButton] = []
+        self._done_btn: QPushButton | None = None
+        self._build()
+
+    def _build(self):
+        repo_paths = list(self._vm.all_repos().keys())
+        self._repo_map = {Path(p).name: p for p in repo_paths}
+        display_names = list(self._repo_map.keys())
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 20, 24, 16)
+        outer.setSpacing(8)
+
+        top = QHBoxLayout()
+        title = QLabel("Manage Commands")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        top.addWidget(title)
+        top.addStretch(1)
+        add_btn = QPushButton("+ Add Command")
+        add_btn.clicked.connect(self._open_add_command_dialog)
+        top.addWidget(add_btn)
+        outer.addLayout(top)
+
+        repo_row = QHBoxLayout()
+        repo_row.addWidget(QLabel("Repository:"))
+        last_used = (
+            self._vm.get_last_used_repo()
+            if hasattr(self._vm, "get_last_used_repo") else None
+        )
+        if last_used and last_used in repo_paths:
+            default_name = Path(last_used).name
+        elif display_names:
+            default_name = display_names[0]
+        else:
+            default_name = ""
+        self._repo_combo = QComboBox()
+        self._repo_combo.addItems(display_names)
+        if default_name:
+            self._repo_combo.setCurrentText(default_name)
+        self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
+        repo_row.addWidget(self._repo_combo, 1)
+        outer.addLayout(repo_row)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._list_container = QWidget()
+        self._list_layout = QVBoxLayout(self._list_container)
+        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setSpacing(0)
+        self._list_layout.addStretch(1)
+        self._scroll.setWidget(self._list_container)
+        outer.addWidget(self._scroll, 1)
+
+        footer = QHBoxLayout()
+        self._count_label = QLabel("")
+        self._count_label.setStyleSheet("color: gray;")
+        footer.addWidget(self._count_label)
+        footer.addStretch(1)
+        self._done_btn = QPushButton("Done")
+        self._done_btn.clicked.connect(self._on_done)
+        footer.addWidget(self._done_btn)
+        outer.addLayout(footer)
+
+        if display_names:
+            self._refresh_list()
+
+    def _current_repo_path(self) -> str:
+        return self._repo_map.get(self._repo_combo.currentText(), "")
+
+    def _on_repo_changed(self, _: str) -> None:
+        self._editing_name = None
+        if hasattr(self._vm, "set_last_used_repo"):
+            self._vm.set_last_used_repo(self._current_repo_path())
+        self._refresh_list()
+
+    def _refresh_list(self) -> None:
+        while self._list_layout.count():
+            item = self._list_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._action_buttons = []
+
+        repo_path = self._current_repo_path()
+        commands = self._vm.saved_commands(repo_path)
+        n = len(commands)
+        self._count_label.setText(
+            f"{n} command{'s' if n != 1 else ''} saved for this repo"
+        )
+
+        if not commands:
+            empty = QLabel(
+                'No commands saved for this repo yet.\n'
+                'Use "+ Add Command" in the toolbar to create one.'
+            )
+            empty.setStyleSheet("color: gray;")
+            self._list_layout.addWidget(empty)
+            self._list_layout.addStretch(1)
+            self._apply_lock_state()
+            return
+
+        for i, cmd in enumerate(commands):
+            if i > 0:
+                sep = QFrame()
+                sep.setFrameShape(QFrame.HLine)
+                sep.setStyleSheet("color: gray;")
+                self._list_layout.addWidget(sep)
+            if cmd.name == self._editing_name:
+                self._list_layout.addWidget(self._build_edit_row(cmd.name, cmd.command))
+            else:
+                self._list_layout.addWidget(self._build_view_row(cmd.name, cmd.command))
+
+        self._list_layout.addStretch(1)
+        self._apply_lock_state()
+
+    def _build_view_row(self, name: str, command: str) -> QWidget:
+        row = QWidget()
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(0, 4, 0, 4)
+
+        name_label = QLabel(name)
+        name_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(name_label)
+        cmd_label = QLabel(command)
+        cmd_label.setStyleSheet("color: gray; font-size: 11px;")
+        cmd_label.setWordWrap(True)
+        layout.addWidget(cmd_label)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        del_btn = QPushButton("Delete")
+        del_btn.setStyleSheet("background-color: #b04545; color: white;")
+        del_btn.clicked.connect(lambda _c=False, n=name: self._delete(n))
+        btn_row.addWidget(del_btn)
+        copy_btn = QPushButton("⎘")
+        copy_btn.setFixedWidth(36)
+        copy_btn.clicked.connect(lambda _c=False, cmd=command: self._copy_command(cmd))
+        btn_row.addWidget(copy_btn)
+        edit_btn = QPushButton("Edit")
+        edit_btn.clicked.connect(lambda _c=False, n=name: self._start_edit(n))
+        btn_row.addWidget(edit_btn)
+        layout.addLayout(btn_row)
+
+        self._action_buttons.extend([del_btn, copy_btn, edit_btn])
+        return row
+
+    def _build_edit_row(self, name: str, command: str) -> QWidget:
+        row = QFrame()
+        row.setFrameShape(QFrame.StyledPanel)
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(10, 8, 10, 8)
+
+        layout.addWidget(QLabel("Name"))
+        name_entry = QLineEdit(name)
+        layout.addWidget(name_entry)
+
+        layout.addWidget(QLabel("Command"))
+        cmd_text = QPlainTextEdit(command)
+        cmd_text.setMinimumHeight(80)
+        layout.addWidget(cmd_text)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch(1)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self._cancel_edit)
+        btn_row.addWidget(cancel_btn)
+        save_btn = QPushButton("Save")
+        save_btn.clicked.connect(
+            lambda _c=False: self._save_edit(
+                name, name_entry.text(), cmd_text.toPlainText(),
+            )
+        )
+        btn_row.addWidget(save_btn)
+        layout.addLayout(btn_row)
+
+        name_entry.setFocus()
+        return row
+
+    def _apply_lock_state(self) -> None:
+        editing = self._editing_name is not None
+        for btn in self._action_buttons:
+            btn.setEnabled(not editing)
+        if self._done_btn:
+            self._done_btn.setEnabled(not editing)
+
+    def _start_edit(self, name: str) -> None:
+        self._editing_name = name
+        self._refresh_list()
+
+    def _cancel_edit(self) -> None:
+        self._editing_name = None
+        self._refresh_list()
+
+    def _save_edit(self, old_name: str, new_name: str, new_command: str) -> None:
+        new_name = new_name.strip()
+        new_command = new_command.strip()
+        if not new_name or not new_command:
+            return
+        repo_path = self._current_repo_path()
+        if old_name != new_name:
+            self._vm.delete_command(repo_path, old_name)
+        self._vm.save_command(repo_path, new_name, new_command)
+        self._editing_name = None
+        self._refresh_list()
+
+    def _delete(self, name: str) -> None:
+        self._vm.delete_command(self._current_repo_path(), name)
+        self._refresh_list()
+
+    def _copy_command(self, command: str) -> None:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(command)
+
+    def _open_add_command_dialog(self) -> None:
+        from worktree_manager.ui.add_command_dialog import AddCommandDialog
+        dlg = AddCommandDialog(
+            parent=self, vm=self._vm,
+            initial_repo=self._current_repo_path(),
+            on_saved=self._refresh_list,
+        )
+        dlg.exec()
+
+    def _on_done(self) -> None:
+        if self._editing_name is not None:
+            return
+        self.accept()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_manage_commands_dialog_qt.py` is green and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 2.5 — LaunchDialog (Qt)
+
+**What it covers:** Replace `LaunchDialog` (CTkToplevel) with a Qt `QDialog`. Repo dropdown, worktree dropdown, filterable scrollable list of saved commands (clicking selects), Launch + Cancel buttons. Launch invokes `vm.find_existing_run(...)`; if a RUNNING handle exists, show a red "already running" message and no Restart button; if a STOPPED handle exists, show the same message with a Restart button that calls `vm.restart(run_id)`. Otherwise calls `vm.launch(...)` and `vm.set_last_used_repo(...)` and closes.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_launch_dialog_qt.py
+from unittest.mock import MagicMock
+
+from PySide6.QtWidgets import QComboBox, QDialog, QPushButton
+
+from worktree_manager.command_runner import RunHandle, RunStatus
+from worktree_manager.models import SavedCommand, WorktreeModel
+from worktree_manager.ui.launch_dialog import LaunchDialog
+
+
+def _wt(branch="main", path="/r/proj"):
+    import time
+    return WorktreeModel(
+        path=path, branch=branch, is_main=True,
+        last_commit_ts=int(time.time()), is_merged=False, is_stale=False,
+    )
+
+
+def _vm(repos=None, last_used="/repos/proj", saved=None, worktrees=None,
+        existing=None):
+    vm = MagicMock()
+    vm.all_repos.return_value = repos or {"/repos/proj": MagicMock()}
+    vm.get_last_used_repo.return_value = last_used
+    vm.saved_commands.return_value = saved or [
+        SavedCommand(name="build", command="make"),
+        SavedCommand(name="test", command="pytest"),
+    ]
+    vm.list_worktrees.return_value = worktrees or [_wt()]
+    vm.find_existing_run.return_value = existing
+    return vm
+
+
+def _dlg(qtbot, vm=None):
+    d = LaunchDialog(parent=None, vm=vm or _vm())
+    qtbot.addWidget(d)
+    return d
+
+
+def test_launch_dialog_is_qdialog(qtbot):
+    assert isinstance(_dlg(qtbot), QDialog)
+
+
+def test_launch_dialog_has_launch_and_cancel(qtbot):
+    d = _dlg(qtbot)
+    texts = [b.text() for b in d.findChildren(QPushButton)]
+    assert "Launch" in texts
+    assert "Cancel" in texts
+
+
+def test_launch_dialog_defaults_repo_to_last_used(qtbot):
+    vm = _vm(repos={"/repos/proj": MagicMock(), "/repos/api": MagicMock()},
+             last_used="/repos/api")
+    d = _dlg(qtbot, vm=vm)
+    assert d._current_repo_path() == "/repos/api"
+
+
+def test_launch_dialog_lists_commands_for_selected_repo(qtbot):
+    d = _dlg(qtbot)
+    assert d.command_choices() == ["build", "test"]
+
+
+def test_launch_dialog_lists_worktrees_for_selected_repo(qtbot):
+    d = _dlg(qtbot)
+    assert any("main" in w for w in d.worktree_choices())
+
+
+def test_launch_dialog_launch_with_no_selected_command_is_noop(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d._selected_cmd = None
+    d.trigger_launch()
+    vm.launch.assert_not_called()
+
+
+def test_launch_dialog_launch_calls_vm_with_correct_args(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_command("build")
+    d.trigger_launch()
+    vm.launch.assert_called_once()
+    kwargs = vm.launch.call_args.kwargs
+    assert kwargs["cmd_name"] == "build"
+    assert kwargs["command_str"] == "make"
+    assert kwargs["repo_path"] == "/repos/proj"
+    assert kwargs["repo_name"] == "proj"
+    vm.set_last_used_repo.assert_called_once_with("/repos/proj")
+
+
+def test_launch_dialog_filter_narrows_command_list(qtbot):
+    d = _dlg(qtbot)
+    d._cmd_filter.setText("test")
+    visible = [c.name for c in d._visible_cmds()]
+    assert visible == ["test"]
+
+
+def test_launch_dialog_existing_running_shows_conflict_no_restart(qtbot):
+    existing = RunHandle(
+        run_id="r1", cmd_name="build", repo_path="/repos/proj",
+        repo_name="proj", worktree_path="/r/proj", command=["make"],
+        status=RunStatus.RUNNING,
+    )
+    vm = _vm(existing=existing)
+    d = _dlg(qtbot, vm=vm)
+    d.set_command("build")
+    d.trigger_launch()
+    assert "already running" in d._conflict_label.text().lower()
+    assert not d._restart_btn.isVisible()
+    vm.launch.assert_not_called()
+
+
+def test_launch_dialog_existing_stopped_shows_restart_button(qtbot):
+    existing = RunHandle(
+        run_id="r1", cmd_name="build", repo_path="/repos/proj",
+        repo_name="proj", worktree_path="/r/proj", command=["make"],
+        status=RunStatus.STOPPED,
+    )
+    vm = _vm(existing=existing)
+    d = _dlg(qtbot, vm=vm)
+    d.set_command("build")
+    d.trigger_launch()
+    assert d._restart_btn.isVisible()
+    d._restart_btn.click()
+    vm.restart.assert_called_once_with("r1")
+
+
+def test_launch_dialog_cancel_closes_without_launching(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    cancel.click()
+    vm.launch.assert_not_called()
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/launch_dialog.py`:
+
+```python
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
+)
+
+from worktree_manager.command_runner import RunStatus
+from worktree_manager.models import SavedCommand, WorktreeModel
+
+
+class LaunchDialog(QDialog):
+    def __init__(self, parent, vm):
+        super().__init__(parent)
+        self.setWindowTitle("Launch Command")
+        self.setModal(True)
+        self.resize(440, 460)
+        self._vm = vm
+        self._commands: list[SavedCommand] = []
+        self._worktrees: list[WorktreeModel] = []
+        self._selected_cmd: SavedCommand | None = None
+        self._cmd_row_widgets: list[QWidget] = []
+        self._conflict_run_id: str | None = None
+        self._build()
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 16, 24, 16)
+        outer.setSpacing(6)
+
+        title = QLabel("Launch Command")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        outer.addWidget(title)
+
+        repo_paths = list(self._vm.all_repos().keys())
+        self._repo_map = {Path(p).name: p for p in repo_paths}
+        display_names = list(self._repo_map.keys())
+
+        last_used = (
+            self._vm.get_last_used_repo()
+            if hasattr(self._vm, "get_last_used_repo") else None
+        )
+        if last_used and last_used in repo_paths:
+            default_name = Path(last_used).name
+        elif display_names:
+            default_name = display_names[0]
+        else:
+            default_name = ""
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Repo:"))
+        self._repo_combo = QComboBox()
+        self._repo_combo.addItems(display_names)
+        if default_name:
+            self._repo_combo.setCurrentText(default_name)
+        self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
+        self._repo_combo.setMinimumWidth(200)
+        row1.addWidget(self._repo_combo, 1)
+        outer.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Worktree:"))
+        self._wt_combo = QComboBox()
+        self._wt_combo.setMinimumWidth(200)
+        row2.addWidget(self._wt_combo, 1)
+        outer.addLayout(row2)
+
+        cmd_row = QHBoxLayout()
+        cmd_row.addWidget(QLabel("Command:"))
+        cmd_row.addStretch(1)
+        self._cmd_filter = QLineEdit()
+        self._cmd_filter.setPlaceholderText("Filter…")
+        self._cmd_filter.setFixedWidth(160)
+        self._cmd_filter.textChanged.connect(self._render_cmd_list)
+        cmd_row.addWidget(self._cmd_filter)
+        outer.addLayout(cmd_row)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setMinimumHeight(160)
+        self._cmd_container = QWidget()
+        self._cmd_layout = QVBoxLayout(self._cmd_container)
+        self._cmd_layout.setContentsMargins(0, 0, 0, 0)
+        self._cmd_layout.setSpacing(1)
+        self._cmd_layout.addStretch(1)
+        self._scroll.setWidget(self._cmd_container)
+        outer.addWidget(self._scroll, 1)
+
+        self._conflict_label = QLabel("")
+        self._conflict_label.setStyleSheet("color: red;")
+        self._conflict_label.setWordWrap(True)
+        outer.addWidget(self._conflict_label)
+        self._restart_btn = QPushButton("Restart")
+        self._restart_btn.setFixedWidth(80)
+        self._restart_btn.clicked.connect(self._trigger_conflict_restart)
+        self._restart_btn.setVisible(False)
+        outer.addWidget(self._restart_btn)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(cancel)
+        btns.addStretch(1)
+        launch = QPushButton("Launch")
+        launch.clicked.connect(self.trigger_launch)
+        btns.addWidget(launch)
+        outer.addLayout(btns)
+
+        if default_name:
+            self._on_repo_changed(default_name)
+
+    def _on_repo_changed(self, repo_name: str) -> None:
+        repo_path = self._repo_map.get(repo_name, "")
+        self._commands = self._vm.saved_commands(repo_path)
+        self._selected_cmd = None
+        self._cmd_filter.blockSignals(True)
+        self._cmd_filter.setText("")
+        self._cmd_filter.blockSignals(False)
+        self._worktrees = self._vm.list_worktrees(repo_path)
+        wt_labels = [f"{wt.branch}  ({wt.path})" for wt in self._worktrees]
+        self._wt_combo.clear()
+        self._wt_combo.addItems(wt_labels)
+        self._render_cmd_list()
+
+    def _visible_cmds(self) -> list[SavedCommand]:
+        term = self._cmd_filter.text().strip().lower()
+        return [
+            c for c in self._commands
+            if not term or term in c.name.lower() or term in c.command.lower()
+        ]
+
+    def _render_cmd_list(self) -> None:
+        while self._cmd_layout.count():
+            item = self._cmd_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._cmd_row_widgets = []
+
+        visible = self._visible_cmds()
+        if not visible:
+            empty = QLabel("No saved commands for this repo.")
+            empty.setStyleSheet("color: gray;")
+            self._cmd_layout.addWidget(empty)
+            self._cmd_layout.addStretch(1)
+            return
+
+        for cmd in visible:
+            row = QPushButton(f"{cmd.name}   —   {cmd.command}")
+            row.setStyleSheet("text-align: left; padding: 6px;")
+            row.clicked.connect(lambda _c=False, c=cmd: self._select_cmd(c))
+            self._cmd_layout.addWidget(row)
+            self._cmd_row_widgets.append(row)
+
+        self._cmd_layout.addStretch(1)
+        self._select_cmd(visible[0])
+
+    def _select_cmd(self, cmd: SavedCommand) -> None:
+        self._selected_cmd = cmd
+        visible = self._visible_cmds()
+        for row, vcmd in zip(self._cmd_row_widgets, visible):
+            if vcmd is cmd:
+                row.setStyleSheet(
+                    "text-align: left; padding: 6px; background-color: #4a90d9; color: white;"
+                )
+            else:
+                row.setStyleSheet("text-align: left; padding: 6px;")
+
+    def _current_repo_path(self) -> str:
+        return self._repo_map.get(self._repo_combo.currentText(), "")
+
+    def _current_worktree_path(self) -> str:
+        label = self._wt_combo.currentText()
+        for wt in self._worktrees:
+            if wt.path in label:
+                return wt.path
+        return label
+
+    # --- public API for tests ---
+
+    def command_choices(self) -> list[str]:
+        return [c.name for c in self._commands]
+
+    def worktree_choices(self) -> list[str]:
+        return [f"{wt.branch}  ({wt.path})" for wt in self._worktrees]
+
+    def set_command(self, name: str) -> None:
+        for cmd in self._commands:
+            if cmd.name == name:
+                self._select_cmd(cmd)
+                return
+
+    def set_worktree(self, path: str) -> None:
+        for i, wt in enumerate(self._worktrees):
+            if wt.path == path:
+                self._wt_combo.setCurrentIndex(i)
+                return
+
+    def trigger_launch(self) -> None:
+        if self._selected_cmd is None:
+            return
+        cmd_obj = self._selected_cmd
+        repo_path = self._current_repo_path()
+        worktree_path = self._current_worktree_path()
+        repo_name = Path(repo_path).name
+
+        existing = None
+        if hasattr(self._vm, "find_existing_run"):
+            existing = self._vm.find_existing_run(
+                cmd_obj.name, repo_path, worktree_path,
+            )
+
+        if existing is not None:
+            if existing.status == RunStatus.RUNNING:
+                self._show_conflict(
+                    f'"{cmd_obj.name}" is already running in this worktree.',
+                    show_restart=False, run_id=None,
+                )
+            else:
+                self._show_conflict(
+                    f'"{cmd_obj.name}" already exists but is stopped. Restart it?',
+                    show_restart=True, run_id=existing.run_id,
+                )
+            return
+
+        self._vm.launch(
+            repo_path=repo_path, repo_name=repo_name,
+            cmd_name=cmd_obj.name, command_str=cmd_obj.command,
+            worktree_path=worktree_path,
+        )
+        if hasattr(self._vm, "set_last_used_repo"):
+            self._vm.set_last_used_repo(repo_path)
+        self.accept()
+
+    def _show_conflict(self, message: str, show_restart: bool,
+                       run_id: str | None) -> None:
+        self._conflict_label.setText(message)
+        self._conflict_run_id = run_id
+        self._restart_btn.setVisible(show_restart)
+
+    def _trigger_conflict_restart(self) -> None:
+        if self._conflict_run_id and hasattr(self._vm, "restart"):
+            self._vm.restart(self._conflict_run_id)
+        self.accept()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_launch_dialog_qt.py` is green and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 2.6 — CommandCenterPanel (Qt)
+
+**What it covers:** Replace `CommandCenterPanel` (CTkFrame) with a Qt `QWidget`. Toolbar with title, ⚙ Commands, + Launch, × close. Search `QLineEdit` filters running panes by `cmd_name`/`repo_name`. Scrollable pane list with empty-state label. Wires `vm.on_run_added`, `vm.on_output`, `vm.on_status_changed`, `vm.on_run_id_changed`. **Cross-thread safety:** VM callbacks fire on background threads; the panel defines Qt signals and emits them from those callbacks, so connected slots run on the GUI thread. Preserves the public methods used by other code/tests: `add_pane`, `remove_pane`, `route_output`, `route_status`, `pane_count`, `get_pane`, `maximize_pane`, `restore_tiled`, `is_maximized`, `is_visible`, `empty_state_visible`, `trigger_close`.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_command_center_panel_qt.py
+from unittest.mock import MagicMock, patch
+
+from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton
+
+from worktree_manager.command_runner import RunHandle, RunStatus
+from worktree_manager.ui.command_center_panel import CommandCenterPanel
+from worktree_manager.ui.command_pane import CommandPane
+
+
+def _handle(run_id="r1", cmd_name="build", repo_name="proj",
+            wt="/r/proj", status=RunStatus.RUNNING):
+    return RunHandle(
+        run_id=run_id, cmd_name=cmd_name, repo_path="/r/" + repo_name,
+        repo_name=repo_name, worktree_path=wt, command=["echo"],
+        status=status,
+    )
+
+
+def _vm(runs=None):
+    vm = MagicMock()
+    vm.all_runs.return_value = runs or []
+    vm.all_repos.return_value = {"/r/proj": MagicMock()}
+    vm.get_run.side_effect = lambda rid: next(
+        (h for h in (runs or []) if h.run_id == rid), None,
+    )
+    return vm
+
+
+def _panel(qtbot, vm=None, on_close=None):
+    p = CommandCenterPanel(
+        parent=None, vm=vm or _vm(),
+        on_close=on_close or (lambda: None),
+    )
+    qtbot.addWidget(p)
+    return p
+
+
+def test_command_center_panel_toolbar_has_expected_buttons(qtbot):
+    p = _panel(qtbot)
+    texts = [b.text() for b in p.findChildren(QPushButton)]
+    assert any("Commands" in t for t in texts)
+    assert any("Launch" in t for t in texts)
+    assert "×" in texts
+
+
+def test_command_center_panel_empty_state_visible_initially(qtbot):
+    p = _panel(qtbot)
+    assert p.empty_state_visible() is True
+    assert p.pane_count() == 0
+
+
+def test_command_center_panel_add_pane_hides_empty_state(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle())
+    assert p.empty_state_visible() is False
+    assert p.pane_count() == 1
+    assert isinstance(p.get_pane("r1"), CommandPane)
+
+
+def test_command_center_panel_add_pane_is_idempotent_by_run_id(qtbot):
+    p = _panel(qtbot)
+    h = _handle()
+    p.add_pane(h)
+    p.add_pane(h)
+    assert p.pane_count() == 1
+
+
+def test_command_center_panel_remove_pane_calls_vm_and_drops_pane(qtbot):
+    vm = _vm()
+    p = _panel(qtbot, vm=vm)
+    p.add_pane(_handle())
+    p.remove_pane("r1")
+    vm.remove_run.assert_called_once_with("r1")
+    assert p.pane_count() == 0
+    assert p.empty_state_visible() is True
+
+
+def test_command_center_panel_route_output_appends_to_pane(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle())
+    p.route_output("r1", "hello")
+    assert "hello" in p.get_pane("r1").get_output_text()
+
+
+def test_command_center_panel_route_status_updates_dot(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle())
+    p.route_status("r1", RunStatus.ERROR)
+    assert p.get_pane("r1").status_dot_color() == "red"
+
+
+def test_command_center_panel_search_filters_visible_panes(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle(run_id="r1", cmd_name="build"))
+    p.add_pane(_handle(run_id="r2", cmd_name="test"))
+    search = p.findChild(QLineEdit)
+    search.setText("build")
+    assert p.is_visible("r1") is True
+    assert p.is_visible("r2") is False
+
+
+def test_command_center_panel_close_button_invokes_callback(qtbot):
+    calls = []
+    p = _panel(qtbot, on_close=lambda: calls.append("x"))
+    p.trigger_close()
+    assert calls == ["x"]
+
+
+def test_command_center_panel_restores_existing_runs_on_construction(qtbot):
+    h = _handle(run_id="r1")
+    h.output_lines.append("prior line")
+    vm = _vm(runs=[h])
+    p = _panel(qtbot, vm=vm)
+    assert p.pane_count() == 1
+    assert "prior line" in p.get_pane("r1").get_output_text()
+
+
+def test_command_center_panel_launch_button_opens_launch_dialog(qtbot):
+    p = _panel(qtbot)
+    with patch("worktree_manager.ui.command_center_panel.LaunchDialog") as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        p._open_launch_dialog()
+    MockDlg.assert_called_once()
+    instance.exec.assert_called_once()
+
+
+def test_command_center_panel_commands_button_opens_manage_dialog(qtbot):
+    p = _panel(qtbot)
+    with patch(
+        "worktree_manager.ui.command_center_panel.ManageCommandsDialog"
+    ) as MockDlg:
+        instance = MagicMock(spec=QDialog)
+        MockDlg.return_value = instance
+        p._open_manage_commands_dialog()
+    MockDlg.assert_called_once()
+    instance.exec.assert_called_once()
+
+
+def test_command_center_panel_wires_vm_callbacks(qtbot):
+    vm = _vm()
+    p = _panel(qtbot, vm=vm)
+    assert vm.on_run_added is not None
+    assert vm.on_output is not None
+    assert vm.on_status_changed is not None
+    assert vm.on_run_id_changed is not None
+
+
+def test_command_center_panel_maximize_and_restore_tiled(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle(run_id="r1"))
+    p.add_pane(_handle(run_id="r2"))
+    p.maximize_pane("r1")
+    assert p.is_maximized("r1") is True
+    assert p.is_visible("r1") is True
+    assert p.is_visible("r2") is False
+    p.restore_tiled()
+    assert p.is_maximized("r1") is False
+    assert p.is_visible("r2") is True
+```
+
+**Production code (Green):**
+
+Replace `worktree_manager/ui/command_center_panel.py`:
+
+```python
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import (
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout,
+    QWidget,
+)
+
+from worktree_manager.command_runner import RunHandle, RunStatus
+from worktree_manager.ui.command_pane import CommandPane
+from worktree_manager.ui.launch_dialog import LaunchDialog
+from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
+
+
+class _VMBridge(QObject):
+    """Queues VM callbacks (which arrive on background threads) onto the GUI thread."""
+    run_added = Signal(object)
+    output_received = Signal(str, str)
+    status_changed = Signal(str, object)
+    run_id_changed = Signal(str, str)
+
+
+class CommandCenterPanel(QWidget):
+    def __init__(self, parent, vm, on_close):
+        super().__init__(parent)
+        self._vm = vm
+        self._on_close = on_close
+        self._panes: dict[str, CommandPane] = {}
+        self._popouts: dict[str, object] = {}
+        self._maximized_id: str | None = None
+
+        self._bridge = _VMBridge()
+        self._bridge.run_added.connect(self.add_pane)
+        self._bridge.output_received.connect(self.route_output)
+        self._bridge.status_changed.connect(self.route_status)
+        self._bridge.run_id_changed.connect(self._on_run_id_changed)
+
+        self._build()
+        self._wire_vm()
+        self._restore_existing_runs()
+
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(4)
+
+        toolbar = QHBoxLayout()
+        title = QLabel("Command Center")
+        title.setStyleSheet("font-weight: bold; font-size: 15px;")
+        toolbar.addWidget(title)
+        toolbar.addStretch(1)
+        cmds_btn = QPushButton("⚙ Commands")
+        cmds_btn.clicked.connect(self._open_manage_commands_dialog)
+        toolbar.addWidget(cmds_btn)
+        launch_btn = QPushButton("+ Launch")
+        launch_btn.clicked.connect(self._open_launch_dialog)
+        toolbar.addWidget(launch_btn)
+        close_btn = QPushButton("×")
+        close_btn.setFixedWidth(32)
+        close_btn.clicked.connect(self.trigger_close)
+        toolbar.addWidget(close_btn)
+        outer.addLayout(toolbar)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Filter running commands by name or repo…")
+        self._search.textChanged.connect(self._on_search_changed)
+        outer.addWidget(self._search)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll_container = QWidget()
+        self._scroll_layout = QVBoxLayout(self._scroll_container)
+        self._scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._scroll_layout.setSpacing(4)
+        self._scroll_layout.addStretch(1)
+        self._scroll.setWidget(self._scroll_container)
+        outer.addWidget(self._scroll, 1)
+
+        self._empty_label = QLabel(
+            "No commands running.\nClick [+ Launch] to start one."
+        )
+        self._empty_label.setStyleSheet("color: gray;")
+        self._empty_label.setAlignment(Qt.AlignCenter)
+        self._scroll_layout.insertWidget(0, self._empty_label)
+
+        self._no_match_label = QLabel("")
+        self._no_match_label.setStyleSheet("color: gray;")
+        self._no_match_label.setAlignment(Qt.AlignCenter)
+        self._no_match_label.setVisible(False)
+        self._scroll_layout.insertWidget(1, self._no_match_label)
+
+    def _wire_vm(self):
+        self._vm.on_run_added = self._bridge.run_added.emit
+        self._vm.on_output = self._bridge.output_received.emit
+        self._vm.on_status_changed = self._bridge.status_changed.emit
+        self._vm.on_run_id_changed = self._bridge.run_id_changed.emit
+
+    def _restore_existing_runs(self):
+        for handle in self._vm.all_runs():
+            self.add_pane(handle)
+            for line in handle.output_lines:
+                self._panes[handle.run_id].append_line(line)
+            self._panes[handle.run_id].set_status(handle.status)
+
+    # --- pane lifecycle ---
+
+    def add_pane(self, handle: RunHandle) -> None:
+        if handle.run_id in self._panes:
+            return
+        pane = CommandPane(
+            parent=self._scroll_container, handle=handle,
+            on_maximize=lambda p: self._open_popout(p._run_id),
+            on_stop=lambda: self._vm.stop(handle.run_id),
+            on_restart=lambda: self._do_restart(handle.run_id),
+            on_remove=lambda: self.remove_pane(handle.run_id),
+        )
+        self._panes[handle.run_id] = pane
+        # insert before stretch
+        self._scroll_layout.insertWidget(self._scroll_layout.count() - 1, pane)
+        self._empty_label.setVisible(False)
+        self._apply_filter()
+
+    def remove_pane(self, run_id: str) -> None:
+        self._vm.remove_run(run_id)
+        popout = self._popouts.pop(run_id, None)
+        if popout is not None:
+            popout.close()
+        pane = self._panes.pop(run_id, None)
+        if pane is not None:
+            self._scroll_layout.removeWidget(pane)
+            pane.deleteLater()
+        if self._maximized_id == run_id:
+            self._maximized_id = None
+        if not self._panes:
+            self._empty_label.setVisible(True)
+            self._no_match_label.setVisible(False)
+        else:
+            self._apply_filter()
+
+    def _on_run_id_changed(self, old_id: str, new_id: str) -> None:
+        pane = self._panes.pop(old_id, None)
+        if pane is not None:
+            self._panes[new_id] = pane
+            pane.update_run_id(new_id)
+            pane.update_callbacks(
+                on_stop=lambda: self._vm.stop(new_id),
+                on_restart=lambda: self._do_restart(new_id),
+                on_remove=lambda: self.remove_pane(new_id),
+            )
+        popout = self._popouts.pop(old_id, None)
+        if popout is not None:
+            self._popouts[new_id] = popout
+
+    def _do_restart(self, run_id: str) -> None:
+        pane = self._panes.get(run_id)
+        if pane is not None:
+            pane.clear_output()
+        popout = self._popouts.get(run_id)
+        if popout is not None:
+            popout.clear_output()
+        self._vm.restart(run_id)
+
+    def route_output(self, run_id: str, line: str) -> None:
+        pane = self._panes.get(run_id)
+        if pane is not None:
+            pane.append_line(line)
+        popout = self._popouts.get(run_id)
+        if popout is not None:
+            popout.append_line(line)
+
+    def route_status(self, run_id: str, status: RunStatus) -> None:
+        pane = self._panes.get(run_id)
+        if pane is not None:
+            pane.set_status(status)
+        popout = self._popouts.get(run_id)
+        if popout is not None:
+            popout.set_status(status)
+
+    # --- search / filter ---
+
+    def _on_search_changed(self, _text: str) -> None:
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        term = self._search.text().strip().lower()
+        visible_count = 0
+        for run_id, pane in self._panes.items():
+            handle = self._vm.get_run(run_id)
+            match = (
+                handle is None
+                or not term
+                or term in handle.cmd_name.lower()
+                or term in handle.repo_name.lower()
+            )
+            if self._maximized_id is not None and run_id != self._maximized_id:
+                pane.setVisible(False)
+                continue
+            pane.setVisible(bool(match))
+            if match:
+                visible_count += 1
+        if term and visible_count == 0 and self._panes:
+            self._no_match_label.setText(
+                f'No running commands match "{self._search.text()}".'
+            )
+            self._no_match_label.setVisible(True)
+        else:
+            self._no_match_label.setVisible(False)
+
+    # --- popout / maximize ---
+
+    def _open_popout(self, run_id: str) -> None:
+        from worktree_manager.ui.command_popout import CommandPopout
+        existing = self._popouts.get(run_id)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
+        handle = self._vm.get_run(run_id)
+        if not handle:
+            return
+        popout = CommandPopout(
+            parent=self, handle=handle,
+            on_stop=lambda: self._vm.stop(run_id),
+            on_restart=lambda: self._do_restart(run_id),
+            on_remove=lambda: self.remove_pane(run_id),
+        )
+        for line in handle.output_lines:
+            popout.append_line(line)
+        popout.set_status(handle.status)
+        self._popouts[run_id] = popout
+        popout.show()
+
+    def maximize_pane(self, run_id: str) -> None:
+        self._maximized_id = run_id
+        self._apply_filter()
+
+    def restore_tiled(self) -> None:
+        self._maximized_id = None
+        self._apply_filter()
+
+    def is_maximized(self, run_id: str) -> bool:
+        return self._maximized_id == run_id
+
+    def is_visible(self, run_id: str) -> bool:
+        pane = self._panes.get(run_id)
+        return bool(pane is not None and pane.isVisible())
+
+    def empty_state_visible(self) -> bool:
+        return self._empty_label.isVisible()
+
+    def trigger_close(self) -> None:
+        self._on_close()
+
+    def pane_count(self) -> int:
+        return len(self._panes)
+
+    def get_pane(self, run_id: str) -> CommandPane | None:
+        return self._panes.get(run_id)
+
+    # --- dialogs ---
+
+    def _open_launch_dialog(self) -> None:
+        dlg = LaunchDialog(parent=self, vm=self._vm)
+        dlg.exec()
+
+    def _open_manage_commands_dialog(self) -> None:
+        dlg = ManageCommandsDialog(parent=self, vm=self._vm)
+        dlg.exec()
+```
+
+**Done when:** `python3.14 -m pytest tests/test_command_center_panel_qt.py` is green and the module imports neither `customtkinter` nor `tkinter`.
+
+---
+
+### Phase 2.7 — Wire CommandCenterPanel into App
+
+**What it covers:** Replace the `QMessageBox.information(..., "Ships in Iteration 2.")` stub in `cli.py::_show_command_center` with a real wiring that constructs `CommandCenterViewModel` (lazily, once) and swaps the panel into the main content area.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_command_center_wiring.py
+from unittest.mock import MagicMock
+
+import pytest
+
+from worktree_manager.ui.command_center_panel import CommandCenterPanel
+from worktree_manager.ui.landing_screen import LandingScreen
+
+
+@pytest.fixture
+def empty_store(monkeypatch):
+    store = MagicMock()
+    store.all_repos.return_value = {}
+    store.get_ui_pref.side_effect = lambda key, default=None: default
+    monkeypatch.setattr(
+        "worktree_manager.cli.ConfigStore", lambda *a, **kw: store,
+    )
+    monkeypatch.setattr(
+        "worktree_manager.cli.GitService", lambda *a, **kw: MagicMock(),
+    )
+    return store
+
+
+def test_show_command_center_swaps_in_panel(qtbot, empty_store):
+    from worktree_manager.cli import App
+    app = App(repo_path=None)
+    qtbot.addWidget(app)
+    assert isinstance(app._current_panel, LandingScreen)
+    app._show_command_center()
+    assert isinstance(app._current_panel, CommandCenterPanel)
+
+
+def test_show_command_center_close_button_returns_to_landing(qtbot, empty_store):
+    from worktree_manager.cli import App
+    app = App(repo_path=None)
+    qtbot.addWidget(app)
+    app._show_command_center()
+    app._current_panel.trigger_close()
+    assert isinstance(app._current_panel, LandingScreen)
+
+
+def test_command_center_vm_is_cached_across_invocations(qtbot, empty_store):
+    from worktree_manager.cli import App
+    app = App(repo_path=None)
+    qtbot.addWidget(app)
+    app._show_command_center()
+    first_vm = app._command_center_vm
+    app._current_panel.trigger_close()
+    app._show_command_center()
+    assert app._command_center_vm is first_vm
+```
+
+**Production code (Green):**
+
+In `worktree_manager/cli.py` add the import and store a lazy VM, and replace `_show_command_center`:
+
+```python
+# add to the top of cli.py
+from worktree_manager.command_center_vm import CommandCenterViewModel
+from worktree_manager.ui.command_center_panel import CommandCenterPanel
+```
+
+In `App.__init__`, after the other state init lines, add:
+
+```python
+self._command_center_vm: CommandCenterViewModel | None = None
+```
+
+Replace `_show_command_center`:
+
+```python
+def _show_command_center(self):
+    if self._command_center_vm is None:
+        self._command_center_vm = CommandCenterViewModel(
+            config_store=self._store, git_service=self._git,
+        )
+    panel = CommandCenterPanel(
+        parent=None, vm=self._command_center_vm,
+        on_close=self._show_empty_main if self._active_repo_path is None
+        else lambda: self._show_main(self._active_repo_path),
+    )
+    self._set_panel(panel)
+```
+
+**Done when:** `python3.14 -m pytest tests/test_command_center_wiring.py` is green; clicking the sidebar ⊞ Command Center button in a live app swaps the Command Center in; clicking × in its toolbar returns to whichever panel was previously shown (landing screen or worktree list).
+
+---
+
+### Phase 2.8 — Cleanup: Delete Legacy CTk Command-Center Tests
+
+**What it covers:** Remove the legacy tk-based test files for the modules just rewritten. They use `tkinter.Tk()` master widgets, which is incompatible with the Qt versions.
+
+**Tests (Red) — write these first:**
+
+```python
+# tests/test_iteration_2_cleanup.py
+"""Iteration 2 cleanup: assert that obsolete legacy CTk tests are gone."""
+import pathlib
+
+import pytest
+
+
+@pytest.mark.parametrize("relpath", [
+    "tests/test_command_center_panel.py",
+    "tests/test_command_pane.py",
+    "tests/test_launch_dialog.py",
+    "tests/test_manage_commands_dialog.py",
+    "tests/test_add_command_dialog.py",
+])
+def test_legacy_ctk_test_file_removed(relpath):
+    repo_root = pathlib.Path(__file__).resolve().parents[1]
+    assert not (repo_root / relpath).exists(), (
+        f"{relpath} still exists — delete it as part of Iteration 2 cleanup"
+    )
+
+
+def test_no_command_center_ui_file_imports_customtkinter():
+    import worktree_manager.ui.add_command_dialog as a
+    import worktree_manager.ui.command_center_panel as cc
+    import worktree_manager.ui.command_pane as cp
+    import worktree_manager.ui.command_popout as po
+    import worktree_manager.ui.launch_dialog as ld
+    import worktree_manager.ui.manage_commands_dialog as mc
+    for mod in (a, cc, cp, po, ld, mc):
+        src = pathlib.Path(mod.__file__).read_text()
+        assert "customtkinter" not in src, (
+            f"{mod.__name__} still imports customtkinter"
+        )
+        assert "import tkinter" not in src, (
+            f"{mod.__name__} still imports tkinter"
+        )
+```
+
+**Production code (Green):**
+
+Delete these files:
+
+```
+tests/test_command_center_panel.py
+tests/test_command_pane.py
+tests/test_launch_dialog.py
+tests/test_manage_commands_dialog.py
+tests/test_add_command_dialog.py
+```
+
+**Done when:** `python3.14 -m pytest tests/test_iteration_2_cleanup.py` passes; deleted test files are gone; `python3.14 -m pytest tests/test_command_*qt.py tests/test_launch_dialog_qt.py tests/test_manage_commands_dialog_qt.py tests/test_add_command_dialog_qt.py tests/test_command_center_wiring.py` is fully green.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off by the user.
+
+**Setup**
+- [ ] Run `python3.14 -m worktree_manager.cli` from `worktree-manager/`. Add at least one repo (Iteration 1 flow). Open the worktree list for that repo.
+
+**Open Command Center**
+- [ ] Click "⊞ Command Center" in the sidebar. The main content area switches to a Command Center panel with title "Command Center", a search box "Filter running commands by name or repo…", and a centered empty-state message "No commands running. Click [+ Launch] to start one."
+- [ ] The toolbar contains three buttons on the right: "⚙ Commands", "+ Launch", "×".
+- [ ] Click × — the panel closes and the previously-active panel (worktree list or landing) is restored.
+
+**Manage saved commands**
+- [ ] Re-open Command Center. Click "⚙ Commands". The **ManageCommandsDialog** opens with title "Manage Commands", a Repository dropdown defaulting to the last-used (or first) repo, an empty list with "No commands saved for this repo yet." text, a "+ Add Command" button in the toolbar, and a "Done" button at the bottom.
+- [ ] Click "+ Add Command". The **AddCommandDialog** opens: Repo dropdown pre-filled, Name `QLineEdit`, Command `QPlainTextEdit`, Cancel / Save buttons.
+- [ ] Type `build` / `echo hello`. Click Save. Dialog closes. Manage dialog now lists `build` with its command, and an Edit / Delete / ⎘ Copy button.
+- [ ] Add a second command `loop` / `sh -c "while true; do date; sleep 1; done"`.
+- [ ] Click Edit on `build`. The row swaps into an edit form. Done and other rows' buttons become disabled. Change the command to `echo hi there`, click Save — the row reverts to view mode with the new command text. Done re-enables.
+- [ ] Click Edit again, click Cancel — no change.
+- [ ] Click Delete on `build` — the row disappears.
+- [ ] Click Done.
+
+**Launch a command**
+- [ ] Click "+ Launch". The **LaunchDialog** opens with Repo dropdown, Worktree dropdown (populated with that repo's worktrees), a filterable list of saved commands, Cancel + Launch buttons.
+- [ ] Type `loop` into the filter — the command list narrows. Click the `loop` row — it highlights.
+- [ ] Click Launch. The dialog closes; a new `CommandPane` row appears in the Command Center with the green ● dot, the label `loop · <repo> : <worktree>`, header buttons (⤢ ⟳ ■ ⎘ 🔍 ✕), and live `date` output streaming into its text area every second.
+- [ ] Type into the search box at the top: `loop` — pane stays visible; `zzz` — pane hides and a "No running commands match" message appears. Clear the search — pane returns.
+
+**Pane controls**
+- [ ] Click 🔍 on the pane — a find bar appears below the header. Type `2026` (or any substring you see in the stream). Yellow highlights appear on matches. The count label shows e.g. `42 matches`. Press ↓ / ↑ — view scrolls between matches. Click × on the find bar — it closes and highlights clear.
+- [ ] Click ⎘ — the output text is copied to clipboard (paste somewhere to verify).
+- [ ] Click ⤢ — a new top-level CommandPopout window opens titled `loop · <repo> : <wt>` with its own pane mirroring the same output.
+- [ ] Click ■ in the pane — the dot turns gray, output streaming stops.
+- [ ] Click ⟳ — the pane's output clears and the dot returns to green; new `date` lines start streaming again.
+- [ ] Click ✕ on the pane — the pane disappears, the popout (if still open) closes, the empty state returns.
+
+**Launch conflict handling**
+- [ ] Launch `loop` again. Then attempt to launch `loop` against the **same** repo + worktree — the LaunchDialog stays open, a red message "loop is already running in this worktree." appears, and no Restart button.
+- [ ] Stop the running pane (■ button) so the dot turns gray. Re-attempt the same launch — the message changes to "…already exists but is stopped. Restart it?" and a Restart button appears. Click Restart — the dialog closes, the pane resumes streaming new output.
+
+**Regression — Iterations 0 & 1 still work**
+- [ ] Sidebar ▼ REPOS collapse still toggles and persists.
+- [ ] + Add Repo still opens the picker and configures a fresh repo via RepoSetupDialog.
+- [ ] + New / ⚙ Settings / Delete (✕) on a worktree still open the Iteration 1 dialogs and function correctly.
+- [ ] Switching branches via the per-row dropdown still works and still errors when the branch is checked out elsewhere.
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
+
+---
+
 ## Decisions
 
 - **Theme:** Follow OS light/dark preference automatically via `QApplication` palette.
@@ -2647,3 +4775,4 @@ Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan
 - **UI tests:** Add `pytest-qt` smoke tests alongside the existing VM/service tests.
 - **Segmented button:** Replace `CTkSegmentedButton` with two plain `QRadioButton`s in a row.
 - **Iter 1 tk-facade shims (`_StringVar`, `_BoolVar`, `_EntryFacade`):** Used inside `CreateDialog` / `DeleteDialog` to preserve the underscore-prefixed `_mode_var`, `_branch_entry`, `_also_branch`, etc. attributes that existing `tests/test_ui_smoke.py` cases assert against. These shims are private and disappear naturally as the legacy CTk-era tests get retired.
+- **Iter 2 thread bridging:** `CommandCenterPanel` defines a `_VMBridge(QObject)` with Qt `Signal`s and routes `vm.on_run_added` / `on_output` / `on_status_changed` / `on_run_id_changed` through it. The CommandRunner fires those callbacks from background streaming threads; Qt's queued signal delivery marshals them onto the GUI thread automatically (no `QTimer.singleShot` or thread-affinity gymnastics needed in the panel itself).

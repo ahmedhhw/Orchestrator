@@ -1,90 +1,99 @@
-import customtkinter as ctk
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtWidgets import (
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout,
+    QWidget,
+)
+
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.ui.command_pane import CommandPane
+from worktree_manager.ui.launch_dialog import LaunchDialog
+from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
 
 
-class CommandCenterPanel(ctk.CTkFrame):
-    def __init__(self, master, vm, on_close):
-        super().__init__(master)
+class _VMBridge(QObject):
+    """Queues VM callbacks (background threads) onto the GUI thread via signals."""
+    run_added = Signal(object)
+    output_received = Signal(str, str)
+    status_changed = Signal(str, object)
+    run_id_changed = Signal(str, str)
+
+
+class CommandCenterPanel(QWidget):
+    def __init__(self, parent, vm, on_close):
+        super().__init__(parent)
         self._vm = vm
         self._on_close = on_close
         self._panes: dict[str, CommandPane] = {}
-        self._popouts: dict[str, object] = {}  # run_id -> CommandPopout
+        self._pane_shown: dict[str, bool] = {}
+        self._popouts: dict[str, object] = {}
         self._maximized_id: str | None = None
+
+        self._bridge = _VMBridge()
+        self._bridge.run_added.connect(self.add_pane)
+        self._bridge.output_received.connect(self.route_output)
+        self._bridge.status_changed.connect(self.route_status)
+        self._bridge.run_id_changed.connect(self._on_run_id_changed)
+
         self._build()
         self._wire_vm()
         self._restore_existing_runs()
 
     def _build(self):
-        toolbar = ctk.CTkFrame(self, corner_radius=0)
-        toolbar.pack(fill="x", padx=8, pady=(8, 4))
-        ctk.CTkLabel(
-            toolbar,
-            text="Command Center",
-            font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(side="left")
-        ctk.CTkButton(toolbar, text="×", width=32, command=self.trigger_close).pack(side="right", padx=2)
-        ctk.CTkButton(toolbar, text="+ Launch", command=self._open_launch_dialog).pack(side="right", padx=2)
-        ctk.CTkButton(toolbar, text="⚙ Commands", command=self._open_manage_commands_dialog).pack(side="right", padx=2)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(4)
 
-        search_bar = ctk.CTkFrame(self, corner_radius=0)
-        search_bar.pack(fill="x", padx=8, pady=(0, 4))
-        self._search_var = ctk.StringVar()
-        self._search_var.trace_add("write", self._on_search_changed)
-        self._search_entry = ctk.CTkEntry(
-            search_bar,
-            placeholder_text="Filter running commands by name or repo…",
-            textvariable=self._search_var,
+        toolbar = QHBoxLayout()
+        title = QLabel("Command Center")
+        title.setStyleSheet("font-weight: bold; font-size: 15px;")
+        toolbar.addWidget(title)
+        toolbar.addStretch(1)
+        cmds_btn = QPushButton("⚙ Commands")
+        cmds_btn.clicked.connect(self._open_manage_commands_dialog)
+        toolbar.addWidget(cmds_btn)
+        launch_btn = QPushButton("+ Launch")
+        launch_btn.clicked.connect(self._open_launch_dialog)
+        toolbar.addWidget(launch_btn)
+        close_btn = QPushButton("×")
+        close_btn.setFixedWidth(32)
+        close_btn.clicked.connect(self.trigger_close)
+        toolbar.addWidget(close_btn)
+        outer.addLayout(toolbar)
+
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Filter running commands by name or repo…")
+        self._search.textChanged.connect(self._on_search_changed)
+        outer.addWidget(self._search)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll_container = QWidget()
+        self._scroll_layout = QVBoxLayout(self._scroll_container)
+        self._scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self._scroll_layout.setSpacing(4)
+        self._scroll.setWidget(self._scroll_container)
+        outer.addWidget(self._scroll, 1)
+
+        self._empty_label = QLabel(
+            "No commands running.\nClick [+ Launch] to start one."
         )
-        self._search_entry.pack(fill="x", padx=2, pady=4)
-        self._search_entry.bind("<Escape>", lambda e: self._search_var.set(""))
+        self._empty_label.setStyleSheet("color: gray;")
+        self._empty_label.setAlignment(Qt.AlignCenter)
+        self._scroll_layout.addWidget(self._empty_label)
 
-        self._scroll = ctk.CTkScrollableFrame(self)
-        self._scroll.pack(fill="both", expand=True, padx=8, pady=4)
+        self._no_match_label = QLabel("")
+        self._no_match_label.setStyleSheet("color: gray;")
+        self._no_match_label.setAlignment(Qt.AlignCenter)
+        self._no_match_label.setVisible(False)
+        self._scroll_layout.addWidget(self._no_match_label)
 
-        self._empty_label = ctk.CTkLabel(
-            self._scroll,
-            text="No commands running.\nClick [+ Launch] to start one.",
-            text_color="gray",
-            justify="center",
-        )
-        self._empty_label.pack(pady=40)
-
-        self._no_match_label = ctk.CTkLabel(
-            self._scroll,
-            text="",
-            text_color="gray",
-            justify="center",
-        )
+        self._scroll_layout.addStretch(1)
 
     def _wire_vm(self):
-        self._vm.on_run_added = self._on_run_added
-        self._vm.on_output = self._on_output
-        self._vm.on_status_changed = self._on_status_changed
-        self._vm.on_run_id_changed = self._on_run_id_changed
-
-    def _on_search_changed(self, *_) -> None:
-        term = self._search_var.get().strip().lower()
-        visible = 0
-        for run_id, pane in self._panes.items():
-            handle = self._vm.get_run(run_id)
-            if not handle:
-                continue
-            match = (not term
-                     or term in handle.cmd_name.lower()
-                     or term in handle.repo_name.lower())
-            if match:
-                pane.pack(fill="x", pady=4)
-                visible += 1
-            else:
-                pane.pack_forget()
-        if term and visible == 0 and self._panes:
-            self._no_match_label.configure(
-                text=f'No running commands match "{self._search_var.get()}".'
-            )
-            self._no_match_label.pack(pady=20)
-        else:
-            self._no_match_label.pack_forget()
+        self._vm.on_run_added = self._bridge.run_added.emit
+        self._vm.on_output = self._bridge.output_received.emit
+        self._vm.on_status_changed = self._bridge.status_changed.emit
+        self._vm.on_run_id_changed = self._bridge.run_id_changed.emit
 
     def _restore_existing_runs(self):
         for handle in self._vm.all_runs():
@@ -93,57 +102,46 @@ class CommandCenterPanel(ctk.CTkFrame):
                 self._panes[handle.run_id].append_line(line)
             self._panes[handle.run_id].set_status(handle.status)
 
-    def _on_run_added(self, handle: RunHandle) -> None:
-        self.after(0, lambda: self.add_pane(handle))
-
-    def _on_output(self, run_id: str, line: str) -> None:
-        self.after(0, lambda: self.route_output(run_id, line))
-
-    def _on_status_changed(self, run_id: str, status: RunStatus) -> None:
-        self.after(0, lambda: self.route_status(run_id, status))
+    # --- pane lifecycle ---
 
     def add_pane(self, handle: RunHandle) -> None:
         if handle.run_id in self._panes:
             return
         pane = CommandPane(
-            self._scroll,
-            handle=handle,
+            parent=self._scroll_container, handle=handle,
             on_maximize=lambda p: self._open_popout(p._run_id),
-            on_stop=lambda p=None: self._vm.stop(pane._run_id),
-            on_restart=lambda p=None: self._do_restart(pane._run_id),
-            on_remove=lambda p=None: self.remove_pane(pane._run_id),
+            on_stop=lambda: self._vm.stop(handle.run_id),
+            on_restart=lambda: self._do_restart(handle.run_id),
+            on_remove=lambda: self.remove_pane(handle.run_id),
         )
         self._panes[handle.run_id] = pane
-        self._empty_label.pack_forget()
-        self._no_match_label.pack_forget()
-        term = self._search_var.get().strip().lower()
-        visible = (not term
-                   or term in handle.cmd_name.lower()
-                   or term in handle.repo_name.lower())
-        if visible:
-            pane.pack(fill="x", pady=4)
-        # re-run full filter to update no-match label accurately
-        self._on_search_changed()
+        self._pane_shown[handle.run_id] = True
+        # insert before the stretch item
+        self._scroll_layout.insertWidget(self._scroll_layout.count() - 1, pane)
+        self._empty_label.setVisible(False)
+        self._apply_filter()
 
     def remove_pane(self, run_id: str) -> None:
         self._vm.remove_run(run_id)
         popout = self._popouts.pop(run_id, None)
-        if popout and popout.winfo_exists():
-            popout.destroy()
+        if popout is not None:
+            popout.close()
         pane = self._panes.pop(run_id, None)
-        if pane:
-            pane.destroy()
+        self._pane_shown.pop(run_id, None)
+        if pane is not None:
+            self._scroll_layout.removeWidget(pane)
+            pane.setParent(None)
         if self._maximized_id == run_id:
             self._maximized_id = None
         if not self._panes:
-            self._empty_label.pack(pady=40)
-            self._no_match_label.pack_forget()
+            self._empty_label.setVisible(True)
+            self._no_match_label.setVisible(False)
         else:
-            self._on_search_changed()
+            self._apply_filter()
 
     def _on_run_id_changed(self, old_id: str, new_id: str) -> None:
         pane = self._panes.pop(old_id, None)
-        if pane:
+        if pane is not None:
             self._panes[new_id] = pane
             pane.update_run_id(new_id)
             pane.update_callbacks(
@@ -152,47 +150,81 @@ class CommandCenterPanel(ctk.CTkFrame):
                 on_remove=lambda: self.remove_pane(new_id),
             )
         popout = self._popouts.pop(old_id, None)
-        if popout:
+        if popout is not None:
             self._popouts[new_id] = popout
 
     def _do_restart(self, run_id: str) -> None:
         pane = self._panes.get(run_id)
-        if pane:
+        if pane is not None:
             pane.clear_output()
         popout = self._popouts.get(run_id)
-        if popout and popout.winfo_exists():
+        if popout is not None:
             popout.clear_output()
         self._vm.restart(run_id)
 
     def route_output(self, run_id: str, line: str) -> None:
         pane = self._panes.get(run_id)
-        if pane and pane.winfo_exists():
+        if pane is not None:
             pane.append_line(line)
         popout = self._popouts.get(run_id)
-        if popout and popout.winfo_exists():
+        if popout is not None:
             popout.append_line(line)
 
     def route_status(self, run_id: str, status: RunStatus) -> None:
         pane = self._panes.get(run_id)
-        if pane and pane.winfo_exists():
+        if pane is not None:
             pane.set_status(status)
         popout = self._popouts.get(run_id)
-        if popout and popout.winfo_exists():
+        if popout is not None:
             popout.set_status(status)
+
+    # --- search / filter ---
+
+    def _on_search_changed(self, _text: str) -> None:
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        term = self._search.text().strip().lower()
+        visible_count = 0
+        for run_id, pane in self._panes.items():
+            if self._maximized_id is not None and run_id != self._maximized_id:
+                self._pane_shown[run_id] = False
+                pane.setVisible(False)
+                continue
+            handle = self._vm.get_run(run_id)
+            if handle is None:
+                handle = pane._handle
+            match = (
+                not term
+                or term in handle.cmd_name.lower()
+                or term in handle.repo_name.lower()
+            )
+            self._pane_shown[run_id] = bool(match)
+            pane.setVisible(bool(match))
+            if match:
+                visible_count += 1
+        if term and visible_count == 0 and self._panes:
+            self._no_match_label.setText(
+                f'No running commands match "{self._search.text()}".'
+            )
+            self._no_match_label.setVisible(True)
+        else:
+            self._no_match_label.setVisible(False)
+
+    # --- popout / maximize ---
 
     def _open_popout(self, run_id: str) -> None:
         from worktree_manager.ui.command_popout import CommandPopout
         existing = self._popouts.get(run_id)
-        if existing and existing.winfo_exists():
-            existing.lift()
-            existing.focus_force()
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
             return
         handle = self._vm.get_run(run_id)
         if not handle:
             return
         popout = CommandPopout(
-            self,
-            handle=handle,
+            parent=self, handle=handle,
             on_stop=lambda: self._vm.stop(run_id),
             on_restart=lambda: self._do_restart(run_id),
             on_remove=lambda: self.remove_pane(run_id),
@@ -201,6 +233,24 @@ class CommandCenterPanel(ctk.CTkFrame):
             popout.append_line(line)
         popout.set_status(handle.status)
         self._popouts[run_id] = popout
+        popout.show()
+
+    def maximize_pane(self, run_id: str) -> None:
+        self._maximized_id = run_id
+        self._apply_filter()
+
+    def restore_tiled(self) -> None:
+        self._maximized_id = None
+        self._apply_filter()
+
+    def is_maximized(self, run_id: str) -> bool:
+        return self._maximized_id == run_id
+
+    def is_visible(self, run_id: str) -> bool:
+        return self._pane_shown.get(run_id, False)
+
+    def empty_state_visible(self) -> bool:
+        return not self._empty_label.isHidden()
 
     def trigger_close(self) -> None:
         self._on_close()
@@ -211,35 +261,12 @@ class CommandCenterPanel(ctk.CTkFrame):
     def get_pane(self, run_id: str) -> CommandPane | None:
         return self._panes.get(run_id)
 
-    def maximize_pane(self, run_id: str) -> None:
-        self._maximized_id = run_id
-        for rid, pane in self._panes.items():
-            if rid != run_id:
-                pane.pack_forget()
-            else:
-                pane.pack(fill="both", expand=True, pady=4)
-
-    def restore_tiled(self) -> None:
-        self._maximized_id = None
-        for pane in self._panes.values():
-            pane.pack(fill="x", expand=False, pady=4)
-
-    def is_maximized(self, run_id: str) -> bool:
-        return self._maximized_id == run_id
-
-    def is_visible(self, run_id: str) -> bool:
-        pane = self._panes.get(run_id)
-        if pane is None:
-            return False
-        return pane.winfo_ismapped()
-
-    def empty_state_visible(self) -> bool:
-        return self._empty_label.winfo_ismapped()
+    # --- dialogs ---
 
     def _open_launch_dialog(self) -> None:
-        from worktree_manager.ui.launch_dialog import LaunchDialog
-        LaunchDialog(self, vm=self._vm)
+        dlg = LaunchDialog(parent=self, vm=self._vm)
+        dlg.exec()
 
     def _open_manage_commands_dialog(self) -> None:
-        from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
-        ManageCommandsDialog(self, vm=self._vm)
+        dlg = ManageCommandsDialog(parent=self, vm=self._vm)
+        dlg.exec()

@@ -1,24 +1,26 @@
-import customtkinter as ctk
+from PySide6.QtWidgets import QDialog, QVBoxLayout
+
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.ui.command_pane import CommandPane
 
 
-class CommandPopout(ctk.CTkToplevel):
-    def __init__(self, master, handle: RunHandle, on_stop, on_restart, on_remove):
-        super().__init__(master)
+class CommandPopout(QDialog):
+    def __init__(self, parent, handle: RunHandle, on_stop, on_restart, on_remove):
+        super().__init__(parent)
         wt_name = handle.worktree_path.split("/")[-1]
-        self.title(f"{handle.cmd_name} · {handle.repo_name} : {wt_name}")
-        self.geometry("900x600")
+        self.setWindowTitle(
+            f"{handle.cmd_name} · {handle.repo_name} : {wt_name}"
+        )
+        self.resize(900, 600)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
         self._pane = CommandPane(
-            self,
-            handle=handle,
+            parent=self, handle=handle,
             on_maximize=lambda p: None,
-            on_stop=on_stop,
-            on_restart=on_restart,
-            on_remove=on_remove,
+            on_stop=on_stop, on_restart=on_restart, on_remove=on_remove,
             show_popout_btn=False,
         )
-        self._pane.pack(fill="both", expand=True, padx=8, pady=8)
+        layout.addWidget(self._pane)
 
     def append_line(self, line: str) -> None:
         self._pane.append_line(line)
