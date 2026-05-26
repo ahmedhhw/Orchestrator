@@ -61,6 +61,11 @@ class AddCommandDialog(QDialog):
         self._cmd_text.setMinimumHeight(80)
         outer.addWidget(self._cmd_text)
 
+        outer.addWidget(QLabel("Startup pattern (optional):"))
+        self._pattern_entry = QLineEdit()
+        self._pattern_entry.setPlaceholderText("e.g. ready on — substring to detect server start")
+        outer.addWidget(self._pattern_entry)
+
         btns = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -78,7 +83,8 @@ class AddCommandDialog(QDialog):
         repo_path = self._repo_map.get(repo_name, "")
         if not name or not cmd or not repo_path:
             return
-        self._vm.save_command(repo_path, name, cmd)
+        pattern = self._pattern_entry.text().strip() or None
+        self._vm.save_command(repo_path, name, cmd, startup_pattern=pattern)
         if hasattr(self._vm, "set_last_used_repo"):
             self._vm.set_last_used_repo(repo_path)
         if self._on_saved:

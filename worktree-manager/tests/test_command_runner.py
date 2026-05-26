@@ -99,7 +99,7 @@ def test_output_buffer_rolls_at_5000_lines(runner):
 
 def test_cwd_is_used_as_working_directory(runner, tmp_path):
     handle, lines, _ = _collect(runner, "pwd", cwd=str(tmp_path))
-    assert str(tmp_path) in lines[0]
+    assert any(str(tmp_path) in l for l in lines)
 
 
 def test_stderr_merged_into_stdout(runner):

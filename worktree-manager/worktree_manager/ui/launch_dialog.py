@@ -178,7 +178,8 @@ class LaunchDialog(QDialog):
             return
 
         for cmd in visible:
-            row = QPushButton(f"{cmd.name}   —   {cmd.command}")
+            display = f"{cmd.name}   —   {cmd.command}".replace("&", "&&")
+            row = QPushButton(display)
             row.setStyleSheet("text-align: left; padding: 6px;")
             row.clicked.connect(lambda _c=False, c=cmd: self._select_cmd(c))
             self._cmd_layout.addWidget(row)
@@ -264,6 +265,7 @@ class LaunchDialog(QDialog):
             repo_path=repo_path, repo_name=repo_name,
             cmd_name=cmd_obj.name, command_str=cmd_obj.command,
             worktree_path=worktree_path,
+            startup_pattern=getattr(cmd_obj, "startup_pattern", None),
         )
         if hasattr(self._vm, "set_last_used_repo"):
             self._vm.set_last_used_repo(repo_path)

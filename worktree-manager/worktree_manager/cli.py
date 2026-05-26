@@ -33,6 +33,7 @@ class _CleanupLoadBridge(QObject):
 
 class _FinishedBridge(QObject):
     command_finished = Signal(str, object)
+    startup_detected = Signal(str, object)
 
 
 def parse_args(argv):
@@ -65,6 +66,7 @@ class App(QMainWindow):
         self._command_center_vm: CommandCenterViewModel | None = None
         self._finished_bridge = _FinishedBridge()
         self._finished_bridge.command_finished.connect(self._on_command_finished)
+        self._finished_bridge.startup_detected.connect(self._on_startup_detected)
 
         central = QWidget()
         self._central_layout = QHBoxLayout(central)
@@ -250,6 +252,9 @@ class App(QMainWindow):
             self._command_center_vm.on_finished = (
                 self._finished_bridge.command_finished.emit
             )
+            self._command_center_vm.on_startup_detected = (
+                self._finished_bridge.startup_detected.emit
+            )
         return self._command_center_vm
 
     def _show_command_center(self):
@@ -304,6 +309,14 @@ class App(QMainWindow):
             body = f"⏹ \"{cmd_name}\" stopped"
         self._show_notification("Command Center", body)
         self._show_command_center()
+        if not self.isActiveWindow():
+            QApplication.alert(self, 0)
+
+    def _on_startup_detected(self, run_id: str, handle) -> None:
+        cmd_name = handle.cmd_name
+        self._show_notification("Command Center", f"🚀 \"{cmd_name}\" is ready")
+        if not isinstance(self._current_panel, CommandCenterPanel):
+            self._show_command_center()
         if not self.isActiveWindow():
             QApplication.alert(self, 0)
 

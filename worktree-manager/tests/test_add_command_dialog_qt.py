@@ -65,7 +65,7 @@ def test_add_command_dialog_save_calls_vm_with_values(qtbot):
     d.findChild(QPlainTextEdit).setPlainText("make build")
     save = next(b for b in d.findChildren(QPushButton) if b.text() == "Save")
     save.click()
-    vm.save_command.assert_called_once_with("/repos/api", "build", "make build")
+    vm.save_command.assert_called_once_with("/repos/api", "build", "make build", startup_pattern=None)
     vm.set_last_used_repo.assert_called_once_with("/repos/api")
     assert saved == ["ok"]
 

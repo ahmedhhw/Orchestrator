@@ -32,7 +32,7 @@ class ConfigStore:
             last_editor_mode=entry["last_editor_mode"],
             last_opened=entry["last_opened"],
             commands=[
-                SavedCommand(name=c["name"], command=c["command"])
+                SavedCommand(name=c["name"], command=c["command"], startup_pattern=c.get("startup_pattern"))
                 for c in entry.get("commands", [])
             ],
         )
@@ -41,7 +41,7 @@ class ConfigStore:
         data = self._load_raw()
         entry = data["repos"].get(repo_path, {})
         return [
-            SavedCommand(name=c["name"], command=c["command"])
+            SavedCommand(name=c["name"], command=c["command"], startup_pattern=c.get("startup_pattern"))
             for c in entry.get("commands", [])
         ]
 
@@ -49,7 +49,10 @@ class ConfigStore:
         data = self._load_raw()
         entry = data["repos"].setdefault(repo_path, {})
         commands = [c for c in entry.get("commands", []) if c["name"] != cmd.name]
-        commands.append({"name": cmd.name, "command": cmd.command})
+        raw = {"name": cmd.name, "command": cmd.command}
+        if cmd.startup_pattern:
+            raw["startup_pattern"] = cmd.startup_pattern
+        commands.append(raw)
         entry["commands"] = commands
         self._save_raw(data)
 
@@ -136,7 +139,7 @@ class ConfigStore:
                 last_editor_mode=entry["last_editor_mode"],
                 last_opened=entry["last_opened"],
                 commands=[
-                    SavedCommand(name=c["name"], command=c["command"])
+                    SavedCommand(name=c["name"], command=c["command"], startup_pattern=c.get("startup_pattern"))
                     for c in entry.get("commands", [])
                 ],
             )

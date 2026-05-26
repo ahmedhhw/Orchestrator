@@ -18,6 +18,7 @@ class ManageCommandsDialog(QDialog):
         self._editing_name: str | None = None
         self._action_buttons: list[QPushButton] = []
         self._done_btn: QPushButton | None = None
+        self._edit_pattern_entry: QLineEdit | None = None
         self._build()
 
     def _build(self):
@@ -124,14 +125,14 @@ class ManageCommandsDialog(QDialog):
                 sep.setStyleSheet("color: gray;")
                 self._list_layout.addWidget(sep)
             if cmd.name == self._editing_name:
-                self._list_layout.addWidget(self._build_edit_row(cmd.name, cmd.command))
+                self._list_layout.addWidget(self._build_edit_row(cmd.name, cmd.command, cmd.startup_pattern))
             else:
-                self._list_layout.addWidget(self._build_view_row(cmd.name, cmd.command))
+                self._list_layout.addWidget(self._build_view_row(cmd.name, cmd.command, cmd.startup_pattern))
 
         self._list_layout.addStretch(1)
         self._apply_lock_state()
 
-    def _build_view_row(self, name: str, command: str) -> QWidget:
+    def _build_view_row(self, name: str, command: str, startup_pattern: str | None = None) -> QWidget:
         row = QWidget()
         layout = QVBoxLayout(row)
         layout.setContentsMargins(0, 4, 0, 4)
@@ -143,6 +144,10 @@ class ManageCommandsDialog(QDialog):
         cmd_label.setStyleSheet("color: gray; font-size: 11px;")
         cmd_label.setWordWrap(True)
         layout.addWidget(cmd_label)
+        if startup_pattern:
+            pattern_label = QLabel(f"🚀 {startup_pattern}")
+            pattern_label.setStyleSheet("color: gray; font-size: 10px;")
+            layout.addWidget(pattern_label)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -162,7 +167,7 @@ class ManageCommandsDialog(QDialog):
         self._action_buttons.extend([del_btn, copy_btn, edit_btn])
         return row
 
-    def _build_edit_row(self, name: str, command: str) -> QWidget:
+    def _build_edit_row(self, name: str, command: str, startup_pattern: str | None = None) -> QWidget:
         row = QFrame()
         row.setFrameShape(QFrame.StyledPanel)
         layout = QVBoxLayout(row)
@@ -176,6 +181,11 @@ class ManageCommandsDialog(QDialog):
         cmd_text = QPlainTextEdit(command)
         cmd_text.setMinimumHeight(80)
         layout.addWidget(cmd_text)
+
+        layout.addWidget(QLabel("Startup pattern (optional)"))
+        self._edit_pattern_entry = QLineEdit(startup_pattern or "")
+        self._edit_pattern_entry.setPlaceholderText("e.g. ready on — substring to detect server start")
+        layout.addWidget(self._edit_pattern_entry)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
@@ -207,6 +217,7 @@ class ManageCommandsDialog(QDialog):
 
     def _cancel_edit(self) -> None:
         self._editing_name = None
+        self._edit_pattern_entry = None
         self._refresh_list()
 
     def _save_edit(self, old_name: str, new_name: str, new_command: str) -> None:
@@ -214,11 +225,13 @@ class ManageCommandsDialog(QDialog):
         new_command = new_command.strip()
         if not new_name or not new_command:
             return
+        pattern = (self._edit_pattern_entry.text().strip() or None) if self._edit_pattern_entry else None
         repo_path = self._current_repo_path()
         if old_name != new_name:
             self._vm.delete_command(repo_path, old_name)
-        self._vm.save_command(repo_path, new_name, new_command)
+        self._vm.save_command(repo_path, new_name, new_command, startup_pattern=pattern)
         self._editing_name = None
+        self._edit_pattern_entry = None
         self._refresh_list()
 
     def _delete(self, name: str) -> None:
