@@ -325,6 +325,109 @@ class App(QMainWindow):
             description="Open settings",
         ))
 
+        # ── new worktree <repo> ───────────────────────────────────────────
+        from worktree_manager.main_window_vm import MainWindowViewModel
+
+        def _run_new_worktree(args):
+            path = _repo_path_by_name(args["repo"])
+            if path is None:
+                return
+            vm = MainWindowViewModel(
+                repo_path=path,
+                config_store=self._store,
+                git_service=self._git,
+            )
+            self._show_new_worktree(vm)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="new_worktree",
+            keywords=["new", "worktree"],
+            slots=[ArgSlot(
+                name="repo",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_new_worktree,
+            description="Create a new worktree",
+        ))
+
+        # ── new project ───────────────────────────────────────────────────
+        def _run_new_project(_args):
+            dlg = ProjectOperationsDialog(
+                parent=self, vm=self._wp_vm,
+                repos=self._store.all_repos(),
+                on_create=lambda name, entries: self._wp_vm.create_project(
+                    name=name, entries=entries,
+                ),
+            )
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="new_project",
+            keywords=["new", "project"],
+            slots=[],
+            runner=_run_new_project,
+            description="Create a new workspace project",
+        ))
+
+        # ── new command <repo> ────────────────────────────────────────────
+        from worktree_manager.ui.add_command_dialog import AddCommandDialog
+
+        def _run_new_command(args):
+            path = _repo_path_by_name(args["repo"])
+            if path is None:
+                return
+            self._ensure_command_center_vm()
+            dlg = AddCommandDialog(
+                parent=self, vm=self._command_center_vm,
+                initial_repo=path,
+            )
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="new_command",
+            keywords=["new", "command"],
+            slots=[ArgSlot(
+                name="repo",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_new_command,
+            description="Add a new saved command",
+        ))
+
+        # ── edit command <repo> ───────────────────────────────────────────
+        from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
+
+        def _run_edit_command(args):
+            path = _repo_path_by_name(args["repo"])
+            if path is None:
+                return
+            self._ensure_command_center_vm()
+            dlg = ManageCommandsDialog(
+                parent=self, vm=self._command_center_vm,
+                initial_repo=path,
+            )
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="edit_command",
+            keywords=["edit", "command"],
+            slots=[ArgSlot(
+                name="repo",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_edit_command,
+            description="Manage saved commands for a repo",
+        ))
+
+        # ── new repo ──────────────────────────────────────────────────────
+        self._spotlight_registry.register(ActionSpec(
+            name="new_repo",
+            keywords=["new", "repo"],
+            slots=[],
+            runner=lambda _args: self._pick_and_add_repo(),
+            description="Add a new repo",
+        ))
+
         self._spotlight_overlay = SpotlightOverlay(
             parser=ActionParser(self._spotlight_registry),
             parent=self,

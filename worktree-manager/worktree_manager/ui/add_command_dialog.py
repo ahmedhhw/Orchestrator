@@ -13,6 +13,7 @@ class AddCommandDialog(QDialog):
         self.setModal(True)
         self._vm = vm
         self._on_saved = on_saved
+        self._initial_repo = initial_repo
         self._build(initial_repo)
 
     def _build(self, initial_repo):

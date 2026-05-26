@@ -2352,3 +2352,31 @@ Setup: have at least two configured repos, each with at least one saved command 
 - [ ] Typing a non-matching string yields an empty list, and Enter is a no-op.
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually. Reply **"Iteration 1 confirmed"** (or describe any failures) before I write the plan for Iteration 2.
+
+---
+
+## Iteration 2 — Create/Edit Dialog-Opening Actions
+
+### Phase 2.1 — Register 5 new spotlight actions in cli.py
+
+**What it covers:** `new worktree <repo>`, `new project`, `new command <repo>`, `edit command <repo>`, `new repo` are all wired into the spotlight registry.
+
+**Tests (Red → Green):** `tests/test_spotlight_iteration2_wiring_qt.py` — 11 tests covering registration and runner delegation for each action.
+
+**Done when:** All 11 wiring tests pass; full suite has only the 3 pre-existing failures.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off.
+
+- [ ] Open spotlight (`Cmd+K`), type `new` — suggestions include `worktree`, `project`, `command`, `repo`
+- [ ] `new project` → Enter — "New Workspace Project" dialog opens
+- [ ] `new worktree <your-repo-name>` → Enter — "New Worktree" dialog opens pre-scoped to that repo
+- [ ] `new command <your-repo-name>` → Enter — "Add Saved Command" dialog opens with that repo pre-selected
+- [ ] `edit command <your-repo-name>` → Enter — "Manage Commands" dialog opens with that repo pre-selected
+- [ ] `new repo` → Enter — file picker opens (or repo setup dialog if path is selected)
+- [ ] Regression: `project`, `edit project`, `repo`, `command`, `switch`, `cleanup`, `settings` all still work as before
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually. Reply **"Iteration 2 confirmed"** (or describe any failures) before I write the plan for Iteration 3.

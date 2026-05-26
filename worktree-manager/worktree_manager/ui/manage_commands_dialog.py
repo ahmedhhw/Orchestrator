@@ -9,12 +9,13 @@ from worktree_manager.ui.add_command_dialog import AddCommandDialog
 
 
 class ManageCommandsDialog(QDialog):
-    def __init__(self, parent, vm):
+    def __init__(self, parent, vm, initial_repo: str | None = None):
         super().__init__(parent)
         self.setWindowTitle("Manage Commands")
         self.setModal(True)
         self.resize(520, 480)
         self._vm = vm
+        self._initial_repo = initial_repo
         self._editing_name: str | None = None
         self._action_buttons: list[QPushButton] = []
         self._done_btn: QPushButton | None = None
@@ -42,11 +43,14 @@ class ManageCommandsDialog(QDialog):
 
         repo_row = QHBoxLayout()
         repo_row.addWidget(QLabel("Repository:"))
+        explicit = self._initial_repo
         last_used = (
             self._vm.get_last_used_repo()
             if hasattr(self._vm, "get_last_used_repo") else None
         )
-        if last_used and last_used in repo_paths:
+        if explicit and explicit in repo_paths:
+            default_name = Path(explicit).name
+        elif last_used and last_used in repo_paths:
             default_name = Path(last_used).name
         elif display_names:
             default_name = display_names[0]
