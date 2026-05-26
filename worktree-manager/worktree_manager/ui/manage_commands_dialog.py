@@ -2,20 +2,21 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QMenu, QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.ui.add_command_dialog import AddCommandDialog
 
 
 class ManageCommandsDialog(QDialog):
-    def __init__(self, parent, vm, initial_repo: str | None = None):
+    def __init__(self, parent, vm, initial_repo: str | None = None, on_nickname=None):
         super().__init__(parent)
         self.setWindowTitle("Manage Commands")
         self.setModal(True)
         self.resize(520, 480)
         self._vm = vm
         self._initial_repo = initial_repo
+        self._on_nickname = on_nickname
         self._editing_name: str | None = None
         self._action_buttons: list[QPushButton] = []
         self._done_btn: QPushButton | None = None
@@ -158,6 +159,7 @@ class ManageCommandsDialog(QDialog):
         del_btn = QPushButton("Delete")
         del_btn.setStyleSheet("background-color: #b04545; color: white;")
         del_btn.clicked.connect(lambda _c=False, n=name: self._delete(n))
+        self._attach_command_nickname_menu(del_btn, "delete_command", name)
         btn_row.addWidget(del_btn)
         copy_btn = QPushButton("⎘")
         copy_btn.setFixedWidth(36)
@@ -165,11 +167,35 @@ class ManageCommandsDialog(QDialog):
         btn_row.addWidget(copy_btn)
         edit_btn = QPushButton("Edit")
         edit_btn.clicked.connect(lambda _c=False, n=name: self._start_edit(n))
+        self._attach_command_nickname_menu(edit_btn, "edit_command", name)
         btn_row.addWidget(edit_btn)
         layout.addLayout(btn_row)
 
         self._action_buttons.extend([del_btn, copy_btn, edit_btn])
         return row
+
+    def _attach_command_nickname_menu(self, btn: QPushButton, action_name: str, cmd_name: str) -> None:
+        if self._on_nickname is None:
+            return
+        from PySide6.QtCore import Qt as _Qt
+        btn.setContextMenuPolicy(_Qt.CustomContextMenu)
+        btn.customContextMenuRequested.connect(
+            lambda pos, b=btn, a=action_name, c=cmd_name: self._show_command_nickname_menu(b, a, c)
+        )
+
+    def _show_command_nickname_menu(self, btn: QPushButton, action_name: str, cmd_name: str) -> None:
+        repo_name = self._repo_combo.currentText() if self._repo_combo else ""
+        if not repo_name:
+            return
+        menu = QMenu(self)
+        if action_name == "delete_command":
+            args = {"repo": repo_name, "cmd": cmd_name}
+        else:
+            args = {"repo": repo_name}
+        menu.addAction("Add Nickname…").triggered.connect(
+            lambda: self._on_nickname(action_name, args)
+        )
+        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def _build_edit_row(self, name: str, command: str, startup_pattern: str | None = None) -> QWidget:
         row = QFrame()

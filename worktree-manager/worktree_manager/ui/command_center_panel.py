@@ -19,10 +19,11 @@ class _VMBridge(QObject):
 
 
 class CommandCenterPanel(QWidget):
-    def __init__(self, parent, vm, on_close):
+    def __init__(self, parent, vm, on_close, on_nickname=None):
         super().__init__(parent)
         self._vm = vm
         self._on_close = on_close
+        self._on_nickname = on_nickname
         self._panes: dict[str, CommandPane] = {}
         self._pane_shown: dict[str, bool] = {}
         self._popouts: dict[str, object] = {}
@@ -120,6 +121,7 @@ class CommandCenterPanel(QWidget):
             on_stop=lambda: self._vm.stop(handle.run_id),
             on_restart=lambda: self._do_restart(handle.run_id),
             on_remove=lambda: self.remove_pane(handle.run_id),
+            on_nickname=self._on_nickname,
         )
         self._panes[handle.run_id] = pane
         self._pane_shown[handle.run_id] = True

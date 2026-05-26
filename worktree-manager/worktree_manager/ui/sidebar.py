@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QHBoxLayout, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QHBoxLayout, QMenu, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 
@@ -17,11 +17,13 @@ class Sidebar(QWidget):
         on_repo_delete,
         active_repo_path=None,
         parent=None,
+        on_nickname=None,
     ):
         super().__init__(parent)
         self._store = store
         self._on_repo_selected = on_repo_selected
         self._on_repo_delete = on_repo_delete
+        self._on_nickname = on_nickname
         self._active_repo_path = active_repo_path
         self._repo_buttons: dict = {}
 
@@ -95,6 +97,12 @@ class Sidebar(QWidget):
             btn.clicked.connect(
                 lambda _checked=False, p=path: self._on_repo_selected(p)
             )
+            if self._on_nickname is not None:
+                from PySide6.QtCore import Qt as _Qt
+                btn.setContextMenuPolicy(_Qt.CustomContextMenu)
+                btn.customContextMenuRequested.connect(
+                    lambda pos, n=name, b=btn: self._show_repo_nickname_menu(b, n)
+                )
             row_layout.addWidget(btn, 1)
 
             del_btn = QPushButton("✕")
@@ -111,6 +119,19 @@ class Sidebar(QWidget):
             self._repo_buttons[path] = btn
 
         self._repo_layout.addStretch(1)
+
+    def _show_repo_nickname_menu(self, btn: QPushButton, repo_name: str) -> None:
+        menu = QMenu(self)
+        menu.addAction("Add Nickname for 'repo'…").triggered.connect(
+            lambda: self._on_nickname("focus_repo", {"name": repo_name})
+        )
+        menu.addAction("Add Nickname for 'cleanup'…").triggered.connect(
+            lambda: self._on_nickname("cleanup_repo", {"name": repo_name})
+        )
+        menu.addAction("Add Nickname for 'delete repo'…").triggered.connect(
+            lambda: self._on_nickname("delete_repo", {"name": repo_name})
+        )
+        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def set_active_repo(self, repo_path):
         self._active_repo_path = repo_path

@@ -35,6 +35,12 @@ class ActionRegistry:
                 seen.append(kw)
         return seen
 
+    def get_by_name(self, name: str) -> ActionSpec | None:
+        for spec in self._specs:
+            if spec.name == name:
+                return spec
+        return None
+
     def find_by_keywords(self, keywords: list[str]) -> ActionSpec | None:
         for spec in self._specs:
             if spec.keywords == list(keywords):

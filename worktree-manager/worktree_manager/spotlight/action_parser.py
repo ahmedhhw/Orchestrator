@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from worktree_manager.spotlight.action_registry import ActionRegistry, ActionSpec
+
+if TYPE_CHECKING:
+    from worktree_manager.spotlight.nickname_store import NicknameStore
 
 
 @dataclass
@@ -13,9 +19,12 @@ class ParseResult:
     committed_args: dict[str, str] = field(default_factory=dict)
     slot_index: int = 0
     all_candidates: list[str] = field(default_factory=list)
+    # Set when input exactly matches a nickname — the runner is called directly.
+    nickname_action_name: str | None = None
+    nickname_args: dict | None = None
 
 
-def _substring_filter(items: list[str], needle: str) -> list[str]:
+def _prefix_filter(items: list[str], needle: str) -> list[str]:
     if not needle:
         return list(items)
     needle = needle.lower()
@@ -23,18 +32,53 @@ def _substring_filter(items: list[str], needle: str) -> list[str]:
 
 
 class ActionParser:
-    def __init__(self, registry: ActionRegistry):
+    def __init__(
+        self,
+        registry: ActionRegistry,
+        nickname_store: NicknameStore | None = None,
+        mru_labels: list[str] | None = None,
+    ):
         self._registry = registry
+        self._nickname_store = nickname_store
+        self._mru_labels = mru_labels or []
 
     def parse(self, text: str) -> ParseResult:
         roots = list(self._registry.root_keywords())
+
         if not text.strip():
+            # Prepend MRU labels ahead of root keywords (deduped).
+            seen: set[str] = set()
+            suggestions: list[str] = []
+            for label in self._mru_labels:
+                if label not in seen:
+                    suggestions.append(label)
+                    seen.add(label)
+            for kw in roots:
+                if kw not in seen:
+                    suggestions.append(kw)
+                    seen.add(kw)
             return ParseResult(
                 action=None,
-                suggestions=roots,
+                suggestions=suggestions,
                 completion_kind="keyword",
-                all_candidates=roots,
+                all_candidates=suggestions,
             )
+
+        # Exact nickname match on the whole input (single token, no trailing space).
+        stripped = text.strip()
+        ends_with_space_early = text != text.rstrip()
+        if self._nickname_store is not None and " " not in stripped and not ends_with_space_early:
+            entry = self._nickname_store.get(stripped)
+            if entry is not None:
+                return ParseResult(
+                    action=None,
+                    suggestions=[stripped],
+                    filter_text="",
+                    executable=True,
+                    completion_kind="nickname",
+                    nickname_action_name=entry.action_name,
+                    nickname_args=dict(entry.args),
+                )
 
         ends_with_space = text != text.rstrip()
         tokens = text.split()
@@ -46,12 +90,18 @@ class ActionParser:
             else:
                 prefix, partial = tokens[:-1], tokens[-1]
             candidates = self._registry.next_keywords(prefix)
+            # Also include nickname names that start with the partial token.
+            if self._nickname_store is not None and not prefix:
+                nick_names = list(self._nickname_store.all().keys())
+                for n in _prefix_filter(nick_names, partial):
+                    if n not in candidates:
+                        candidates = list(candidates) + [n]
             return ParseResult(
                 action=None,
-                suggestions=_substring_filter(candidates, partial),
+                suggestions=_prefix_filter(candidates, partial),
                 filter_text=partial,
                 completion_kind="keyword",
-                all_candidates=candidates,
+                all_candidates=list(candidates),
             )
 
         if not spec.slots:
@@ -97,7 +147,7 @@ class ActionParser:
 
         active_slot = spec.slots[active_idx]
         candidates = active_slot.candidates(committed_args)
-        suggestions = _substring_filter(candidates, needle)
+        suggestions = _prefix_filter(candidates, needle)
         return ParseResult(
             action=spec, suggestions=suggestions, filter_text=needle,
             executable=(len(suggestions) == 1),

@@ -86,6 +86,7 @@ class App(QMainWindow):
                 p, is_active=(p == self._active_repo_path),
             ),
             active_repo_path=None,
+            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
         )
         self._central_layout.addWidget(self._sidebar)
 
@@ -325,6 +326,20 @@ class App(QMainWindow):
             description="Open settings",
         ))
 
+        # ── nicknames ─────────────────────────────────────────────────────
+        def _run_nicknames(_args):
+            from worktree_manager.ui.manage_nicknames_dialog import ManageNicknamesDialog
+            dlg = ManageNicknamesDialog(parent=self, nickname_store=self._nickname_store)
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="manage_nicknames",
+            keywords=["nicknames"],
+            slots=[],
+            runner=_run_nicknames,
+            description="View and delete saved nicknames",
+        ))
+
         # ── new worktree <repo> ───────────────────────────────────────────
         from worktree_manager.main_window_vm import MainWindowViewModel
 
@@ -405,6 +420,7 @@ class App(QMainWindow):
             dlg = ManageCommandsDialog(
                 parent=self, vm=self._command_center_vm,
                 initial_repo=path,
+                on_nickname=lambda action_name, kw_args: self._add_nickname(action_name, kw_args),
             )
             dlg.exec()
 
@@ -564,9 +580,35 @@ class App(QMainWindow):
             description="Remove a repo from the app",
         ))
 
+        from worktree_manager.spotlight.nickname_store import NicknameStore
+
+        self._nickname_store = NicknameStore(self._store)
+
+        def _build_mru_labels() -> list[str]:
+            labels = []
+            for entry in self._store.get_mru():
+                action_name = entry.get("action", "")
+                args = entry.get("args", {})
+                spec = self._spotlight_registry.get_by_name(action_name)
+                if spec is None:
+                    continue
+                parts = list(spec.keywords) + [args[s.name] for s in spec.slots if s.name in args]
+                labels.append(" ".join(parts))
+            return labels
+
+        def _on_action_executed(action_name: str, args: dict) -> None:
+            self._store.push_mru(action_name, args)
+
+        self._build_mru_labels = _build_mru_labels
+
         self._spotlight_overlay = SpotlightOverlay(
-            parser=ActionParser(self._spotlight_registry),
+            parser=ActionParser(
+                self._spotlight_registry,
+                nickname_store=self._nickname_store,
+                mru_labels=_build_mru_labels(),
+            ),
             parent=self,
+            on_action_executed=_on_action_executed,
         )
         from PySide6.QtCore import Qt as _Qt
         shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
@@ -574,6 +616,13 @@ class App(QMainWindow):
         shortcut.activated.connect(self._open_spotlight)
 
     def _open_spotlight(self) -> None:
+        from worktree_manager.spotlight.action_parser import ActionParser
+        from worktree_manager.spotlight.nickname_store import NicknameStore
+        self._spotlight_overlay._parser = ActionParser(
+            self._spotlight_registry,
+            nickname_store=self._nickname_store,
+            mru_labels=self._build_mru_labels(),
+        )
         self._spotlight_overlay.show_centered_over(self)
 
     def spotlight_registry(self):
@@ -582,6 +631,20 @@ class App(QMainWindow):
     def open_spotlight_for_test(self):
         self._open_spotlight()
         return self._spotlight_overlay
+
+    def _add_nickname(self, action_name: str, args: dict) -> None:
+        from worktree_manager.ui.add_nickname_dialog import AddNicknameDialog
+        from worktree_manager.spotlight.nickname_store import NicknameEntry
+        reserved = list(self._spotlight_registry.root_keywords())
+        existing = list(self._nickname_store.all().keys())
+        dlg = AddNicknameDialog(parent=self, reserved_keywords=reserved, existing_nicknames=existing)
+        if dlg.exec():
+            nickname = dlg.nickname()
+            self._nickname_store.save(NicknameEntry(
+                nickname=nickname,
+                action_name=action_name,
+                args=dict(args),
+            ))
 
     # ── panel swap helpers ──────────────────────────────────────────────────
 
@@ -643,6 +706,7 @@ class App(QMainWindow):
             on_new=lambda: self._show_new_worktree(vm),
             on_generate_project=self._on_generate_project,
             on_run_command=self._on_run_command,
+            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
         ))
 
     def _confirm_delete_repo(self, repo_path, is_active):
@@ -752,6 +816,7 @@ class App(QMainWindow):
             parent=self,
             vm=self._command_center_vm,
             on_close=self._on_command_center_close,
+            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
         ))
 
     def _on_command_center_close(self):
@@ -767,6 +832,7 @@ class App(QMainWindow):
             parent=self, vm=vm, on_close=self._show_empty_main,
             on_generate_project=self._on_generate_project,
             on_run_command=self._on_run_command,
+            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
         ))
 
     def _on_run_command(self, worktree_path: str) -> None:
