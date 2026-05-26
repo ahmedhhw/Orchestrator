@@ -69,6 +69,7 @@ class CommandCenterViewModel:
             ):
                 raise DuplicateRunError(handle.run_id)
 
+        self._runner.shell = self._store.get_ui_pref("shell", "zsh")
         handle = self._runner.start(
             command_str=command_str,
             cwd=worktree_path,

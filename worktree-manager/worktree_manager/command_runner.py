@@ -30,6 +30,12 @@ class RunHandle:
 MAX_OUTPUT_LINES = 5000
 
 
+_SHELL_RC = {
+    "zsh":  ["[ -f ~/.zprofile ] && source ~/.zprofile; ", "[ -f ~/.zshrc ] && source ~/.zshrc; "],
+    "bash": ["[ -f ~/.bash_profile ] && source ~/.bash_profile; ", "[ -f ~/.bashrc ] && source ~/.bashrc; "],
+}
+
+
 class CommandRunner:
     def __init__(self):
         self._handles: dict[str, RunHandle] = {}
@@ -38,6 +44,7 @@ class CommandRunner:
         self._intentional_stops: set[str] = set()
         self.output_callback = None  # Callable[[run_id, line], None]
         self.exit_callback = None    # Callable[[run_id, returncode], None]
+        self.shell: str = "zsh"
 
     def start(
         self,
@@ -57,15 +64,12 @@ class CommandRunner:
             worktree_path=worktree_path,
             command=command_str,
         )
-        source_cmd = (
-            "[ -f ~/.zprofile ] && source ~/.zprofile; "
-            "[ -f ~/.zshrc ] && source ~/.zshrc; "
-            "[ -f ~/.bash_profile ] && source ~/.bash_profile; "
-            "[ -f ~/.bashrc ] && source ~/.bashrc; "
-        )
+        shell = self.shell
+        rc_lines = _SHELL_RC.get(shell, _SHELL_RC["zsh"])
+        source_cmd = "".join(rc_lines)
         master_fd, slave_fd = pty.openpty()
         proc = subprocess.Popen(
-            ["bash", "-c", source_cmd + command_str],
+            [shell, "-c", source_cmd + command_str],
             cwd=cwd,
             stdin=slave_fd,
             stdout=slave_fd,

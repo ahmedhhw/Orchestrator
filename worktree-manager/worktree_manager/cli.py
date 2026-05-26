@@ -740,7 +740,7 @@ class App(QMainWindow):
 
     def _show_settings(self, repo_path):
         vm = SettingsViewModel(repo_path=repo_path, config_store=self._store)
-        dlg = SettingsDialog(parent=self, vm=vm)
+        dlg = SettingsDialog(parent=self, vm=vm, store=self._store)
         dlg.exec()
         self._refresh()
 

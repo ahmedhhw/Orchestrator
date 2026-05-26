@@ -1,17 +1,18 @@
 from PySide6.QtWidgets import (
-    QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QSpinBox, QVBoxLayout,
+    QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QSpinBox, QVBoxLayout,
 )
 
 from worktree_manager.setup_settings_vm import SettingsViewModel
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent, vm: SettingsViewModel):
+    def __init__(self, parent, vm: SettingsViewModel, store=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
         self._vm = vm
+        self._store = store
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 20, 24, 16)
@@ -42,6 +43,17 @@ class SettingsDialog(QDialog):
         row2.addStretch(1)
         outer.addLayout(row2)
 
+        row3 = QHBoxLayout()
+        row3.addWidget(QLabel("Shell:"))
+        self._shell_combo = QComboBox()
+        self._shell_combo.addItems(["zsh", "bash"])
+        current_shell = store.get_ui_pref("shell", "zsh") if store else "zsh"
+        idx = self._shell_combo.findText(current_shell)
+        self._shell_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        row3.addWidget(self._shell_combo)
+        row3.addStretch(1)
+        outer.addLayout(row3)
+
         btns = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -62,4 +74,6 @@ class SettingsDialog(QDialog):
             worktree_storage=self._storage_entry.text(),
             stale_days=int(self._stale_spin.value()),
         )
+        if self._store:
+            self._store.set_ui_pref("shell", self._shell_combo.currentText())
         self.accept()
