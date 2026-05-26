@@ -94,6 +94,62 @@ class App(QMainWindow):
         else:
             self._show_empty_main()
 
+        self._setup_spotlight()
+
+    def _setup_spotlight(self) -> None:
+        from PySide6.QtGui import QKeySequence, QShortcut
+        from worktree_manager.spotlight.action_parser import ActionParser
+        from worktree_manager.spotlight.action_registry import (
+            ActionRegistry, ActionSpec, ArgSlot,
+        )
+        from worktree_manager.ui.spotlight_overlay import SpotlightOverlay
+        from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
+        from worktree_manager.workspace_service import WorkspaceService
+
+        self._spotlight_registry = ActionRegistry()
+        self._wp_vm = WorkspaceProjectsViewModel(
+            config_store=self._store,
+            git_service=self._git,
+            workspace_service=WorkspaceService(),
+        )
+
+        def _run_open_project(args):
+            name = args["name"]
+            repos = self._store.all_repos()
+            cfg = next(iter(repos.values()), None)
+            editor = cfg.last_editor if cfg else "code"
+            self._wp_vm.open_project(name, editor)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="open_project",
+            keywords=["project"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda: [p.name for p in self._store.all_projects()],
+            )],
+            runner=_run_open_project,
+            description="Open a workspace project",
+        ))
+
+        self._spotlight_overlay = SpotlightOverlay(
+            parser=ActionParser(self._spotlight_registry),
+            parent=self,
+        )
+        from PySide6.QtCore import Qt as _Qt
+        shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        shortcut.setContext(_Qt.ApplicationShortcut)
+        shortcut.activated.connect(self._open_spotlight)
+
+    def _open_spotlight(self) -> None:
+        self._spotlight_overlay.show_centered_over(self)
+
+    def spotlight_registry(self):
+        return self._spotlight_registry
+
+    def open_spotlight_for_test(self):
+        self._open_spotlight()
+        return self._spotlight_overlay
+
     # ── panel swap helpers ──────────────────────────────────────────────────
 
     def _set_panel(self, widget):
