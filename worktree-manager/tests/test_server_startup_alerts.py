@@ -204,18 +204,19 @@ def test_startup_notification_fires_when_command_center_not_visible(qtbot, monke
     assert "🚀" in shown[0][1]
 
 
-def test_startup_notification_fires_even_when_command_center_visible(qtbot, monkeypatch):
+def test_startup_toast_fires_even_when_command_center_visible(qtbot, monkeypatch):
     from worktree_manager.ui.command_center_panel import CommandCenterPanel
     app = _make_app(qtbot, monkeypatch)
     app._show_command_center()
     assert isinstance(app._current_panel, CommandCenterPanel)
 
-    shown = []
-    with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
+    toasted = []
+    with patch.object(app, "show_toast", side_effect=lambda msg: toasted.append(msg)):
         app._on_startup_detected("run-1", _handle(cmd_name="srv"))
 
-    assert len(shown) == 1
-    assert "🚀" in shown[0][1]
+    assert len(toasted) == 1
+    assert "🚀" in toasted[0]
+    assert "srv" in toasted[0]
 
 
 def test_startup_switches_to_command_center_when_not_visible(qtbot, monkeypatch):

@@ -314,11 +314,15 @@ class App(QMainWindow):
 
     def _on_startup_detected(self, run_id: str, handle) -> None:
         cmd_name = handle.cmd_name
-        self._show_notification("Command Center", f"🚀 \"{cmd_name}\" is ready")
+        if not self.isActiveWindow():
+            self._show_notification("Command Center", f"🚀 \"{cmd_name}\" is ready")
+            QApplication.alert(self, 0)
+        self.show_toast(f"🚀 \"{cmd_name}\" is ready")
         if not isinstance(self._current_panel, CommandCenterPanel):
             self._show_command_center()
-        if not self.isActiveWindow():
-            QApplication.alert(self, 0)
+
+    def show_toast(self, message: str) -> None:
+        self.statusBar().showMessage(message, 4000)
 
     def _show_notification(self, title: str, body: str) -> None:
         import subprocess

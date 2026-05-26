@@ -161,9 +161,11 @@ class CommandCenterPanel(QWidget):
         pane = self._panes.get(run_id)
         if pane is not None:
             pane.clear_output()
+            pane.set_status(RunStatus.RUNNING)
         popout = self._popouts.get(run_id)
         if popout is not None:
             popout.clear_output()
+            popout.set_status(RunStatus.RUNNING)
         self._vm.restart(run_id)
 
     def route_output(self, run_id: str, line: str) -> None:
