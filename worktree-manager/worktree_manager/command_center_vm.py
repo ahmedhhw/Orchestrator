@@ -20,20 +20,31 @@ class CommandCenterViewModel:
         self._runner.output_callback = self._on_runner_output
         self._runner.exit_callback = self._on_runner_exit
         self._run_meta: dict[str, dict] = {}
+        self._startup_fired: set[str] = set()
 
         self.on_run_added = None        # Callable[[RunHandle], None]
         self.on_output = None           # Callable[[run_id, line], None]
         self.on_status_changed = None   # Callable[[run_id, RunStatus], None]
         self.on_run_id_changed = None   # Callable[[old_id, new_id], None]
         self.on_finished = None         # Callable[[run_id, RunHandle], None]
+        self.on_startup_detected = None # Callable[[run_id, RunHandle], None]
 
     # --- saved command CRUD ---
 
     def saved_commands(self, repo_path: str) -> list[SavedCommand]:
         return self._store.get_commands(repo_path)
 
-    def save_command(self, repo_path: str, name: str, command: str) -> None:
-        self._store.save_command(repo_path, SavedCommand(name=name, command=command))
+    def save_command(self, repo_path: str, name: str, command: str, startup_pattern: str | None = None) -> None:
+        self._store.save_command(repo_path, SavedCommand(name=name, command=command, startup_pattern=startup_pattern))
+        self._sync_run_meta(repo_path, name, command, startup_pattern)
+
+    def _sync_run_meta(self, repo_path: str, cmd_name: str, command_str: str, startup_pattern: str | None) -> None:
+        """Update _run_meta for any live run matching this command, so restart and startup detection use the new values."""
+        for run_id, meta in self._run_meta.items():
+            if meta.get("repo_path") == repo_path and meta.get("cmd_name") == cmd_name:
+                meta["command_str"] = command_str
+                meta["startup_pattern"] = startup_pattern
+                self._startup_fired.discard(run_id)
 
     def delete_command(self, repo_path: str, name: str) -> None:
         self._store.delete_command(repo_path, name)
@@ -47,6 +58,7 @@ class CommandCenterViewModel:
         cmd_name: str,
         command_str: str,
         worktree_path: str,
+        startup_pattern: str | None = None,
     ) -> str:
         for handle in self._runner._handles.values():
             if (
@@ -71,6 +83,7 @@ class CommandCenterViewModel:
             "cmd_name": cmd_name,
             "command_str": command_str,
             "worktree_path": worktree_path,
+            "startup_pattern": startup_pattern,
         }
         if self.on_run_added:
             self.on_run_added(handle)
@@ -83,6 +96,7 @@ class CommandCenterViewModel:
         self._runner.terminate(run_id, intentional=True)
         self._runner.forget(run_id)
         self._run_meta.pop(run_id, None)
+        self._startup_fired.discard(run_id)
 
     def restart(self, run_id: str) -> str:
         meta = self._run_meta.get(run_id)
@@ -93,6 +107,7 @@ class CommandCenterViewModel:
             self._runner.terminate(run_id, intentional=True)
             old_handle.output_lines.clear()
             self._runner.forget(run_id)
+        self._startup_fired.discard(run_id)
 
         saved_on_run_added = self.on_run_added
         self.on_run_added = None
@@ -139,6 +154,14 @@ class CommandCenterViewModel:
     # --- runner callbacks (background thread) ---
 
     def _on_runner_output(self, run_id: str, line: str) -> None:
+        if self.on_startup_detected and run_id not in self._startup_fired:
+            meta = self._run_meta.get(run_id, {})
+            pattern = meta.get("startup_pattern")
+            if pattern and pattern in line:
+                self._startup_fired.add(run_id)
+                handle = self._runner.get_handle(run_id)
+                if handle:
+                    self.on_startup_detected(run_id, handle)
         if self.on_output:
             self.on_output(run_id, line)
 

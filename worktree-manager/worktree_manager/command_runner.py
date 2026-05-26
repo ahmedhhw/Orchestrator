@@ -63,6 +63,9 @@ class CommandRunner:
         )
         self._handles[run_id] = handle
         self._procs[run_id] = proc
+        handle.output_lines.append(f"$ {command_str}")
+        if self.output_callback:
+            self.output_callback(run_id, f"$ {command_str}")
         thread = threading.Thread(target=self._stream, args=(run_id,), daemon=True)
         thread.start()
         return handle

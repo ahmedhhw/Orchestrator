@@ -98,9 +98,6 @@ class CommandCenterPanel(QWidget):
     def _restore_existing_runs(self):
         for handle in self._vm.all_runs():
             self.add_pane(handle)
-            for line in handle.output_lines:
-                self._panes[handle.run_id].append_line(line)
-            self._panes[handle.run_id].set_status(handle.status)
 
     # --- pane lifecycle ---
 
@@ -116,6 +113,9 @@ class CommandCenterPanel(QWidget):
         )
         self._panes[handle.run_id] = pane
         self._pane_shown[handle.run_id] = True
+        for line in handle.output_lines:
+            pane.append_line(line)
+        pane.set_status(handle.status)
         # insert before the stretch item
         self._scroll_layout.insertWidget(self._scroll_layout.count() - 1, pane)
         self._empty_label.setVisible(False)
@@ -149,6 +149,10 @@ class CommandCenterPanel(QWidget):
                 on_restart=lambda: self._do_restart(new_id),
                 on_remove=lambda: self.remove_pane(new_id),
             )
+            new_handle = self._vm.get_run(new_id)
+            if new_handle:
+                for line in new_handle.output_lines:
+                    pane.append_line(line)
         popout = self._popouts.pop(old_id, None)
         if popout is not None:
             self._popouts[new_id] = popout
@@ -157,9 +161,11 @@ class CommandCenterPanel(QWidget):
         pane = self._panes.get(run_id)
         if pane is not None:
             pane.clear_output()
+            pane.set_status(RunStatus.RUNNING)
         popout = self._popouts.get(run_id)
         if popout is not None:
             popout.clear_output()
+            popout.set_status(RunStatus.RUNNING)
         self._vm.restart(run_id)
 
     def route_output(self, run_id: str, line: str) -> None:

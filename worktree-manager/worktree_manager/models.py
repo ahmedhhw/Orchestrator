@@ -37,6 +37,7 @@ class CleanupCandidate:
 class SavedCommand:
     name: str
     command: str
+    startup_pattern: str | None = None
 
 
 @dataclass

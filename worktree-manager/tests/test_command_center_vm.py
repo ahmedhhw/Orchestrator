@@ -150,7 +150,7 @@ def test_on_output_callback_fires(vm, tmp_path):
         worktree_path=str(tmp_path),
     )
     deadline = time.time() + 3
-    while not lines and time.time() < deadline:
+    while "hello" not in lines and time.time() < deadline:
         time.sleep(0.05)
     assert "hello" in lines
 

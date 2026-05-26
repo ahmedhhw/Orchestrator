@@ -71,7 +71,7 @@ def test_manage_commands_dialog_save_edit_same_name(qtbot):
     vm = _vm()
     d = _dlg(qtbot, vm=vm)
     d._save_edit("build", "build", "make build -j")
-    vm.save_command.assert_called_once_with("/repos/proj", "build", "make build -j")
+    vm.save_command.assert_called_once_with("/repos/proj", "build", "make build -j", startup_pattern=None)
     vm.delete_command.assert_not_called()
 
 
@@ -80,7 +80,7 @@ def test_manage_commands_dialog_save_edit_rename_deletes_old_first(qtbot):
     d = _dlg(qtbot, vm=vm)
     d._save_edit("build", "compile", "make build -j")
     vm.delete_command.assert_called_once_with("/repos/proj", "build")
-    vm.save_command.assert_called_once_with("/repos/proj", "compile", "make build -j")
+    vm.save_command.assert_called_once_with("/repos/proj", "compile", "make build -j", startup_pattern=None)
 
 
 def test_manage_commands_dialog_save_edit_blank_name_is_noop(qtbot):
