@@ -428,6 +428,142 @@ class App(QMainWindow):
             description="Add a new repo",
         ))
 
+        # ── delete worktree <repo> <worktree> ─────────────────────────────
+        from worktree_manager.ui.spotlight_confirm_dialog import SpotlightConfirmDialog
+
+        def _delete_worktree_worktrees(prev):
+            path = _repo_path_by_name(prev.get("repo", ""))
+            if path is None:
+                return []
+            return [Path(w.path).name for w in self._git.list_worktrees(path)]
+
+        def _run_delete_worktree(args):
+            repo_path = _repo_path_by_name(args["repo"])
+            if repo_path is None:
+                return
+            wt_name = args["worktree"]
+            wt = next(
+                (w for w in self._git.list_worktrees(repo_path)
+                 if Path(w.path).name == wt_name),
+                None,
+            )
+            if wt is None:
+                return
+            is_protected = False
+            try:
+                from worktree_manager.main_window_vm import MainWindowViewModel
+                vm = MainWindowViewModel(
+                    repo_path=repo_path,
+                    config_store=self._store,
+                    git_service=self._git,
+                )
+                is_protected = vm.is_protected_branch(wt.branch)
+            except Exception:
+                pass
+            dlg = SpotlightConfirmDialog(
+                parent=self,
+                title="Delete Worktree",
+                message=f'Delete worktree "{wt_name}"?\n\nBranch: {wt.branch}\nPath: {wt.path}',
+                show_also_branch=True,
+                branch_protected=is_protected,
+            )
+            if dlg.exec() != SpotlightConfirmDialog.Accepted:
+                return
+            from worktree_manager.main_window_vm import MainWindowViewModel
+            vm = MainWindowViewModel(
+                repo_path=repo_path,
+                config_store=self._store,
+                git_service=self._git,
+            )
+            vm.delete_worktree(
+                path=wt.path, branch=wt.branch,
+                also_delete_branch=dlg.also_delete_branch(),
+            )
+            if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
+                self._current_panel.refresh()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_worktree",
+            keywords=["delete", "worktree"],
+            slots=[
+                ArgSlot(name="repo", candidates=lambda prev: [
+                    Path(p).name for p in self._store.all_repos()
+                ]),
+                ArgSlot(name="worktree", candidates=_delete_worktree_worktrees),
+            ],
+            runner=_run_delete_worktree,
+            description="Delete a worktree",
+        ))
+
+        # ── delete project <name> ─────────────────────────────────────────
+        def _run_delete_project(args):
+            name = args["name"]
+            dlg = SpotlightConfirmDialog(
+                parent=self,
+                title="Delete Project",
+                message=f'Delete workspace project "{name}"?',
+            )
+            if dlg.exec() != SpotlightConfirmDialog.Accepted:
+                return
+            self._wp_vm.delete_project(name)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_project",
+            keywords=["delete", "project"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [p.name for p in self._store.all_projects()],
+            )],
+            runner=_run_delete_project,
+            description="Delete a workspace project",
+        ))
+
+        # ── delete command <repo> <cmd> ───────────────────────────────────
+        def _run_delete_command(args):
+            repo_path = _repo_path_by_name(args["repo"])
+            if repo_path is None:
+                return
+            cmd_name = args["cmd"]
+            dlg = SpotlightConfirmDialog(
+                parent=self,
+                title="Delete Command",
+                message=f'Delete saved command "{cmd_name}" from {args["repo"]}?',
+            )
+            if dlg.exec() != SpotlightConfirmDialog.Accepted:
+                return
+            self._store.delete_command(repo_path, cmd_name)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_command",
+            keywords=["delete", "command"],
+            slots=[
+                ArgSlot(name="repo", candidates=lambda prev: [
+                    Path(p).name for p in self._store.all_repos()
+                ]),
+                ArgSlot(name="cmd", candidates=_command_cmd_names),
+            ],
+            runner=_run_delete_command,
+            description="Delete a saved command",
+        ))
+
+        # ── delete repo <name> ────────────────────────────────────────────
+        def _run_delete_repo(args):
+            path = _repo_path_by_name(args["name"])
+            if path is None:
+                return
+            self._confirm_delete_repo(path, is_active=(path == self._active_repo_path))
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_repo",
+            keywords=["delete", "repo"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_delete_repo,
+            description="Remove a repo from the app",
+        ))
+
         self._spotlight_overlay = SpotlightOverlay(
             parser=ActionParser(self._spotlight_registry),
             parent=self,

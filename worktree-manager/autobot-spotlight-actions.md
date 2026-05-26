@@ -2380,3 +2380,31 @@ Setup: have at least two configured repos, each with at least one saved command 
 - [ ] Regression: `project`, `edit project`, `repo`, `command`, `switch`, `cleanup`, `settings` all still work as before
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually. Reply **"Iteration 2 confirmed"** (or describe any failures) before I write the plan for Iteration 3.
+
+---
+
+## Iteration 3 — Delete Actions with Confirmation Dialogs
+
+### Phase 3.1 — SpotlightConfirmDialog + 4 delete actions
+
+**What it covers:** `SpotlightConfirmDialog` (shared confirm/cancel dialog with optional "Also delete branch" checkbox), plus `delete worktree <repo> <worktree>`, `delete project <name>`, `delete command <repo> <cmd>`, `delete repo <name>` registered in the spotlight.
+
+**Tests (Red → Green):** `tests/test_spotlight_iteration3_wiring_qt.py` — 18 tests covering the dialog widget behaviour and all four runner delegations (confirmed executes, cancelled does not).
+
+**Done when:** All 18 wiring tests pass; full suite has only the 3 pre-existing failures.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. Do not proceed to Iteration 4 until every item below is checked off.
+
+- [ ] Open spotlight (`Cmd+K`), type `delete` — suggestions include `worktree`, `project`, `command`, `repo`
+- [ ] `delete project alpha` → Enter — confirmation dialog appears naming "alpha"; Cancel leaves project intact; Confirm deletes it
+- [ ] `delete command <repo> <cmd>` → Enter — confirmation dialog appears; Cancel does nothing; Confirm removes the command
+- [ ] `delete worktree <repo> <worktree>` → Enter — confirmation dialog appears with "Also delete branch" checkbox; Cancel aborts; Confirm deletes worktree
+- [ ] `delete repo <repo>` → Enter — existing QMessageBox confirmation appears; Cancel aborts; Confirm removes repo from sidebar
+- [ ] Cancelling any delete confirmation leaves the overlay open
+- [ ] Regression: all `new …`, `edit …`, `project`, `repo`, `command`, `switch`, `cleanup`, `settings` still work
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually. Reply **"Iteration 3 confirmed"** (or describe any failures) before I write the plan for Iteration 4.
