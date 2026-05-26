@@ -26,7 +26,7 @@ def _fmt_age(ts):
 class MainWindow(QWidget):
     def __init__(self, vm: MainWindowViewModel, repo_name: str,
                  on_settings, on_cleanup, on_new,
-                 on_generate_project=None, parent=None):
+                 on_generate_project=None, on_run_command=None, parent=None):
         super().__init__(parent)
         self._vm = vm
         self._repo_name = repo_name
@@ -34,6 +34,7 @@ class MainWindow(QWidget):
         self._on_cleanup = on_cleanup
         self._on_new = on_new
         self._on_generate_project = on_generate_project
+        self._on_run_command = on_run_command
         self._worktree_rows: list[QWidget] = []
         self._toast_timer: QTimer | None = None
 
@@ -177,15 +178,25 @@ class MainWindow(QWidget):
         self._worktree_rows.append(row)
         self._list_layout.addWidget(row)
 
-    def _show_context_menu(self, worktree_path: str, pos, row: QWidget):
+    def _build_context_menu(self, worktree_path: str) -> QMenu:
         menu = QMenu(self)
         gen_act = menu.addAction("Generate Project")
         gen_act.triggered.connect(lambda: self._trigger_generate_project(worktree_path))
+        run_act = menu.addAction("Run Command…")
+        run_act.triggered.connect(lambda: self._trigger_run_command(worktree_path))
+        return menu
+
+    def _show_context_menu(self, worktree_path: str, pos, row: QWidget):
+        menu = self._build_context_menu(worktree_path)
         menu.exec(row.mapToGlobal(pos))
 
     def _trigger_generate_project(self, worktree_path: str):
         if self._on_generate_project:
             self._on_generate_project(worktree_path)
+
+    def _trigger_run_command(self, worktree_path: str):
+        if self._on_run_command:
+            self._on_run_command(worktree_path)
 
     def show_toast(self, message: str):
         self._toast_label.setText(message)

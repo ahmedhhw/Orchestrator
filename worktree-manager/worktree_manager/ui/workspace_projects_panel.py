@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QButtonGroup, QComboBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
     QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -11,13 +11,17 @@ from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialo
 
 
 class WorkspaceProjectsPanel(QWidget):
-    def __init__(self, parent, vm, on_close):
+    def __init__(self, parent, vm, on_close,
+                 on_generate_project=None, on_run_command=None):
         super().__init__(parent)
         self._vm = vm
         self._on_close = on_close
+        self._on_generate_project = on_generate_project
+        self._on_run_command = on_run_command
         self._collapsed: set[str] = set(vm._store.get_ui_pref("projects_collapsed", []))
         self._editor: str = vm._store.get_ui_pref("projects_editor", "cursor")
         self._empty_visible: bool = True
+        self._entry_rows: list[QWidget] = []
         self._build()
         self.refresh()
 
@@ -66,6 +70,7 @@ class WorkspaceProjectsPanel(QWidget):
         self._vm._store.set_ui_pref("projects_editor", name)
 
     def refresh(self):
+        self._entry_rows.clear()
         while self._scroll_layout.count():
             item = self._scroll_layout.takeAt(0)
             w = item.widget()
@@ -148,7 +153,31 @@ class WorkspaceProjectsPanel(QWidget):
             row.addWidget(QLabel(current_branch))
         wrap = QWidget()
         wrap.setLayout(row)
+        wrap.setContextMenuPolicy(Qt.CustomContextMenu)
+        wrap.customContextMenuRequested.connect(
+            lambda pos, p=worktree_path, w=wrap: self._show_entry_context_menu(p, pos, w)
+        )
+        self._entry_rows.append(wrap)
         self._scroll_layout.addWidget(wrap)
+
+    def _build_entry_context_menu(self, worktree_path: str) -> QMenu:
+        menu = QMenu(self)
+        gen_act = menu.addAction("Generate Project")
+        gen_act.triggered.connect(lambda: self._trigger_generate_project(worktree_path))
+        run_act = menu.addAction("Run Command…")
+        run_act.triggered.connect(lambda: self._trigger_run_command(worktree_path))
+        return menu
+
+    def _show_entry_context_menu(self, worktree_path: str, pos, row: QWidget):
+        self._build_entry_context_menu(worktree_path).exec(row.mapToGlobal(pos))
+
+    def _trigger_generate_project(self, worktree_path: str):
+        if self._on_generate_project:
+            self._on_generate_project(worktree_path)
+
+    def _trigger_run_command(self, worktree_path: str):
+        if self._on_run_command:
+            self._on_run_command(worktree_path)
 
     def _on_branch_changed(self, path: str, orig: str, new: str):
         if new == orig:

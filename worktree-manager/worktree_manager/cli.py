@@ -22,6 +22,7 @@ from worktree_manager.ui.create_dialog import CreateDialog
 from worktree_manager.ui.main_window import MainWindow
 from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
 from worktree_manager.ui.settings_panel import SettingsDialog
+from worktree_manager.ui.launch_dialog import LaunchDialog
 from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
 
 
@@ -144,6 +145,7 @@ class App(QMainWindow):
             on_cleanup=lambda: self._show_cleanup(vm),
             on_new=lambda: self._show_new_worktree(vm),
             on_generate_project=self._on_generate_project,
+            on_run_command=self._on_run_command,
         ))
 
     def _confirm_delete_repo(self, repo_path, is_active):
@@ -256,7 +258,29 @@ class App(QMainWindow):
         )
         self._set_panel(WorkspaceProjectsPanel(
             parent=self, vm=vm, on_close=self._show_empty_main,
+            on_generate_project=self._on_generate_project,
+            on_run_command=self._on_run_command,
         ))
+
+    def _on_run_command(self, worktree_path: str) -> None:
+        if self._command_center_vm is None:
+            self._command_center_vm = CommandCenterViewModel(
+                config_store=self._store, git_service=self._git,
+            )
+
+        repo_path = self._active_repo_path or worktree_path
+        run_count_before = len(self._command_center_vm.all_runs())
+
+        dlg = LaunchDialog(
+            parent=self,
+            vm=self._command_center_vm,
+            locked_repo_path=repo_path,
+            locked_worktree_path=worktree_path,
+        )
+        dlg.exec()
+
+        if len(self._command_center_vm.all_runs()) > run_count_before:
+            self._show_command_center()
 
     def _on_generate_project(self, worktree_path: str) -> None:
         from worktree_manager.models import WorkspaceEntry, WorkspaceProject

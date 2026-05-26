@@ -193,6 +193,38 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 
 ---
 
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] Launch the app, load a repo with at least one non-main worktree, right-click that row — the context menu now shows both "Generate Project" **and** "Run Command…"
+- [ ] Click "Run Command…" — a small dialog appears showing the worktree path and an empty command input
+- [ ] Type `echo hello | tr a-z A-Z` and press Run — the dialog closes, the app switches to the Command Center, and a new pane titled with the worktree basename and the command appears and outputs `HELLO`
+- [ ] Type `echo $(git log --oneline -1)` in the dialog and press Run — the new pane outputs the last commit hash/message from that worktree's git log
+- [ ] Open the dialog and press Cancel — the dialog closes and no new pane is created in the Command Center
+- [ ] Open the dialog, leave the command field empty, and press Run — nothing happens (dialog stays open)
+- [ ] Regression: right-click "Generate Project" still works — toast appears and `.code-workspace` file is created/updated
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off by the user.
+
+- [ ] Open the Workspace Projects panel, expand a project that has at least one worktree entry, right-click that entry row — a context menu appears with both "Generate Project" and "Run Command…"
+- [ ] Click "Generate Project" from the entry row — toast appears on return to the main window (or the project is created/updated silently if already on the WP panel)
+- [ ] Click "Run Command…" from the entry row — the Launch Command dialog opens with Repo and Worktree pre-filled and disabled, showing the correct worktree path
+- [ ] Select a saved command and click Launch — the app switches to the Command Center and the new pane appears running the command
+- [ ] Regression: right-clicking a worktree row in the main Worktrees panel still shows "Generate Project" and "Run Command…" and both still work
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
+
+---
+
 ## Decisions
 
 - **Generate Project**: Toast only — generate the `.code-workspace` file and show a 3-second success toast. The user opens it from the Workspace Projects panel later.

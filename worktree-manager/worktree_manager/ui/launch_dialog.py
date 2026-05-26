@@ -24,12 +24,16 @@ class _TrackableButton(QPushButton):
 
 
 class LaunchDialog(QDialog):
-    def __init__(self, parent, vm):
+    def __init__(self, parent, vm,
+                 locked_repo_path: str | None = None,
+                 locked_worktree_path: str | None = None):
         super().__init__(parent)
         self.setWindowTitle("Launch Command")
         self.setModal(True)
         self.resize(440, 460)
         self._vm = vm
+        self._locked_repo_path = locked_repo_path
+        self._locked_worktree_path = locked_worktree_path
         self._commands: list[SavedCommand] = []
         self._worktrees: list[WorktreeModel] = []
         self._selected_cmd: SavedCommand | None = None
@@ -50,16 +54,19 @@ class LaunchDialog(QDialog):
         self._repo_map = {Path(p).name: p for p in repo_paths}
         display_names = list(self._repo_map.keys())
 
-        last_used = (
-            self._vm.get_last_used_repo()
-            if hasattr(self._vm, "get_last_used_repo") else None
-        )
-        if last_used and last_used in repo_paths:
-            default_name = Path(last_used).name
-        elif display_names:
-            default_name = display_names[0]
+        if self._locked_repo_path:
+            default_name = Path(self._locked_repo_path).name
         else:
-            default_name = ""
+            last_used = (
+                self._vm.get_last_used_repo()
+                if hasattr(self._vm, "get_last_used_repo") else None
+            )
+            if last_used and last_used in repo_paths:
+                default_name = Path(last_used).name
+            elif display_names:
+                default_name = display_names[0]
+            else:
+                default_name = ""
 
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Repo:"))
@@ -69,6 +76,8 @@ class LaunchDialog(QDialog):
             self._repo_combo.setCurrentText(default_name)
         self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
         self._repo_combo.setMinimumWidth(200)
+        if self._locked_repo_path:
+            self._repo_combo.setEnabled(False)
         row1.addWidget(self._repo_combo, 1)
         outer.addLayout(row1)
 
@@ -76,6 +85,8 @@ class LaunchDialog(QDialog):
         row2.addWidget(QLabel("Worktree:"))
         self._wt_combo = QComboBox()
         self._wt_combo.setMinimumWidth(200)
+        if self._locked_worktree_path:
+            self._wt_combo.setEnabled(False)
         row2.addWidget(self._wt_combo, 1)
         outer.addLayout(row2)
 
@@ -120,11 +131,13 @@ class LaunchDialog(QDialog):
         btns.addWidget(launch)
         outer.addLayout(btns)
 
-        if default_name:
+        if self._locked_repo_path:
+            self._on_repo_changed(Path(self._locked_repo_path).name)
+        elif default_name:
             self._on_repo_changed(default_name)
 
     def _on_repo_changed(self, repo_name: str) -> None:
-        repo_path = self._repo_map.get(repo_name, "")
+        repo_path = self._locked_repo_path or self._repo_map.get(repo_name, "")
         self._commands = self._vm.saved_commands(repo_path)
         self._selected_cmd = None
         self._cmd_filter.blockSignals(True)
@@ -134,6 +147,11 @@ class LaunchDialog(QDialog):
         wt_labels = [f"{wt.branch}  ({wt.path})" for wt in self._worktrees]
         self._wt_combo.clear()
         self._wt_combo.addItems(wt_labels)
+        if self._locked_worktree_path:
+            for i, wt in enumerate(self._worktrees):
+                if wt.path == self._locked_worktree_path:
+                    self._wt_combo.setCurrentIndex(i)
+                    break
         self._render_cmd_list()
 
     def _visible_cmds(self) -> list[SavedCommand]:
@@ -182,9 +200,13 @@ class LaunchDialog(QDialog):
                 row.setStyleSheet("text-align: left; padding: 6px;")
 
     def _current_repo_path(self) -> str:
+        if self._locked_repo_path:
+            return self._locked_repo_path
         return self._repo_map.get(self._repo_combo.currentText(), "")
 
     def _current_worktree_path(self) -> str:
+        if self._locked_worktree_path:
+            return self._locked_worktree_path
         label = self._wt_combo.currentText()
         for wt in self._worktrees:
             if wt.path in label:
