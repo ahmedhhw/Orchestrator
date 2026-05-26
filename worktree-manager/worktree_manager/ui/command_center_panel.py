@@ -128,6 +128,7 @@ class CommandCenterPanel(QWidget):
             on_nickname=self._on_nickname,
             on_change_worktree=lambda new_path, h=handle: self._change_worktree(h, new_path),
             worktrees=worktrees,
+            on_send=lambda text, rid=handle.run_id: self._vm._runner.send_input(rid, text),
         )
         self._panes[handle.run_id] = pane
         self._pane_shown[handle.run_id] = True
@@ -266,6 +267,7 @@ class CommandCenterPanel(QWidget):
             on_stop=lambda: self._vm.stop(run_id),
             on_restart=lambda: self._do_restart(run_id),
             on_remove=lambda: self.remove_pane(run_id),
+            on_send=lambda text, rid=run_id: self._vm._runner.send_input(rid, text),
         )
         for line in handle.output_lines:
             popout.append_line(line)

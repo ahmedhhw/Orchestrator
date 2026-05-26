@@ -1,6 +1,7 @@
 import re
 
-from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractScrollArea, QApplication, QComboBox, QHBoxLayout, QLabel,
     QLineEdit, QMenu, QPushButton, QStyle, QTextEdit, QVBoxLayout, QWidget,
@@ -164,10 +165,27 @@ class _AnsiTextEdit(QTextEdit):
         return self.document().toPlainText()
 
 
+class _StdinLineEdit(QLineEdit):
+    """QLineEdit that routes Up/Down to history callbacks instead of cursor movement."""
+
+    def __init__(self, on_up, on_down, parent=None):
+        super().__init__(parent)
+        self._on_up = on_up
+        self._on_down = on_down
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key_Up:
+            self._on_up()
+        elif event.key() == Qt.Key_Down:
+            self._on_down()
+        else:
+            super().keyPressEvent(event)
+
+
 class CommandPane(QWidget):
     def __init__(self, parent, handle: RunHandle, on_maximize, on_stop,
                  on_restart, on_remove=None, show_popout_btn=True, on_nickname=None,
-                 on_change_worktree=None, worktrees=None):
+                 on_change_worktree=None, worktrees=None, on_send=None):
         super().__init__(parent)
         self._handle = handle
         self._run_id = handle.run_id
@@ -180,9 +198,12 @@ class CommandPane(QWidget):
         self._on_change_worktree = on_change_worktree
         self._worktrees = worktrees or []
         self._status = handle.status
+        self._on_send = on_send
         self._find_matches: list[int] = []
         self._find_cursor = 0
         self._find_query_len = 0
+        self._stdin_history: list[str] = []
+        self._stdin_history_pos: int = -1
         self._build()
 
     def _build(self):
@@ -248,6 +269,23 @@ class CommandPane(QWidget):
         self._textbox = _AnsiTextEdit()
         self._textbox.setMinimumHeight(140)
         outer.addWidget(self._textbox, 1)
+
+        # stdin input bar
+        stdin_row = QHBoxLayout()
+        stdin_row.setContentsMargins(0, 2, 0, 0)
+        stdin_label = QLabel("stdin ›")
+        stdin_row.addWidget(stdin_label)
+        self._stdin_edit = _StdinLineEdit(self._on_history_up, self._on_history_down)
+        self._stdin_edit.setPlaceholderText("stdin › type input and press Enter")
+        self._stdin_edit.returnPressed.connect(self.trigger_send)
+        stdin_row.addWidget(self._stdin_edit, 1)
+        self._send_btn = QPushButton("Send")
+        self._send_btn.setToolTip("Send input to process (Enter)")
+        self._send_btn.clicked.connect(lambda _checked=False: self.trigger_send())
+        stdin_row.addWidget(self._send_btn)
+        outer.addLayout(stdin_row)
+
+        self._set_stdin_enabled(self._status == RunStatus.RUNNING)
 
     def _mk_btn(self, label, handler):
         b = QPushButton(label)
@@ -325,6 +363,7 @@ class CommandPane(QWidget):
         self._status = status
         self._dot.setText(_STATUS_DOTS[status])
         self._dot.setStyleSheet(f"color: {_STATUS_COLORS[status]};")
+        self._set_stdin_enabled(status == RunStatus.RUNNING)
 
     def status_dot_color(self) -> str:
         return _STATUS_COLORS[self._status]
@@ -353,6 +392,53 @@ class CommandPane(QWidget):
 
     def trigger_copy(self) -> None:
         QApplication.clipboard().setText(self.get_output_text())
+
+    # --- stdin bar ---
+
+    def stdin_bar_visible(self) -> bool:
+        return True  # always visible; enabled state reflects process status
+
+    def stdin_input_enabled(self) -> bool:
+        return self._stdin_edit.isEnabled()
+
+    def set_stdin_text(self, text: str) -> None:
+        self._stdin_edit.setText(text)
+
+    def get_stdin_text(self) -> str:
+        return self._stdin_edit.text()
+
+    def trigger_send(self) -> None:
+        text = self._stdin_edit.text()
+        if not text:
+            return
+        self._stdin_history.append(text)
+        self._stdin_history_pos = -1
+        self._stdin_edit.clear()
+        if self._on_send:
+            self._on_send(text)
+
+    def _on_history_up(self) -> None:
+        if not self._stdin_history:
+            return
+        if self._stdin_history_pos == -1:
+            self._stdin_history_pos = len(self._stdin_history) - 1
+        elif self._stdin_history_pos > 0:
+            self._stdin_history_pos -= 1
+        self._stdin_edit.setText(self._stdin_history[self._stdin_history_pos])
+
+    def _on_history_down(self) -> None:
+        if self._stdin_history_pos == -1:
+            return
+        if self._stdin_history_pos < len(self._stdin_history) - 1:
+            self._stdin_history_pos += 1
+            self._stdin_edit.setText(self._stdin_history[self._stdin_history_pos])
+        else:
+            self._stdin_history_pos = -1
+            self._stdin_edit.clear()
+
+    def _set_stdin_enabled(self, enabled: bool) -> None:
+        self._stdin_edit.setEnabled(enabled)
+        self._send_btn.setEnabled(enabled)
 
     def show_find_bar(self) -> None:
         self._find_bar_visible = True

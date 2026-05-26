@@ -129,3 +129,120 @@ def test_launch_dialog_cancel_closes_without_launching(qtbot):
     cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
     cancel.click()
     vm.launch.assert_not_called()
+
+
+# ── Run Once ─────────────────────────────────────────────────────────────────
+
+def test_run_once_field_is_present(qtbot):
+    from PySide6.QtWidgets import QPlainTextEdit
+    d = _dlg(qtbot)
+    inputs = d.findChildren(QPlainTextEdit)
+    assert any("command" in (w.placeholderText() or "").lower() for w in inputs)
+
+
+def test_run_once_button_is_present(qtbot):
+    d = _dlg(qtbot)
+    texts = [b.text() for b in d.findChildren(QPushButton)]
+    assert "Run" in texts
+
+
+def test_run_once_launches_with_one_off_cmd_name(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("echo hello")
+    d.trigger_run_once()
+    vm.launch.assert_called_once()
+    kwargs = vm.launch.call_args.kwargs
+    assert kwargs["cmd_name"] == "[one-off]"
+    assert kwargs["command_str"] == "echo hello"
+
+
+def test_run_once_uses_selected_repo_and_worktree(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("ls -la")
+    d.trigger_run_once()
+    kwargs = vm.launch.call_args.kwargs
+    assert kwargs["repo_path"] == "/repos/proj"
+    assert kwargs["worktree_path"] == "/r/proj"
+
+
+def test_run_once_no_startup_pattern(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("ls")
+    d.trigger_run_once()
+    kwargs = vm.launch.call_args.kwargs
+    assert kwargs.get("startup_pattern") is None
+
+
+def test_run_once_empty_text_is_noop(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("")
+    d.trigger_run_once()
+    vm.launch.assert_not_called()
+
+
+def test_run_once_does_not_affect_saved_command_launch(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("echo side-effect")
+    d.set_command("build")
+    d.trigger_launch()
+    kwargs = vm.launch.call_args.kwargs
+    assert kwargs["cmd_name"] == "build"
+    assert kwargs["command_str"] == "make"
+
+
+# ── Save run-once command ─────────────────────────────────────────────────────
+
+def test_save_button_is_present(qtbot):
+    d = _dlg(qtbot)
+    texts = [b.text() for b in d.findChildren(QPushButton)]
+    assert "Save" in texts
+
+
+def test_save_run_once_calls_vm_save_command(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("make build")
+    d.trigger_save_run_once("mybuild")
+    vm.save_command.assert_called_once_with("/repos/proj", "mybuild", "make build")
+
+
+def test_save_run_once_empty_text_is_noop(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("")
+    d.trigger_save_run_once("anything")
+    vm.save_command.assert_not_called()
+
+
+def test_save_run_once_empty_name_is_noop(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("echo hi")
+    d.trigger_save_run_once("")
+    vm.save_command.assert_not_called()
+
+
+def test_save_run_once_refreshes_command_list(qtbot):
+    vm = _vm()
+    # After save_command, saved_commands returns the new list
+    vm.save_command.side_effect = lambda *a, **kw: vm.saved_commands.configure_mock(
+        return_value=[SavedCommand(name="mybuild", command="make build")]
+    )
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("make build")
+    d.trigger_save_run_once("mybuild")
+    assert d.command_choices() == ["mybuild"]
+
+
+def test_save_run_once_does_not_close_dialog(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("echo hi")
+    d.trigger_save_run_once("myscript")
+    # dialog should still be open (not accepted/rejected)
+    assert not d.result() or d.result() == 0

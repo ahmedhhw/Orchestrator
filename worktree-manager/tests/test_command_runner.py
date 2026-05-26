@@ -179,3 +179,42 @@ def test_command_string_stored_on_handle(runner):
     handle = runner.start("echo stored-cmd")
     time.sleep(0.2)
     assert handle.command == "echo stored-cmd"
+
+
+# ── send_input ───────────────────────────────────────────────────────────────
+
+def test_send_input_delivers_text_to_process_stdin(runner):
+    """send_input writes text + newline so the child process receives it."""
+    lines = []
+    done = {}
+
+    def on_output(run_id, line):
+        lines.append(line)
+
+    def on_exit(run_id, rc):
+        done["rc"] = rc
+
+    runner.output_callback = on_output
+    runner.exit_callback = on_exit
+
+    # Process reads one line from stdin and echoes it back
+    handle = runner.start(f"{sys.executable} -c \"import sys; print('got:', sys.stdin.readline().strip())\"")
+    time.sleep(0.2)
+    runner.send_input(handle.run_id, "hello")
+
+    deadline = time.time() + 3
+    while "rc" not in done and time.time() < deadline:
+        time.sleep(0.05)
+
+    assert any("got: hello" in l for l in lines)
+
+
+def test_send_input_noop_for_unknown_run_id(runner):
+    """send_input with an unknown run_id should not raise."""
+    runner.send_input("nonexistent-id", "data")  # must not raise
+
+
+def test_send_input_noop_after_process_exits(runner):
+    """send_input after the fd is closed should not raise."""
+    handle, _, _ = _collect(runner, "true")
+    runner.send_input(handle.run_id, "orphan")  # must not raise

@@ -156,5 +156,14 @@ class CommandRunner:
                 pass
         self._intentional_stops.discard(run_id)
 
+    def send_input(self, run_id: str, text: str) -> None:
+        fd = self._master_fds.get(run_id)
+        if fd is None:
+            return
+        try:
+            os.write(fd, (text + "\n").encode())
+        except OSError:
+            pass
+
     def get_handle(self, run_id: str) -> RunHandle | None:
         return self._handles.get(run_id)

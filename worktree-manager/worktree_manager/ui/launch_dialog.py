@@ -1,8 +1,9 @@
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.command_runner import RunStatus
@@ -110,6 +111,32 @@ class LaunchDialog(QDialog):
         self._cmd_layout.addStretch(1)
         self._scroll.setWidget(self._cmd_container)
         outer.addWidget(self._scroll, 1)
+
+        outer.addWidget(QLabel("Run once:"))
+        run_once_name_row = QHBoxLayout()
+        run_once_name_row.addWidget(QLabel("Name:"))
+        self._run_once_name = QLineEdit()
+        self._run_once_name.setPlaceholderText("Optional — fill to save")
+        run_once_name_row.addWidget(self._run_once_name, 1)
+        outer.addLayout(run_once_name_row)
+        run_once_row = QHBoxLayout()
+        self._run_once_edit = QPlainTextEdit()
+        self._run_once_edit.setPlaceholderText("Type any command…")
+        self._run_once_edit.setMinimumHeight(60)
+        self._run_once_edit.setMaximumHeight(100)
+        run_once_row.addWidget(self._run_once_edit, 1)
+        run_once_btns = QVBoxLayout()
+        run_btn = QPushButton("Run")
+        run_btn.setFixedWidth(48)
+        run_btn.clicked.connect(lambda _checked=False: self.trigger_run_once())
+        run_once_btns.addWidget(run_btn)
+        save_btn = QPushButton("Save")
+        save_btn.setFixedWidth(48)
+        save_btn.clicked.connect(lambda _checked=False: self._prompt_save_run_once())
+        run_once_btns.addWidget(save_btn)
+        run_once_btns.addStretch(1)
+        run_once_row.addLayout(run_once_btns)
+        outer.addLayout(run_once_row)
 
         self._conflict_label = QLabel("")
         self._conflict_label.setStyleSheet("color: red;")
@@ -279,4 +306,36 @@ class LaunchDialog(QDialog):
     def _trigger_conflict_restart(self) -> None:
         if self._conflict_run_id and hasattr(self._vm, "restart"):
             self._vm.restart(self._conflict_run_id)
+        self.accept()
+
+    def set_run_once_text(self, text: str) -> None:
+        self._run_once_edit.setPlainText(text)
+
+    def set_run_once_name(self, name: str) -> None:
+        self._run_once_name.setText(name)
+
+    def _prompt_save_run_once(self) -> None:
+        self.trigger_save_run_once(self._run_once_name.text().strip())
+
+    def trigger_save_run_once(self, name: str) -> None:
+        command_str = self._run_once_edit.toPlainText().strip()
+        if not command_str or not name:
+            return
+        repo_path = self._current_repo_path()
+        self._vm.save_command(repo_path, name, command_str)
+        self._on_repo_changed(Path(repo_path).name)
+
+    def trigger_run_once(self) -> None:
+        command_str = self._run_once_edit.toPlainText().strip()
+        if not command_str:
+            return
+        repo_path = self._current_repo_path()
+        self._vm.launch(
+            repo_path=repo_path,
+            repo_name=Path(repo_path).name,
+            cmd_name="[one-off]",
+            command_str=command_str,
+            worktree_path=self._current_worktree_path(),
+            startup_pattern=None,
+        )
         self.accept()

@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock
 
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QPushButton
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QLineEdit, QPlainTextEdit, QPushButton
 
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.ui.command_pane import CommandPane
@@ -140,3 +141,131 @@ def test_command_pane_popout_button_hidden_when_show_popout_btn_false(qtbot):
     )
     qtbot.addWidget(p)
     assert not any(b.toolTip() == "Pop out" for b in p.findChildren(QPushButton))
+
+
+# ── stdin input bar ──────────────────────────────────────────────────────────
+
+def test_stdin_bar_is_visible_by_default(qtbot):
+    p = _pane(qtbot)
+    assert p.stdin_bar_visible() is True
+
+
+def test_stdin_bar_has_send_button(qtbot):
+    p = _pane(qtbot)
+    assert any(b.text() == "Send" for b in p.findChildren(QPushButton))
+
+
+def test_stdin_bar_has_line_edit(qtbot):
+    p = _pane(qtbot)
+    # There should be a QLineEdit with placeholder containing "stdin"
+    inputs = p.findChildren(QLineEdit)
+    assert any("stdin" in (w.placeholderText() or "").lower() for w in inputs)
+
+
+def test_send_button_calls_on_send_with_text(qtbot):
+    sent = []
+    p = _pane(qtbot, on_send=lambda text: sent.append(text))
+    p.set_stdin_text("y")
+    p.trigger_send()
+    assert sent == ["y"]
+
+
+def test_trigger_send_clears_the_input(qtbot):
+    p = _pane(qtbot, on_send=lambda t: None)
+    p.set_stdin_text("hello")
+    p.trigger_send()
+    assert p.get_stdin_text() == ""
+
+
+def test_enter_key_in_stdin_triggers_send(qtbot):
+    sent = []
+    p = _pane(qtbot, on_send=lambda text: sent.append(text))
+    p.set_stdin_text("yes")
+    p.show()
+    stdin_edit = next(
+        w for w in p.findChildren(QLineEdit)
+        if "stdin" in (w.placeholderText() or "").lower()
+    )
+    qtbot.keyPress(stdin_edit, Qt.Key_Return)
+    assert sent == ["yes"]
+
+
+def test_stdin_bar_disabled_when_process_stopped(qtbot):
+    p = _pane(qtbot, handle=_handle(status=RunStatus.STOPPED))
+    assert p.stdin_input_enabled() is False
+
+
+def test_stdin_bar_disabled_when_process_errors(qtbot):
+    p = _pane(qtbot, handle=_handle(status=RunStatus.ERROR))
+    assert p.stdin_input_enabled() is False
+
+
+def test_stdin_bar_enabled_when_process_running(qtbot):
+    p = _pane(qtbot, handle=_handle(status=RunStatus.RUNNING))
+    assert p.stdin_input_enabled() is True
+
+
+def test_set_status_stopped_disables_stdin_bar(qtbot):
+    p = _pane(qtbot)
+    assert p.stdin_input_enabled() is True
+    p.set_status(RunStatus.STOPPED)
+    assert p.stdin_input_enabled() is False
+
+
+def test_set_status_running_reenables_stdin_bar(qtbot):
+    p = _pane(qtbot, handle=_handle(status=RunStatus.STOPPED))
+    p.set_status(RunStatus.RUNNING)
+    assert p.stdin_input_enabled() is True
+
+
+def test_stdin_history_up_arrow_recalls_last_sent(qtbot):
+    p = _pane(qtbot, on_send=lambda t: None)
+    p.set_stdin_text("first")
+    p.trigger_send()
+    p.set_stdin_text("second")
+    p.trigger_send()
+    stdin_edit = next(
+        w for w in p.findChildren(QLineEdit)
+        if "stdin" in (w.placeholderText() or "").lower()
+    )
+    qtbot.keyPress(stdin_edit, Qt.Key_Up)
+    assert p.get_stdin_text() == "second"
+
+
+def test_stdin_history_up_twice_goes_further_back(qtbot):
+    p = _pane(qtbot, on_send=lambda t: None)
+    p.set_stdin_text("first")
+    p.trigger_send()
+    p.set_stdin_text("second")
+    p.trigger_send()
+    stdin_edit = next(
+        w for w in p.findChildren(QLineEdit)
+        if "stdin" in (w.placeholderText() or "").lower()
+    )
+    qtbot.keyPress(stdin_edit, Qt.Key_Up)
+    qtbot.keyPress(stdin_edit, Qt.Key_Up)
+    assert p.get_stdin_text() == "first"
+
+
+def test_stdin_history_down_arrow_moves_forward(qtbot):
+    p = _pane(qtbot, on_send=lambda t: None)
+    p.set_stdin_text("first")
+    p.trigger_send()
+    p.set_stdin_text("second")
+    p.trigger_send()
+    stdin_edit = next(
+        w for w in p.findChildren(QLineEdit)
+        if "stdin" in (w.placeholderText() or "").lower()
+    )
+    qtbot.keyPress(stdin_edit, Qt.Key_Up)
+    qtbot.keyPress(stdin_edit, Qt.Key_Up)
+    qtbot.keyPress(stdin_edit, Qt.Key_Down)
+    assert p.get_stdin_text() == "second"
+
+
+def test_empty_text_is_not_sent(qtbot):
+    sent = []
+    p = _pane(qtbot, on_send=lambda t: sent.append(t))
+    p.set_stdin_text("")
+    p.trigger_send()
+    assert sent == []

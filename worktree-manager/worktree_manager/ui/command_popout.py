@@ -5,7 +5,7 @@ from worktree_manager.ui.command_pane import CommandPane
 
 
 class CommandPopout(QDialog):
-    def __init__(self, parent, handle: RunHandle, on_stop, on_restart, on_remove):
+    def __init__(self, parent, handle: RunHandle, on_stop, on_restart, on_remove, on_send=None):
         super().__init__(parent)
         wt_name = handle.worktree_path.split("/")[-1]
         self.setWindowTitle(
@@ -19,6 +19,7 @@ class CommandPopout(QDialog):
             on_maximize=lambda p: None,
             on_stop=on_stop, on_restart=on_restart, on_remove=on_remove,
             show_popout_btn=False,
+            on_send=on_send,
         )
         layout.addWidget(self._pane)
 
