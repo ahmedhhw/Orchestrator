@@ -225,6 +225,21 @@ Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan
 
 ---
 
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. This is the final iteration. Confirm every item below before declaring the feature complete.
+
+- [ ] Open Command Center, launch a command that takes a second (e.g. `sleep 1 && echo done`) — while it's running, switch away to the Worktrees panel — when the command finishes, a notification dialog appears saying ✅ "finished" and the app switches back to Command Center
+- [ ] Launch a command that exits non-zero (e.g. `exit 42`) while on the Worktrees panel — notification says ❌ "exited with code 42"
+- [ ] Launch a command, then stop it via the stop button while on the Worktrees panel — notification says ⏹ "stopped"
+- [ ] Launch a command and stay on the Command Center while it runs — when it finishes, no notification dialog appears
+- [ ] Regression: right-click "Generate Project" and "Run Command…" still work from both the Worktrees panel and Workspace Projects panel
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 3 confirmed" (or describe any failures).
+
+---
+
 ## Decisions
 
 - **Generate Project**: Toast only — generate the `.code-workspace` file and show a 3-second success toast. The user opens it from the Workspace Projects panel later.

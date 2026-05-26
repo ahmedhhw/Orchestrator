@@ -25,6 +25,7 @@ class CommandCenterViewModel:
         self.on_output = None           # Callable[[run_id, line], None]
         self.on_status_changed = None   # Callable[[run_id, RunStatus], None]
         self.on_run_id_changed = None   # Callable[[old_id, new_id], None]
+        self.on_finished = None         # Callable[[run_id, RunHandle], None]
 
     # --- saved command CRUD ---
 
@@ -143,5 +144,8 @@ class CommandCenterViewModel:
 
     def _on_runner_exit(self, run_id: str, returncode: int) -> None:
         handle = self._runner.get_handle(run_id)
-        if handle and self.on_status_changed:
-            self.on_status_changed(run_id, handle.status)
+        if handle:
+            if self.on_status_changed:
+                self.on_status_changed(run_id, handle.status)
+            if self.on_finished:
+                self.on_finished(run_id, handle)

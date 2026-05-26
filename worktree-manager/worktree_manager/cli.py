@@ -31,6 +31,10 @@ class _CleanupLoadBridge(QObject):
     loading_finished = Signal(list)
 
 
+class _FinishedBridge(QObject):
+    command_finished = Signal(str, object)
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(description="Git Worktree Manager")
     parser.add_argument("repo_path", nargs="?", default=None,
@@ -59,6 +63,8 @@ class App(QMainWindow):
         self._active_repo_path = None
         self._current_panel = None
         self._command_center_vm: CommandCenterViewModel | None = None
+        self._finished_bridge = _FinishedBridge()
+        self._finished_bridge.command_finished.connect(self._on_command_finished)
 
         central = QWidget()
         self._central_layout = QHBoxLayout(central)
@@ -236,11 +242,18 @@ class App(QMainWindow):
         )
         dlg.exec()
 
-    def _show_command_center(self):
+    def _ensure_command_center_vm(self) -> CommandCenterViewModel:
         if self._command_center_vm is None:
             self._command_center_vm = CommandCenterViewModel(
                 config_store=self._store, git_service=self._git,
             )
+            self._command_center_vm.on_finished = (
+                self._finished_bridge.command_finished.emit
+            )
+        return self._command_center_vm
+
+    def _show_command_center(self):
+        self._ensure_command_center_vm()
         self._set_panel(CommandCenterPanel(
             parent=self,
             vm=self._command_center_vm,
@@ -263,11 +276,7 @@ class App(QMainWindow):
         ))
 
     def _on_run_command(self, worktree_path: str) -> None:
-        if self._command_center_vm is None:
-            self._command_center_vm = CommandCenterViewModel(
-                config_store=self._store, git_service=self._git,
-            )
-
+        self._ensure_command_center_vm()
         repo_path = self._active_repo_path or worktree_path
         run_count_before = len(self._command_center_vm.all_runs())
 
@@ -281,6 +290,33 @@ class App(QMainWindow):
 
         if len(self._command_center_vm.all_runs()) > run_count_before:
             self._show_command_center()
+
+    def _on_command_finished(self, run_id: str, handle) -> None:
+        from worktree_manager.command_runner import RunStatus
+        if isinstance(self._current_panel, CommandCenterPanel):
+            return
+        cmd_name = handle.cmd_name
+        if handle.status == RunStatus.ERROR:
+            body = f"❌ \"{cmd_name}\" exited with code {handle.returncode}"
+        elif handle.returncode == 0:
+            body = f"✅ \"{cmd_name}\" finished"
+        else:
+            body = f"⏹ \"{cmd_name}\" stopped"
+        self._show_notification("Command Center", body)
+        self._show_command_center()
+        if not self.isActiveWindow():
+            QApplication.alert(self, 0)
+
+    def _show_notification(self, title: str, body: str) -> None:
+        import subprocess
+        safe_title = title.replace('"', '\\"')
+        safe_body = body.replace('"', '\\"')
+        subprocess.Popen(
+            ["osascript", "-e",
+             f'display notification "{safe_body}" with title "{safe_title}"'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def _on_generate_project(self, worktree_path: str) -> None:
         from worktree_manager.models import WorkspaceEntry, WorkspaceProject
