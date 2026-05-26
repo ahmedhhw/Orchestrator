@@ -115,6 +115,10 @@ class CommandCenterPanel(QWidget):
     def add_pane(self, handle: RunHandle) -> None:
         if handle.run_id in self._panes:
             return
+        try:
+            worktrees = self._vm.list_worktrees(handle.repo_path)
+        except Exception:
+            worktrees = []
         pane = CommandPane(
             parent=self._scroll_container, handle=handle,
             on_maximize=lambda p: self._open_popout(p._run_id),
@@ -122,6 +126,8 @@ class CommandCenterPanel(QWidget):
             on_restart=lambda: self._do_restart(handle.run_id),
             on_remove=lambda: self.remove_pane(handle.run_id),
             on_nickname=self._on_nickname,
+            on_change_worktree=lambda new_path, h=handle: self._change_worktree(h, new_path),
+            worktrees=worktrees,
         )
         self._panes[handle.run_id] = pane
         self._pane_shown[handle.run_id] = True
@@ -167,6 +173,21 @@ class CommandCenterPanel(QWidget):
         popout = self._popouts.pop(old_id, None)
         if popout is not None:
             self._popouts[new_id] = popout
+
+    def _change_worktree(self, handle: RunHandle, new_worktree_path: str) -> None:
+        run_id = handle.run_id
+        meta = self._vm._runner._handles.get(run_id)
+        self.remove_pane(run_id)
+        try:
+            self._vm.launch(
+                repo_path=handle.repo_path,
+                repo_name=handle.repo_name,
+                cmd_name=handle.cmd_name,
+                command_str=handle.command,
+                worktree_path=new_worktree_path,
+            )
+        except Exception:
+            pass
 
     def _do_restart(self, run_id: str) -> None:
         pane = self._panes.get(run_id)

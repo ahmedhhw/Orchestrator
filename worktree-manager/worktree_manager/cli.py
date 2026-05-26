@@ -58,8 +58,8 @@ class App(QMainWindow):
     def __init__(self, repo_path=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Git Worktree Manager")
-        self.resize(900, 520)
-        self.setMinimumSize(700, 400)
+        self.resize(1400, 900)
+        self.setMinimumSize(1000, 650)
 
         self._store = ConfigStore()
         self._git = GitService()

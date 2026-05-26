@@ -1,7 +1,9 @@
-from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
+import re
+
+from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
-    QAbstractScrollArea, QApplication, QHBoxLayout, QLabel, QLineEdit,
-    QMenu, QPlainTextEdit, QPushButton, QStyle, QTextEdit, QVBoxLayout, QWidget,
+    QAbstractScrollArea, QApplication, QComboBox, QHBoxLayout, QLabel,
+    QLineEdit, QMenu, QPushButton, QStyle, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.command_runner import RunHandle, RunStatus
@@ -19,9 +21,153 @@ _STATUS_DOTS = {
 }
 
 
+# Standard 8-color palette (normal + bright)
+_ANSI_COLORS = [
+    "#000000", "#cc0000", "#00aa00", "#aaaa00",
+    "#0000cc", "#aa00aa", "#00aaaa", "#aaaaaa",
+    "#555555", "#ff5555", "#55ff55", "#ffff55",
+    "#5555ff", "#ff55ff", "#55ffff", "#ffffff",
+]
+
+_ANSI_RE = re.compile(r"\x1b\[([\d;]*)m")
+
+
+def _ansi_color(index: int) -> QColor:
+    if 0 <= index < len(_ANSI_COLORS):
+        return QColor(_ANSI_COLORS[index])
+    return QColor()
+
+
+def _fmt_from_sgr(params: list[int]) -> tuple[QColor, QColor, bool, bool]:
+    """Parse SGR params and return (fg, bg, bold, italic). QColor() means 'default'."""
+    fg = QColor()
+    bg = QColor()
+    bold = False
+    italic = False
+    i = 0
+    while i < len(params):
+        p = params[i]
+        if p == 0:
+            fg, bg, bold, italic = QColor(), QColor(), False, False
+        elif p == 1:
+            bold = True
+        elif p == 3:
+            italic = True
+        elif p == 22:
+            bold = False
+        elif p == 23:
+            italic = False
+        elif 30 <= p <= 37:
+            fg = _ansi_color(p - 30)
+        elif p == 38:
+            if i + 1 < len(params) and params[i + 1] == 5 and i + 2 < len(params):
+                idx = params[i + 2]
+                fg = _256_color(idx)
+                i += 2
+            elif i + 1 < len(params) and params[i + 1] == 2 and i + 4 < len(params):
+                fg = QColor(params[i + 2], params[i + 3], params[i + 4])
+                i += 4
+        elif p == 39:
+            fg = QColor()
+        elif 40 <= p <= 47:
+            bg = _ansi_color(p - 40)
+        elif p == 48:
+            if i + 1 < len(params) and params[i + 1] == 5 and i + 2 < len(params):
+                idx = params[i + 2]
+                bg = _256_color(idx)
+                i += 2
+            elif i + 1 < len(params) and params[i + 1] == 2 and i + 4 < len(params):
+                bg = QColor(params[i + 2], params[i + 3], params[i + 4])
+                i += 4
+        elif p == 49:
+            bg = QColor()
+        elif 90 <= p <= 97:
+            fg = _ansi_color(p - 90 + 8)
+        elif 100 <= p <= 107:
+            bg = _ansi_color(p - 100 + 8)
+        i += 1
+    return fg, bg, bold, italic
+
+
+def _256_color(idx: int) -> QColor:
+    if idx < 16:
+        return _ansi_color(idx)
+    if idx < 232:
+        idx -= 16
+        b = idx % 6
+        g = (idx // 6) % 6
+        r = idx // 36
+        to_byte = lambda v: 0 if v == 0 else 55 + v * 40
+        return QColor(to_byte(r), to_byte(g), to_byte(b))
+    gray = 8 + (idx - 232) * 10
+    return QColor(gray, gray, gray)
+
+
+class _AnsiTextEdit(QTextEdit):
+    """QTextEdit that can append lines containing ANSI SGR escape codes."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setLineWrapMode(QTextEdit.NoWrap)
+        font = QFont("Menlo, Monaco, Courier New, monospace")
+        font.setStyleHint(QFont.Monospace)
+        self.setFont(font)
+        self._cur_fg = QColor()
+        self._cur_bg = QColor()
+        self._cur_bold = False
+        self._cur_italic = False
+
+    def _make_char_fmt(self) -> QTextCharFormat:
+        fmt = QTextCharFormat()
+        if self._cur_fg.isValid():
+            fmt.setForeground(self._cur_fg)
+        if self._cur_bg.isValid():
+            fmt.setBackground(self._cur_bg)
+        fmt.setFontWeight(QFont.Bold if self._cur_bold else QFont.Normal)
+        fmt.setFontItalic(self._cur_italic)
+        return fmt
+
+    def append_ansi_line(self, line: str) -> None:
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        if not self.document().isEmpty():
+            cursor.insertText("\n")
+        # split with a capture group interleaves: [text, code, text, code, ...]
+        parts = _ANSI_RE.split(line)
+        for idx, part in enumerate(parts):
+            if idx % 2 == 1:
+                # odd indices are the captured SGR code strings
+                params = [int(x) for x in part.split(";") if x.isdigit()]
+                if not params:
+                    params = [0]
+                fg, bg, bold, italic = _fmt_from_sgr(params)
+                if 0 in params:
+                    self._cur_fg, self._cur_bg = fg, bg
+                    self._cur_bold, self._cur_italic = bold, italic
+                else:
+                    if fg.isValid():
+                        self._cur_fg = fg
+                    if bg.isValid():
+                        self._cur_bg = bg
+                    if bold:
+                        self._cur_bold = bold
+                    if italic:
+                        self._cur_italic = italic
+            elif part:
+                cursor.insertText(part, self._make_char_fmt())
+        self.setTextCursor(cursor)
+        sb = self.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def toPlainText(self) -> str:
+        return self.document().toPlainText()
+
+
 class CommandPane(QWidget):
     def __init__(self, parent, handle: RunHandle, on_maximize, on_stop,
-                 on_restart, on_remove=None, show_popout_btn=True, on_nickname=None):
+                 on_restart, on_remove=None, show_popout_btn=True, on_nickname=None,
+                 on_change_worktree=None, worktrees=None):
         super().__init__(parent)
         self._handle = handle
         self._run_id = handle.run_id
@@ -31,6 +177,8 @@ class CommandPane(QWidget):
         self._on_remove = on_remove
         self._show_popout_btn = show_popout_btn
         self._on_nickname = on_nickname
+        self._on_change_worktree = on_change_worktree
+        self._worktrees = worktrees or []
         self._status = handle.status
         self._find_matches: list[int] = []
         self._find_cursor = 0
@@ -48,15 +196,20 @@ class CommandPane(QWidget):
         self._dot.setFixedWidth(16)
         header.addWidget(self._dot)
 
-        wt_name = self._handle.worktree_path.split("/")[-1]
         self._label = QLabel(
-            f"{self._handle.cmd_name} · {self._handle.repo_name} : {wt_name}"
+            f"{self._handle.cmd_name} · {self._handle.repo_name} :"
         )
         if self._on_nickname is not None:
             from PySide6.QtCore import Qt as _Qt
             self._label.setContextMenuPolicy(_Qt.CustomContextMenu)
             self._label.customContextMenuRequested.connect(self._show_nickname_menu)
-        header.addWidget(self._label, 1)
+        header.addWidget(self._label)
+
+        self._wt_combo = QComboBox()
+        self._wt_combo.setToolTip("Switch worktree")
+        self._populate_wt_combo()
+        self._wt_combo.currentIndexChanged.connect(self._on_wt_combo_changed)
+        header.addWidget(self._wt_combo, 1)
 
         if self._show_popout_btn:
             header.addWidget(self._mk_icon_btn(
@@ -92,8 +245,7 @@ class CommandPane(QWidget):
         self._find_bar.setVisible(False)
         outer.addWidget(self._find_bar)
 
-        self._textbox = QPlainTextEdit()
-        self._textbox.setReadOnly(True)
+        self._textbox = _AnsiTextEdit()
         self._textbox.setMinimumHeight(140)
         outer.addWidget(self._textbox, 1)
 
@@ -129,15 +281,33 @@ class CommandPane(QWidget):
         )
         menu.exec(self._label.mapToGlobal(pos))
 
+    def _populate_wt_combo(self) -> None:
+        self._wt_combo.blockSignals(True)
+        self._wt_combo.clear()
+        current_path = self._handle.worktree_path
+        selected = 0
+        for i, wt in enumerate(self._worktrees):
+            label = wt.path.split("/")[-1]
+            self._wt_combo.addItem(label, userData=wt.path)
+            if wt.path == current_path:
+                selected = i
+        self._wt_combo.setCurrentIndex(selected)
+        self._wt_combo.blockSignals(False)
+
+    def _on_wt_combo_changed(self, index: int) -> None:
+        if index < 0 or self._on_change_worktree is None:
+            return
+        new_path = self._wt_combo.itemData(index)
+        if new_path and new_path != self._handle.worktree_path:
+            self._on_change_worktree(new_path)
+
     # --- public API ---
 
     def header_text(self) -> str:
-        return self._label.text()
+        return self._label.text() + " " + self._wt_combo.currentText()
 
     def append_line(self, line: str) -> None:
-        self._textbox.appendPlainText(line)
-        sb = self._textbox.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        self._textbox.append_ansi_line(line)
         if self._find_bar.isVisible():
             self._apply_find()
 
@@ -146,6 +316,10 @@ class CommandPane(QWidget):
 
     def clear_output(self) -> None:
         self._textbox.clear()
+        self._textbox._cur_fg = QColor()
+        self._textbox._cur_bg = QColor()
+        self._textbox._cur_bold = False
+        self._textbox._cur_italic = False
 
     def set_status(self, status: RunStatus) -> None:
         self._status = status
