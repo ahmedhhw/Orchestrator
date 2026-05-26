@@ -108,6 +108,34 @@ def test_notification_switches_to_command_center(qtbot, monkeypatch):
     assert isinstance(app._current_panel, CommandCenterPanel)
 
 
+def test_notification_suppressed_when_pref_disabled(qtbot, monkeypatch):
+    app = _make_app(qtbot, monkeypatch)
+    app._store.get_ui_pref.side_effect = (
+        lambda key, default=None:
+            False if key == "cmd_center_notifications_enabled" else default
+    )
+
+    shown = []
+    with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
+        app._on_command_finished("run-1", _handle(status=RunStatus.STOPPED, returncode=0))
+
+    assert shown == []
+
+
+def test_panel_still_switches_when_notifications_disabled(qtbot, monkeypatch):
+    app = _make_app(qtbot, monkeypatch)
+    app._store.get_ui_pref.side_effect = (
+        lambda key, default=None:
+            False if key == "cmd_center_notifications_enabled" else default
+    )
+    assert not isinstance(app._current_panel, CommandCenterPanel)
+
+    with patch.object(app, "_show_notification"):
+        app._on_command_finished("run-1", _handle())
+
+    assert isinstance(app._current_panel, CommandCenterPanel)
+
+
 def test_vm_on_finished_wired_after_show_command_center(qtbot, monkeypatch):
     app = _make_app(qtbot, monkeypatch)
     app._show_command_center()

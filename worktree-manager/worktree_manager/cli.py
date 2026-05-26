@@ -296,9 +296,14 @@ class App(QMainWindow):
         if len(self._command_center_vm.all_runs()) > run_count_before:
             self._show_command_center()
 
+    def _notifications_enabled(self) -> bool:
+        return bool(self._store.get_ui_pref(
+            "cmd_center_notifications_enabled", True
+        ))
+
     def _on_command_finished(self, run_id: str, handle) -> None:
         from worktree_manager.command_runner import RunStatus
-        
+
         cmd_name = handle.cmd_name
         if handle.status == RunStatus.ERROR:
             body = f"❌ \"{cmd_name}\" exited with code {handle.returncode}"
@@ -306,14 +311,15 @@ class App(QMainWindow):
             body = f"✅ \"{cmd_name}\" finished"
         else:
             body = f"⏹ \"{cmd_name}\" stopped"
-        self._show_notification("Command Center", body)
+        if self._notifications_enabled():
+            self._show_notification("Command Center", body)
+            if not self.isActiveWindow():
+                QApplication.alert(self, 0)
         self._show_command_center()
-        if not self.isActiveWindow():
-            QApplication.alert(self, 0)
 
     def _on_startup_detected(self, run_id: str, handle) -> None:
         cmd_name = handle.cmd_name
-        if not self.isActiveWindow():
+        if self._notifications_enabled() and not self.isActiveWindow():
             self._show_notification("Command Center", f"🚀 \"{cmd_name}\" is ready")
             QApplication.alert(self, 0)
         self.show_toast(f"🚀 \"{cmd_name}\" is ready")
