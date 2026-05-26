@@ -1,7 +1,7 @@
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractScrollArea, QApplication, QHBoxLayout, QLabel, QLineEdit,
-    QPlainTextEdit, QPushButton, QStyle, QTextEdit, QVBoxLayout, QWidget,
+    QMenu, QPlainTextEdit, QPushButton, QStyle, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.command_runner import RunHandle, RunStatus
@@ -21,7 +21,7 @@ _STATUS_DOTS = {
 
 class CommandPane(QWidget):
     def __init__(self, parent, handle: RunHandle, on_maximize, on_stop,
-                 on_restart, on_remove=None, show_popout_btn=True):
+                 on_restart, on_remove=None, show_popout_btn=True, on_nickname=None):
         super().__init__(parent)
         self._handle = handle
         self._run_id = handle.run_id
@@ -30,6 +30,7 @@ class CommandPane(QWidget):
         self._on_restart = on_restart
         self._on_remove = on_remove
         self._show_popout_btn = show_popout_btn
+        self._on_nickname = on_nickname
         self._status = handle.status
         self._find_matches: list[int] = []
         self._find_cursor = 0
@@ -51,6 +52,10 @@ class CommandPane(QWidget):
         self._label = QLabel(
             f"{self._handle.cmd_name} · {self._handle.repo_name} : {wt_name}"
         )
+        if self._on_nickname is not None:
+            from PySide6.QtCore import Qt as _Qt
+            self._label.setContextMenuPolicy(_Qt.CustomContextMenu)
+            self._label.customContextMenuRequested.connect(self._show_nickname_menu)
         header.addWidget(self._label, 1)
 
         if self._show_popout_btn:
@@ -111,6 +116,18 @@ class CommandPane(QWidget):
         b.setToolTip(tooltip)
         b.clicked.connect(lambda _checked=False: handler())
         return b
+
+    def _show_nickname_menu(self, pos) -> None:
+        wt_name = self._handle.worktree_path.split("/")[-1]
+        menu = QMenu(self)
+        menu.addAction("Add Nickname…").triggered.connect(
+            lambda: self._on_nickname("run_command", {
+                "repo": self._handle.repo_name,
+                "worktree": wt_name,
+                "cmd": self._handle.cmd_name,
+            })
+        )
+        menu.exec(self._label.mapToGlobal(pos))
 
     # --- public API ---
 

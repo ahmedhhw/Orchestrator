@@ -53,7 +53,12 @@ class _GhostLineEdit(QLineEdit):
 
 
 class SpotlightOverlay(QWidget):
-    def __init__(self, parser: ActionParser, parent: QWidget | None = None):
+    def __init__(
+        self,
+        parser: ActionParser,
+        parent: QWidget | None = None,
+        on_action_executed=None,
+    ):
         super().__init__(parent)
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint
@@ -62,6 +67,7 @@ class SpotlightOverlay(QWidget):
 
         self._parser = parser
         self._tab_cycle: dict | None = None
+        self._on_action_executed = on_action_executed
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -107,18 +113,21 @@ class SpotlightOverlay(QWidget):
         if self._list.count() > 0:
             self._list.setCurrentRow(0)
 
-        # Only show common-prefix ghost when not in a Tab cycle.
+        # Only show common-prefix ghost when not in a Tab cycle or nickname match.
         if self._tab_cycle is None:
-            ghost = ""
-            if result.suggestions:
-                common = _longest_common_prefix(result.suggestions)
-                ft = result.filter_text
-                if common:
-                    if ft and common.lower().startswith(ft.lower()) and len(common) > len(ft):
-                        ghost = common[len(ft):]
-                    elif not ft:
-                        ghost = common
-            self._edit.set_ghost_text(ghost)
+            if result.completion_kind == "nickname":
+                self._edit.set_ghost_text("")
+            else:
+                ghost = ""
+                if result.suggestions:
+                    common = _longest_common_prefix(result.suggestions)
+                    ft = result.filter_text
+                    if common:
+                        if ft and common.lower().startswith(ft.lower()) and len(common) > len(ft):
+                            ghost = common[len(ft):]
+                        elif not ft:
+                            ghost = common
+                self._edit.set_ghost_text(ghost)
 
     def _commit_ghost(self) -> None:
         ghost = self._edit.ghost_text()
@@ -207,6 +216,20 @@ class SpotlightOverlay(QWidget):
 
         # No ghost: execute only if the command is complete.
         result = self._parser.parse(self._edit.text())
+
+        # Nickname execution path.
+        if result.completion_kind == "nickname" and result.nickname_action_name is not None:
+            spec = self._parser._registry.get_by_name(result.nickname_action_name)
+            if spec is not None:
+                args = dict(result.nickname_args or {})
+                spec.runner(args)
+                if self._on_action_executed:
+                    self._on_action_executed(result.nickname_action_name, args)
+                self.hide()
+                return
+            self._set_error("Unknown command")
+            return
+
         if result.action is None:
             self._set_error("Unknown command")
             return
@@ -225,6 +248,8 @@ class SpotlightOverlay(QWidget):
                 args[slot.name] = item.text()
 
         result.action.runner(args)
+        if self._on_action_executed:
+            self._on_action_executed(result.action.name, args)
         self.hide()
 
     def eventFilter(self, obj, event):

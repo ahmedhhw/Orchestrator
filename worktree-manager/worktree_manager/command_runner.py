@@ -53,8 +53,14 @@ class CommandRunner:
             worktree_path=worktree_path,
             command=command_str,
         )
+        source_cmd = (
+            "[ -f ~/.zprofile ] && source ~/.zprofile; "
+            "[ -f ~/.zshrc ] && source ~/.zshrc; "
+            "[ -f ~/.bash_profile ] && source ~/.bash_profile; "
+            "[ -f ~/.bashrc ] && source ~/.bashrc; "
+        )
         proc = subprocess.Popen(
-            ["bash", "-c", command_str],
+            ["bash", "-c", source_cmd + command_str],
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

@@ -2408,3 +2408,52 @@ Setup: have at least two configured repos, each with at least one saved command 
 - [ ] Regression: all `new …`, `edit …`, `project`, `repo`, `command`, `switch`, `cleanup`, `settings` still work
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually. Reply **"Iteration 3 confirmed"** (or describe any failures) before I write the plan for Iteration 4.
+
+---
+
+## Iteration 4 — Nicknames + MRU on Empty Input
+
+**Implemented via direct TDD.**
+
+**New files:**
+- `worktree_manager/spotlight/nickname_store.py` — `NicknameStore` (persists via `ConfigStore.set_ui_pref("nicknames", ...)`)
+- `worktree_manager/ui/add_nickname_dialog.py` — single-word nickname entry with validation
+- `tests/test_spotlight_iteration4_nicknames.py` — 19 tests
+
+**Changed files:**
+- `action_parser.py` — nickname exact-match path, MRU labels prepended on empty input, prefix filtering
+- `action_registry.py` — added `get_by_name(name)` method
+- `config_store.py` — added `push_mru` / `get_mru` methods
+- `spotlight_overlay.py` — `on_action_executed` callback, nickname execution path, ghost cleared on nickname match
+- `cli.py` — wires `NicknameStore`, MRU builder, `_add_nickname`, `on_nickname` passed to all 5 panels
+- `workspace_projects_panel.py` — `on_nickname` param + right-click menus on Open/Edit/Delete buttons
+- `sidebar.py` — `on_nickname` param + right-click menu on repo rows (repo, cleanup, delete repo)
+- `manage_commands_dialog.py` — `on_nickname` param + right-click menus on Edit/Delete buttons
+- `command_pane.py` — `on_nickname` param + right-click menu on pane header label
+- `command_center_panel.py` — `on_nickname` param, threaded through to `CommandPane`
+- `main_window.py` — `on_nickname` param + right-click menu on ✕ delete buttons
+
+**Tests (Red → Green):** `tests/test_spotlight_iteration4_nicknames.py` — 19 tests; total suite 112 tests.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 4
+
+> STOP. Do not proceed past this gate until every item below is checked off.
+
+- [ ] Open spotlight (`Cmd+K`) with empty input — the suggestion list shows recently used actions first (if any), then root keywords
+- [ ] Execute any action (e.g. `project <name>`) — on next `Cmd+K` with empty input, that action appears first in suggestions
+- [ ] In Workspace Projects panel, right-click the **Open** button on a project → "Add Nickname…" → enter `projo1` → dialog accepts
+- [ ] Type `projo1` in the spotlight → single suggestion `projo1` appears, no ghost text; press Enter → the project opens in your editor
+- [ ] Right-click the **Edit** button on a project → "Add Nickname…" → enter `editproj` → type `editproj` in spotlight → Enter → edit dialog opens for that project
+- [ ] Right-click the **Delete (✕)** button on a project → "Add Nickname…" → enter `delproj` → type `delproj` in spotlight → Enter → confirmation dialog appears for that project
+- [ ] In the sidebar, right-click a repo row → see three options: "Add Nickname for 'repo'…", "Add Nickname for 'cleanup'…", "Add Nickname for 'delete repo'…" → assign one → verify it works from spotlight
+- [ ] In Manage Commands dialog, right-click **Edit** or **Delete** on a command row → "Add Nickname…" → assign and verify from spotlight
+- [ ] In Command Center, right-click the pane header label on a running command → "Add Nickname…" → assign and verify from spotlight
+- [ ] In MainWindow worktree list, right-click the **✕** delete button on a non-main worktree → "Add Nickname…" → assign and verify from spotlight (confirmation dialog still appears)
+- [ ] Trying to add a nickname that collides with a built-in keyword (e.g. `project`) → error message shown in dialog, dialog stays open
+- [ ] Tab-completion still works for nickname prefixes: typing `proj` in spotlight shows `projo1` (if saved) among suggestions
+- [ ] Regression: all `new …`, `edit …`, `delete …`, `project`, `repo`, `command`, `switch`, `cleanup`, `settings` still work normally
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply **"Iteration 4 confirmed"** (or describe any failures).

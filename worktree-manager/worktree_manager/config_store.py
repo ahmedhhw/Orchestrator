@@ -128,6 +128,16 @@ class ConfigStore:
         }
         self._save_raw(data)
 
+    def push_mru(self, action_name: str, args: dict, cap: int = 10) -> None:
+        entry = {"action": action_name, "args": dict(args)}
+        mru: list = self.get_ui_pref("mru", [])
+        mru = [e for e in mru if not (e["action"] == action_name and e["args"] == dict(args))]
+        mru.insert(0, entry)
+        self.set_ui_pref("mru", mru[:cap])
+
+    def get_mru(self) -> list[dict]:
+        return self.get_ui_pref("mru", [])
+
     def all_repos(self) -> dict:
         data = self._load_raw()
         repos = {

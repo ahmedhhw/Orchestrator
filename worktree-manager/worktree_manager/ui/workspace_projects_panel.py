@@ -12,12 +12,13 @@ from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialo
 
 class WorkspaceProjectsPanel(QWidget):
     def __init__(self, parent, vm, on_close,
-                 on_generate_project=None, on_run_command=None):
+                 on_generate_project=None, on_run_command=None, on_nickname=None):
         super().__init__(parent)
         self._vm = vm
         self._on_close = on_close
         self._on_generate_project = on_generate_project
         self._on_run_command = on_run_command
+        self._on_nickname = on_nickname
         self._collapsed: set[str] = set(vm._store.get_ui_pref("projects_collapsed", []))
         self._editor: str = vm._store.get_ui_pref("projects_editor", "cursor")
         self._empty_visible: bool = True
@@ -93,6 +94,20 @@ class WorkspaceProjectsPanel(QWidget):
     def empty_state_visible(self) -> bool:
         return self._empty_visible
 
+    def _attach_nickname_menu(self, btn: QPushButton, action_name: str, args: dict) -> None:
+        if self._on_nickname is None:
+            return
+        btn.setContextMenuPolicy(Qt.CustomContextMenu)
+        btn.customContextMenuRequested.connect(
+            lambda pos, a=action_name, kw=args: self._show_nickname_menu(btn, a, kw)
+        )
+
+    def _show_nickname_menu(self, btn: QPushButton, action_name: str, args: dict) -> None:
+        menu = QMenu(self)
+        act = menu.addAction("Add Nickname…")
+        act.triggered.connect(lambda: self._on_nickname(action_name, args))
+        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+
     def _add_project_row(self, project):
         name = project.name
         is_collapsed = name in self._collapsed
@@ -105,15 +120,18 @@ class WorkspaceProjectsPanel(QWidget):
         open_btn = QPushButton("Open")
         open_btn.setFixedWidth(56)
         open_btn.clicked.connect(lambda _=False, n=name: self.open_project(n))
+        self._attach_nickname_menu(open_btn, "open_project", {"name": name})
         header.addWidget(open_btn)
         edit_btn = QPushButton("Edit")
         edit_btn.setFixedWidth(48)
         edit_btn.clicked.connect(lambda _=False, p=project: self._edit_project(p))
+        self._attach_nickname_menu(edit_btn, "edit_project", {"name": name})
         header.addWidget(edit_btn)
         del_btn = QPushButton("✕")
         del_btn.setFixedWidth(28)
         del_btn.setStyleSheet("background-color: #c0392b; color: white;")
         del_btn.clicked.connect(lambda _=False, n=name: self.delete_project(n))
+        self._attach_nickname_menu(del_btn, "delete_project", {"name": name})
         header.addWidget(del_btn)
         wrap = QWidget()
         wrap.setLayout(header)

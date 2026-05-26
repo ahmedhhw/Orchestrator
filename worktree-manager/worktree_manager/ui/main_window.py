@@ -26,7 +26,8 @@ def _fmt_age(ts):
 class MainWindow(QWidget):
     def __init__(self, vm: MainWindowViewModel, repo_name: str,
                  on_settings, on_cleanup, on_new,
-                 on_generate_project=None, on_run_command=None, parent=None):
+                 on_generate_project=None, on_run_command=None, parent=None,
+                 on_nickname=None):
         super().__init__(parent)
         self._vm = vm
         self._repo_name = repo_name
@@ -35,6 +36,7 @@ class MainWindow(QWidget):
         self._on_new = on_new
         self._on_generate_project = on_generate_project
         self._on_run_command = on_run_command
+        self._on_nickname = on_nickname
         self._worktree_rows: list[QWidget] = []
         self._toast_timer: QTimer | None = None
 
@@ -173,10 +175,28 @@ class MainWindow(QWidget):
                 "background-color: #c0392b; color: white; border: none;"
             )
             del_btn.clicked.connect(lambda _checked=False, w=wt: self._open_delete(w))
+            if self._on_nickname is not None:
+                from PySide6.QtCore import Qt as _Qt
+                from PySide6.QtWidgets import QMenu as _QMenu
+                wt_name = wt.path.split("/")[-1]
+                del_btn.setContextMenuPolicy(_Qt.CustomContextMenu)
+                del_btn.customContextMenuRequested.connect(
+                    lambda pos, b=del_btn, n=wt_name: self._show_worktree_nickname_menu(b, n)
+                )
             layout.addWidget(del_btn)
 
         self._worktree_rows.append(row)
         self._list_layout.addWidget(row)
+
+    def _show_worktree_nickname_menu(self, btn, worktree_name: str) -> None:
+        menu = QMenu(self)
+        menu.addAction("Add Nickname…").triggered.connect(
+            lambda: self._on_nickname("delete_worktree", {
+                "repo": self._repo_name,
+                "worktree": worktree_name,
+            })
+        )
+        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def _build_context_menu(self, worktree_path: str) -> QMenu:
         menu = QMenu(self)
