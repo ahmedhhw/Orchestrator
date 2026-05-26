@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import threading
 from pathlib import Path
@@ -18,14 +19,20 @@ from worktree_manager.workspace_service import WorkspaceService
 from worktree_manager.ui.cleanup_wizard import CleanupWizard
 from worktree_manager.ui.command_center_panel import CommandCenterPanel
 from worktree_manager.ui.create_dialog import CreateDialog
+from worktree_manager.ui.main_window import MainWindow
 from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
 from worktree_manager.ui.settings_panel import SettingsDialog
+from worktree_manager.ui.launch_dialog import LaunchDialog
 from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
 
 
 class _CleanupLoadBridge(QObject):
     progress_updated = Signal(int, int, str)
     loading_finished = Signal(list)
+
+
+class _FinishedBridge(QObject):
+    command_finished = Signal(str, object)
 
 
 def parse_args(argv):
@@ -56,6 +63,8 @@ class App(QMainWindow):
         self._active_repo_path = None
         self._current_panel = None
         self._command_center_vm: CommandCenterViewModel | None = None
+        self._finished_bridge = _FinishedBridge()
+        self._finished_bridge.command_finished.connect(self._on_command_finished)
 
         central = QWidget()
         self._central_layout = QHBoxLayout(central)
@@ -141,6 +150,8 @@ class App(QMainWindow):
             on_settings=lambda: self._show_settings(repo_path),
             on_cleanup=lambda: self._show_cleanup(vm),
             on_new=lambda: self._show_new_worktree(vm),
+            on_generate_project=self._on_generate_project,
+            on_run_command=self._on_run_command,
         ))
 
     def _confirm_delete_repo(self, repo_path, is_active):
@@ -231,11 +242,18 @@ class App(QMainWindow):
         )
         dlg.exec()
 
-    def _show_command_center(self):
+    def _ensure_command_center_vm(self) -> CommandCenterViewModel:
         if self._command_center_vm is None:
             self._command_center_vm = CommandCenterViewModel(
                 config_store=self._store, git_service=self._git,
             )
+            self._command_center_vm.on_finished = (
+                self._finished_bridge.command_finished.emit
+            )
+        return self._command_center_vm
+
+    def _show_command_center(self):
+        self._ensure_command_center_vm()
         self._set_panel(CommandCenterPanel(
             parent=self,
             vm=self._command_center_vm,
@@ -253,7 +271,66 @@ class App(QMainWindow):
         )
         self._set_panel(WorkspaceProjectsPanel(
             parent=self, vm=vm, on_close=self._show_empty_main,
+            on_generate_project=self._on_generate_project,
+            on_run_command=self._on_run_command,
         ))
+
+    def _on_run_command(self, worktree_path: str) -> None:
+        self._ensure_command_center_vm()
+        repo_path = self._active_repo_path or worktree_path
+        run_count_before = len(self._command_center_vm.all_runs())
+
+        dlg = LaunchDialog(
+            parent=self,
+            vm=self._command_center_vm,
+            locked_repo_path=repo_path,
+            locked_worktree_path=worktree_path,
+        )
+        dlg.exec()
+
+        if len(self._command_center_vm.all_runs()) > run_count_before:
+            self._show_command_center()
+
+    def _on_command_finished(self, run_id: str, handle) -> None:
+        from worktree_manager.command_runner import RunStatus
+        if isinstance(self._current_panel, CommandCenterPanel):
+            return
+        cmd_name = handle.cmd_name
+        if handle.status == RunStatus.ERROR:
+            body = f"❌ \"{cmd_name}\" exited with code {handle.returncode}"
+        elif handle.returncode == 0:
+            body = f"✅ \"{cmd_name}\" finished"
+        else:
+            body = f"⏹ \"{cmd_name}\" stopped"
+        self._show_notification("Command Center", body)
+        self._show_command_center()
+        if not self.isActiveWindow():
+            QApplication.alert(self, 0)
+
+    def _show_notification(self, title: str, body: str) -> None:
+        import subprocess
+        safe_title = title.replace('"', '\\"')
+        safe_body = body.replace('"', '\\"')
+        subprocess.Popen(
+            ["osascript", "-e",
+             f'display notification "{safe_body}" with title "{safe_title}"'],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _on_generate_project(self, worktree_path: str) -> None:
+        from worktree_manager.models import WorkspaceEntry, WorkspaceProject
+        name = os.path.basename(worktree_path) or worktree_path
+        project = WorkspaceProject(
+            name=name,
+            entries=[WorkspaceEntry(worktree_path=worktree_path)],
+        )
+        svc = WorkspaceService()
+        svc.generate_code_workspace(project)
+        action = "updated" if self._store.get_project(name) else "created"
+        self._store.save_project(project)
+        if isinstance(self._current_panel, MainWindow):
+            self._current_panel.show_toast(f"✅ Project \"{name}\" {action}")
 
 
 def main():

@@ -1,0 +1,69 @@
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+from worktree_manager.cli import App
+from worktree_manager.models import RepoConfig
+from worktree_manager.ui.main_window import MainWindow
+
+
+def _repo_cfg(path="/repos/proj"):
+    return RepoConfig(
+        repo_path=path, worktree_storage="/repos/proj-wt",
+        stale_days=30, last_editor="cursor", last_editor_mode="reuse",
+        last_opened="2026-05-19T10:00:00",
+    )
+
+
+def _make_app(qtbot, monkeypatch):
+    store = MagicMock()
+    cfg = _repo_cfg()
+    store.all_repos.return_value = {"/repos/proj": cfg}
+    store.get_repo.return_value = cfg
+    store.get_ui_pref.side_effect = lambda key, default=None: default
+    store.all_projects.return_value = []
+    monkeypatch.setattr("worktree_manager.cli.ConfigStore", lambda *a, **kw: store)
+    monkeypatch.setattr("worktree_manager.cli.GitService", lambda *a, **kw: MagicMock())
+
+    with patch("worktree_manager.main_window_vm.MainWindowViewModel") as MockVM:
+        MockVM.return_value.load_worktrees.return_value = []
+        MockVM.return_value.list_branches_with_checkout_status.return_value = []
+        app = App(repo_path="/repos/proj")
+        qtbot.addWidget(app)
+
+    return app, store
+
+
+def test_main_window_receives_on_generate_project_callback(qtbot, monkeypatch):
+    app, _ = _make_app(qtbot, monkeypatch)
+    assert isinstance(app._current_panel, MainWindow)
+    assert app._current_panel._on_generate_project is not None
+
+
+def test_on_generate_project_creates_project_via_workspace_service(
+    qtbot, monkeypatch, tmp_path
+):
+    app, store = _make_app(qtbot, monkeypatch)
+
+    workspace_dir = tmp_path / "workspaces"
+    with patch(
+        "worktree_manager.cli.WorkspaceService",
+        return_value=MagicMock(generate_code_workspace=MagicMock()),
+    ) as MockSvc:
+        app._on_generate_project("/repos/proj-wt/feat-auth")
+
+    MockSvc.return_value.generate_code_workspace.assert_called_once()
+    call_args = MockSvc.return_value.generate_code_workspace.call_args[0][0]
+    assert call_args.name == "feat-auth"
+    assert len(call_args.entries) == 1
+    assert call_args.entries[0].worktree_path == "/repos/proj-wt/feat-auth"
+
+
+def test_on_generate_project_shows_toast_on_main_window(qtbot, monkeypatch):
+    app, _ = _make_app(qtbot, monkeypatch)
+    panel = app._current_panel
+
+    with patch("worktree_manager.cli.WorkspaceService"):
+        app._on_generate_project("/repos/proj-wt/feat-auth")
+
+    assert not panel._toast_label.isHidden()
+    assert "feat-auth" in panel._toast_label.text()
