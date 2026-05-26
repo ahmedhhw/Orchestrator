@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.ui.command_pane import CommandPane
 from worktree_manager.ui.launch_dialog import LaunchDialog
-from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
 
 
 class _VMBridge(QObject):
@@ -59,9 +58,6 @@ class CommandCenterPanel(QWidget):
         self._update_notif_btn()
         self._notif_btn.toggled.connect(self._on_notif_toggled)
         toolbar.addWidget(self._notif_btn)
-        cmds_btn = QPushButton("⚙ Commands")
-        cmds_btn.clicked.connect(self._open_manage_commands_dialog)
-        toolbar.addWidget(cmds_btn)
         launch_btn = QPushButton("+ Launch")
         launch_btn.clicked.connect(self._open_launch_dialog)
         toolbar.addWidget(launch_btn)
@@ -135,7 +131,7 @@ class CommandCenterPanel(QWidget):
         for line in handle.output_lines:
             pane.append_line(line)
         pane.set_status(handle.status)
-        self._scroll_layout.insertWidget(0, pane)
+        self._scroll_layout.insertWidget(self._scroll_layout.count() - 1, pane)
         self._empty_label.setVisible(False)
         self._apply_filter()
 
@@ -321,6 +317,4 @@ class CommandCenterPanel(QWidget):
         dlg = LaunchDialog(parent=self, vm=self._vm)
         dlg.exec()
 
-    def _open_manage_commands_dialog(self) -> None:
-        dlg = ManageCommandsDialog(parent=self, vm=self._vm)
-        dlg.exec()
+
