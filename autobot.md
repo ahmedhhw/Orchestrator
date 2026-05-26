@@ -138,7 +138,7 @@ Steps:
 ```
 
 5. Show the updated document to the user and **stop**. Ask:
-   > "Does this iteration plan look right? Is the walking skeleton thin enough to build fast but thick enough to actually run? Any changes before I write the TDD plan for Iteration 0?"
+   > "Does this iteration plan look right? Is the walking skeleton thin enough to build fast but thick enough to actually run? Any changes before we move on to Iteration 0?"
 
 Do not proceed to Stage 3 until the user explicitly approves or asks for changes.
 
@@ -146,9 +146,9 @@ Do not proceed to Stage 3 until the user explicitly approves or asks for changes
 
 ## Stage 3 — TDD Plan for Iteration 0 (Walking Skeleton)
 
-**Goal:** Write a complete, copy-pasteable TDD plan for Iteration 0 only. Do not plan future iterations yet — they will be planned just-in-time after each manual testing gate.
+**Goal:** Ask the user whether they want a full written TDD plan or prefer the agent to implement directly in a TDD fashion. Then follow the chosen path for Iteration 0 only. Do not plan future iterations yet — they will be planned just-in-time after each manual testing gate.
 
-**Before writing the TDD plan, ask the user:**
+**Ask the user:**
 
 > "Should I show you the full TDD plan (tests + production code) before implementing, or should I implement the feature in a TDD fashion on my own?
 > - **Show me the plan first** — I'll write the complete TDD plan to `autobot-<feature-slug>.md`, you review it, then implementation happens phase by phase.
@@ -250,9 +250,9 @@ When the user replies after completing a manual testing gate:
 
 ## Stage 6 — TDD Plan for Iteration N (repeat for each subsequent iteration)
 
-**Goal:** Write a complete, copy-pasteable TDD plan for the next iteration, just-in-time, now that the previous iteration is verified working.
+**Goal:** Ask the user whether they want a full written TDD plan or prefer the agent to implement directly in a TDD fashion. Then follow the chosen path for the next iteration, just-in-time, now that the previous iteration is verified working.
 
-**Before writing the TDD plan, ask the user:**
+**Ask the user:**
 
 > "Should I show you the full TDD plan for Iteration N before implementing, or should I implement it in a TDD fashion on my own?"
 
