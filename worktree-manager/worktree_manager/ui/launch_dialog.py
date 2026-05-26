@@ -208,11 +208,10 @@ class LaunchDialog(QDialog):
     def _current_worktree_path(self) -> str:
         if self._locked_worktree_path:
             return self._locked_worktree_path
-        label = self._wt_combo.currentText()
-        for wt in self._worktrees:
-            if wt.path in label:
-                return wt.path
-        return label
+        idx = self._wt_combo.currentIndex()
+        if 0 <= idx < len(self._worktrees):
+            return self._worktrees[idx].path
+        return ""
 
     # --- public API for tests ---
 

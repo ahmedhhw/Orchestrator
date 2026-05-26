@@ -837,9 +837,16 @@ class App(QMainWindow):
             on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
         ))
 
+    def _repo_path_for_worktree(self, worktree_path: str) -> str:
+        for repo in self._store.all_repos():
+            for wt in self._git.list_worktrees(repo):
+                if wt.path == worktree_path:
+                    return repo
+        return self._active_repo_path or worktree_path
+
     def _on_run_command(self, worktree_path: str) -> None:
         self._ensure_command_center_vm()
-        repo_path = self._active_repo_path or worktree_path
+        repo_path = self._repo_path_for_worktree(worktree_path)
         run_count_before = len(self._command_center_vm.all_runs())
 
         dlg = LaunchDialog(
