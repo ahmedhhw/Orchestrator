@@ -94,6 +94,495 @@ class App(QMainWindow):
         else:
             self._show_empty_main()
 
+        self._setup_spotlight()
+
+    def _setup_spotlight(self) -> None:
+        from PySide6.QtGui import QKeySequence, QShortcut
+        from worktree_manager.spotlight.action_parser import ActionParser
+        from worktree_manager.spotlight.action_registry import (
+            ActionRegistry, ActionSpec, ArgSlot,
+        )
+        from worktree_manager.ui.spotlight_overlay import SpotlightOverlay
+        from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
+        from worktree_manager.workspace_service import WorkspaceService
+
+        self._spotlight_registry = ActionRegistry()
+        self._wp_vm = WorkspaceProjectsViewModel(
+            config_store=self._store,
+            git_service=self._git,
+            workspace_service=WorkspaceService(),
+        )
+
+        def _run_open_project(args):
+            name = args["name"]
+            repos = self._store.all_repos()
+            cfg = next(iter(repos.values()), None)
+            editor = cfg.last_editor if cfg else "code"
+            self._wp_vm.open_project(name, editor)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="open_project",
+            keywords=["project"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [p.name for p in self._store.all_projects()],
+            )],
+            runner=_run_open_project,
+            description="Open a workspace project",
+        ))
+
+        # ── edit project ──────────────────────────────────────────────────
+        from worktree_manager.ui.project_operations_dialog import (
+            ProjectOperationsDialog,
+        )
+
+        def _run_edit_project(args):
+            name = args["name"]
+            project = self._store.get_project(name)
+            if project is None:
+                return
+            dlg = ProjectOperationsDialog(
+                parent=self, vm=self._wp_vm,
+                repos=self._store.all_repos(),
+                on_edit=lambda old, new, entries: self._wp_vm.update_project(
+                    old_name=old, new_name=new, entries=entries,
+                ),
+                existing_project=project,
+            )
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="edit_project",
+            keywords=["edit", "project"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [p.name for p in self._store.all_projects()],
+            )],
+            runner=_run_edit_project,
+            description="Edit a workspace project",
+        ))
+
+        # ── repo <name> ───────────────────────────────────────────────────
+        def _repo_path_by_name(name: str) -> str | None:
+            for path in self._store.all_repos():
+                if Path(path).name == name:
+                    return path
+            return None
+
+        def _run_focus_repo(args):
+            path = _repo_path_by_name(args["name"])
+            if path is not None:
+                self._load_repo(path)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="focus_repo",
+            keywords=["repo"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_focus_repo,
+            description="Focus a repo's main window",
+        ))
+
+        # ── command <repo> <worktree> <cmd-name> ──────────────────────────
+        def _command_worktrees(prev):
+            path = _repo_path_by_name(prev.get("repo", ""))
+            if path is None:
+                return []
+            return [Path(w.path).name for w in self._git.list_worktrees(path)]
+
+        def _command_cmd_names(prev):
+            path = _repo_path_by_name(prev.get("repo", ""))
+            if path is None:
+                return []
+            return [c.name for c in self._store.get_commands(path)]
+
+        def _run_command(args):
+            repo_path = _repo_path_by_name(args["repo"])
+            if repo_path is None:
+                return
+            wt_path = None
+            for w in self._git.list_worktrees(repo_path):
+                if Path(w.path).name == args["worktree"]:
+                    wt_path = w.path
+                    break
+            if wt_path is None:
+                return
+            cmd = next(
+                (c for c in self._store.get_commands(repo_path) if c.name == args["cmd"]),
+                None,
+            )
+            if cmd is None:
+                return
+            self._ensure_command_center_vm()
+            self._command_center_vm.launch(
+                repo_path=repo_path, repo_name=Path(repo_path).name,
+                cmd_name=cmd.name, command_str=cmd.command,
+                worktree_path=wt_path,
+                startup_pattern=cmd.startup_pattern,
+            )
+            self._show_command_center()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="run_command",
+            keywords=["command"],
+            slots=[
+                ArgSlot(name="repo", candidates=lambda prev: [
+                    Path(p).name for p in self._store.all_repos()
+                ]),
+                ArgSlot(name="worktree", candidates=_command_worktrees),
+                ArgSlot(name="cmd", candidates=_command_cmd_names),
+            ],
+            runner=_run_command,
+            description="Run a saved command",
+        ))
+
+        # ── switch <worktree> <branch> ────────────────────────────────────
+        def _all_worktree_names(_prev):
+            names = []
+            for repo_path in self._store.all_repos():
+                for w in self._git.list_worktrees(repo_path):
+                    names.append(Path(w.path).name)
+            return names
+
+        def _branches_for_worktree(prev):
+            wt_name = prev.get("worktree", "")
+            for repo_path in self._store.all_repos():
+                for w in self._git.list_worktrees(repo_path):
+                    if Path(w.path).name == wt_name:
+                        return self._git.list_local_branches(repo_path)
+            return []
+
+        def _run_switch(args):
+            from worktree_manager.main_window_vm import MainWindowViewModel
+            wt_name = args["worktree"]
+            branch = args["branch"]
+            for repo_path in self._store.all_repos():
+                for w in self._git.list_worktrees(repo_path):
+                    if Path(w.path).name == wt_name:
+                        vm = MainWindowViewModel(
+                            repo_path=repo_path,
+                            config_store=self._store,
+                            git_service=self._git,
+                        )
+                        vm.switch_branch(w.path, branch)
+                        if self._current_panel is not None and hasattr(
+                            self._current_panel, "refresh"
+                        ):
+                            self._current_panel.refresh()
+                        return
+
+        self._spotlight_registry.register(ActionSpec(
+            name="switch_branch",
+            keywords=["switch"],
+            slots=[
+                ArgSlot(name="worktree", candidates=_all_worktree_names),
+                ArgSlot(name="branch", candidates=_branches_for_worktree),
+            ],
+            runner=_run_switch,
+            description="Switch a worktree's branch",
+        ))
+
+        # ── cleanup <repo> ────────────────────────────────────────────────
+        def _run_cleanup_repo(args):
+            path = _repo_path_by_name(args["name"])
+            if path is None:
+                return
+            from worktree_manager.main_window_vm import MainWindowViewModel
+            vm = MainWindowViewModel(
+                repo_path=path,
+                config_store=self._store,
+                git_service=self._git,
+            )
+            self._show_cleanup(vm)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="cleanup_repo",
+            keywords=["cleanup"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_cleanup_repo,
+            description="Open cleanup wizard",
+        ))
+
+        # ── settings ──────────────────────────────────────────────────────
+        def _run_settings(_args):
+            repo_path = self._active_repo_path or next(
+                iter(self._store.all_repos()), None
+            )
+            if repo_path is None:
+                return
+            self._show_settings(repo_path)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="open_settings",
+            keywords=["settings"],
+            slots=[],
+            runner=_run_settings,
+            description="Open settings",
+        ))
+
+        # ── new worktree <repo> ───────────────────────────────────────────
+        from worktree_manager.main_window_vm import MainWindowViewModel
+
+        def _run_new_worktree(args):
+            path = _repo_path_by_name(args["repo"])
+            if path is None:
+                return
+            vm = MainWindowViewModel(
+                repo_path=path,
+                config_store=self._store,
+                git_service=self._git,
+            )
+            self._show_new_worktree(vm)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="new_worktree",
+            keywords=["new", "worktree"],
+            slots=[ArgSlot(
+                name="repo",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_new_worktree,
+            description="Create a new worktree",
+        ))
+
+        # ── new project ───────────────────────────────────────────────────
+        def _run_new_project(_args):
+            dlg = ProjectOperationsDialog(
+                parent=self, vm=self._wp_vm,
+                repos=self._store.all_repos(),
+                on_create=lambda name, entries: self._wp_vm.create_project(
+                    name=name, entries=entries,
+                ),
+            )
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="new_project",
+            keywords=["new", "project"],
+            slots=[],
+            runner=_run_new_project,
+            description="Create a new workspace project",
+        ))
+
+        # ── new command <repo> ────────────────────────────────────────────
+        from worktree_manager.ui.add_command_dialog import AddCommandDialog
+
+        def _run_new_command(args):
+            path = _repo_path_by_name(args["repo"])
+            if path is None:
+                return
+            self._ensure_command_center_vm()
+            dlg = AddCommandDialog(
+                parent=self, vm=self._command_center_vm,
+                initial_repo=path,
+            )
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="new_command",
+            keywords=["new", "command"],
+            slots=[ArgSlot(
+                name="repo",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_new_command,
+            description="Add a new saved command",
+        ))
+
+        # ── edit command <repo> ───────────────────────────────────────────
+        from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
+
+        def _run_edit_command(args):
+            path = _repo_path_by_name(args["repo"])
+            if path is None:
+                return
+            self._ensure_command_center_vm()
+            dlg = ManageCommandsDialog(
+                parent=self, vm=self._command_center_vm,
+                initial_repo=path,
+            )
+            dlg.exec()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="edit_command",
+            keywords=["edit", "command"],
+            slots=[ArgSlot(
+                name="repo",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_edit_command,
+            description="Manage saved commands for a repo",
+        ))
+
+        # ── new repo ──────────────────────────────────────────────────────
+        self._spotlight_registry.register(ActionSpec(
+            name="new_repo",
+            keywords=["new", "repo"],
+            slots=[],
+            runner=lambda _args: self._pick_and_add_repo(),
+            description="Add a new repo",
+        ))
+
+        # ── delete worktree <repo> <worktree> ─────────────────────────────
+        from worktree_manager.ui.spotlight_confirm_dialog import SpotlightConfirmDialog
+
+        def _delete_worktree_worktrees(prev):
+            path = _repo_path_by_name(prev.get("repo", ""))
+            if path is None:
+                return []
+            return [Path(w.path).name for w in self._git.list_worktrees(path)]
+
+        def _run_delete_worktree(args):
+            repo_path = _repo_path_by_name(args["repo"])
+            if repo_path is None:
+                return
+            wt_name = args["worktree"]
+            wt = next(
+                (w for w in self._git.list_worktrees(repo_path)
+                 if Path(w.path).name == wt_name),
+                None,
+            )
+            if wt is None:
+                return
+            is_protected = False
+            try:
+                from worktree_manager.main_window_vm import MainWindowViewModel
+                vm = MainWindowViewModel(
+                    repo_path=repo_path,
+                    config_store=self._store,
+                    git_service=self._git,
+                )
+                is_protected = vm.is_protected_branch(wt.branch)
+            except Exception:
+                pass
+            dlg = SpotlightConfirmDialog(
+                parent=self,
+                title="Delete Worktree",
+                message=f'Delete worktree "{wt_name}"?\n\nBranch: {wt.branch}\nPath: {wt.path}',
+                show_also_branch=True,
+                branch_protected=is_protected,
+            )
+            if dlg.exec() != SpotlightConfirmDialog.Accepted:
+                return
+            from worktree_manager.main_window_vm import MainWindowViewModel
+            vm = MainWindowViewModel(
+                repo_path=repo_path,
+                config_store=self._store,
+                git_service=self._git,
+            )
+            vm.delete_worktree(
+                path=wt.path, branch=wt.branch,
+                also_delete_branch=dlg.also_delete_branch(),
+            )
+            if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
+                self._current_panel.refresh()
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_worktree",
+            keywords=["delete", "worktree"],
+            slots=[
+                ArgSlot(name="repo", candidates=lambda prev: [
+                    Path(p).name for p in self._store.all_repos()
+                ]),
+                ArgSlot(name="worktree", candidates=_delete_worktree_worktrees),
+            ],
+            runner=_run_delete_worktree,
+            description="Delete a worktree",
+        ))
+
+        # ── delete project <name> ─────────────────────────────────────────
+        def _run_delete_project(args):
+            name = args["name"]
+            dlg = SpotlightConfirmDialog(
+                parent=self,
+                title="Delete Project",
+                message=f'Delete workspace project "{name}"?',
+            )
+            if dlg.exec() != SpotlightConfirmDialog.Accepted:
+                return
+            self._wp_vm.delete_project(name)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_project",
+            keywords=["delete", "project"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [p.name for p in self._store.all_projects()],
+            )],
+            runner=_run_delete_project,
+            description="Delete a workspace project",
+        ))
+
+        # ── delete command <repo> <cmd> ───────────────────────────────────
+        def _run_delete_command(args):
+            repo_path = _repo_path_by_name(args["repo"])
+            if repo_path is None:
+                return
+            cmd_name = args["cmd"]
+            dlg = SpotlightConfirmDialog(
+                parent=self,
+                title="Delete Command",
+                message=f'Delete saved command "{cmd_name}" from {args["repo"]}?',
+            )
+            if dlg.exec() != SpotlightConfirmDialog.Accepted:
+                return
+            self._store.delete_command(repo_path, cmd_name)
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_command",
+            keywords=["delete", "command"],
+            slots=[
+                ArgSlot(name="repo", candidates=lambda prev: [
+                    Path(p).name for p in self._store.all_repos()
+                ]),
+                ArgSlot(name="cmd", candidates=_command_cmd_names),
+            ],
+            runner=_run_delete_command,
+            description="Delete a saved command",
+        ))
+
+        # ── delete repo <name> ────────────────────────────────────────────
+        def _run_delete_repo(args):
+            path = _repo_path_by_name(args["name"])
+            if path is None:
+                return
+            self._confirm_delete_repo(path, is_active=(path == self._active_repo_path))
+
+        self._spotlight_registry.register(ActionSpec(
+            name="delete_repo",
+            keywords=["delete", "repo"],
+            slots=[ArgSlot(
+                name="name",
+                candidates=lambda prev: [Path(p).name for p in self._store.all_repos()],
+            )],
+            runner=_run_delete_repo,
+            description="Remove a repo from the app",
+        ))
+
+        self._spotlight_overlay = SpotlightOverlay(
+            parser=ActionParser(self._spotlight_registry),
+            parent=self,
+        )
+        from PySide6.QtCore import Qt as _Qt
+        shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        shortcut.setContext(_Qt.ApplicationShortcut)
+        shortcut.activated.connect(self._open_spotlight)
+
+    def _open_spotlight(self) -> None:
+        self._spotlight_overlay.show_centered_over(self)
+
+    def spotlight_registry(self):
+        return self._spotlight_registry
+
+    def open_spotlight_for_test(self):
+        self._open_spotlight()
+        return self._spotlight_overlay
+
     # ── panel swap helpers ──────────────────────────────────────────────────
 
     def _set_panel(self, widget):
