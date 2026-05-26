@@ -213,6 +213,9 @@ class MainWindow(QWidget):
     def _trigger_generate_project(self, worktree_path: str):
         if self._on_generate_project:
             self._on_generate_project(worktree_path)
+        import os
+        name = os.path.basename(worktree_path) or worktree_path
+        self.show_toast(f"✅ Project '{name}' created")
 
     def _trigger_run_command(self, worktree_path: str):
         if self._on_run_command:
