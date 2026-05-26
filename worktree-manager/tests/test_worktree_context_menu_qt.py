@@ -56,8 +56,18 @@ def test_generate_project_action_fires_callback_with_worktree_path(qtbot):
     assert called == ["/repos/proj-wt/feat-auth"]
 
 
+def _toast_on_generate(win):
+    import os
+
+    def cb(path: str) -> None:
+        name = os.path.basename(path) or path
+        win.show_toast(f"✅ Project \"{name}\" created")
+    return cb
+
+
 def test_generate_project_shows_created_toast(qtbot):
     win = _make_window(qtbot)
+    win._on_generate_project = _toast_on_generate(win)
     win._trigger_generate_project("/repos/proj-wt/feat-auth")
     toast = win._toast_label
     assert not toast.isHidden()
@@ -67,11 +77,13 @@ def test_generate_project_shows_created_toast(qtbot):
 
 def test_generate_project_toast_contains_checkmark(qtbot):
     win = _make_window(qtbot)
+    win._on_generate_project = _toast_on_generate(win)
     win._trigger_generate_project("/repos/proj-wt/feat-auth")
     assert "✅" in win._toast_label.text()
 
 
 def test_generate_project_for_main_worktree_shows_main_in_toast(qtbot):
     win = _make_window(qtbot)
+    win._on_generate_project = _toast_on_generate(win)
     win._trigger_generate_project("/repos/proj")
     assert not win._toast_label.isHidden()

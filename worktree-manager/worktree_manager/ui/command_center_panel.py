@@ -48,6 +48,16 @@ class CommandCenterPanel(QWidget):
         title.setStyleSheet("font-weight: bold; font-size: 15px;")
         toolbar.addWidget(title)
         toolbar.addStretch(1)
+        self._notif_btn = QPushButton()
+        self._notif_btn.setCheckable(True)
+        self._notif_btn.setFixedWidth(36)
+        enabled = bool(self._vm._store.get_ui_pref(
+            "cmd_center_notifications_enabled", True
+        ))
+        self._notif_btn.setChecked(enabled)
+        self._update_notif_btn()
+        self._notif_btn.toggled.connect(self._on_notif_toggled)
+        toolbar.addWidget(self._notif_btn)
         cmds_btn = QPushButton("⚙ Commands")
         cmds_btn.clicked.connect(self._open_manage_commands_dialog)
         toolbar.addWidget(cmds_btn)
@@ -116,8 +126,7 @@ class CommandCenterPanel(QWidget):
         for line in handle.output_lines:
             pane.append_line(line)
         pane.set_status(handle.status)
-        # insert before the stretch item
-        self._scroll_layout.insertWidget(self._scroll_layout.count() - 1, pane)
+        self._scroll_layout.insertWidget(0, pane)
         self._empty_label.setVisible(False)
         self._apply_filter()
 
@@ -266,6 +275,20 @@ class CommandCenterPanel(QWidget):
 
     def get_pane(self, run_id: str) -> CommandPane | None:
         return self._panes.get(run_id)
+
+    # --- notifications toggle ---
+
+    def _on_notif_toggled(self, checked: bool) -> None:
+        self._vm._store.set_ui_pref("cmd_center_notifications_enabled", bool(checked))
+        self._update_notif_btn()
+
+    def _update_notif_btn(self) -> None:
+        on = self._notif_btn.isChecked()
+        self._notif_btn.setText("🔔" if on else "🔕")
+        self._notif_btn.setToolTip(
+            "Notifications: On — click to mute" if on
+            else "Notifications: Off — click to enable"
+        )
 
     # --- dialogs ---
 

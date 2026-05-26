@@ -65,6 +65,20 @@ def test_command_center_panel_add_pane_is_idempotent_by_run_id(qtbot):
     assert p.pane_count() == 1
 
 
+def test_command_center_panel_newest_pane_appears_at_top(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle(run_id="r1", cmd_name="first"))
+    p.add_pane(_handle(run_id="r2", cmd_name="second"))
+    p.add_pane(_handle(run_id="r3", cmd_name="third"))
+    layout = p._scroll_layout
+    pane_order = []
+    for i in range(layout.count()):
+        w = layout.itemAt(i).widget()
+        if isinstance(w, CommandPane):
+            pane_order.append(w._run_id)
+    assert pane_order == ["r3", "r2", "r1"]
+
+
 def test_command_center_panel_remove_pane_calls_vm_and_drops_pane(qtbot):
     vm = _vm()
     p = _panel(qtbot, vm=vm)
@@ -123,6 +137,37 @@ def test_command_center_panel_launch_button_opens_launch_dialog(qtbot):
         p._open_launch_dialog()
     MockDlg.assert_called_once()
     instance.exec.assert_called_once()
+
+
+def test_notif_toggle_reads_initial_state_from_store(qtbot):
+    vm = _vm()
+    vm._store.get_ui_pref.side_effect = (
+        lambda key, default=None:
+            False if key == "cmd_center_notifications_enabled" else default
+    )
+    p = _panel(qtbot, vm=vm)
+    assert p._notif_btn.isChecked() is False
+    assert p._notif_btn.text() == "🔕"
+
+
+def test_notif_toggle_defaults_on_when_pref_missing(qtbot):
+    vm = _vm()
+    vm._store.get_ui_pref.side_effect = lambda key, default=None: default
+    p = _panel(qtbot, vm=vm)
+    assert p._notif_btn.isChecked() is True
+    assert p._notif_btn.text() == "🔔"
+
+
+def test_notif_toggle_persists_to_store(qtbot):
+    vm = _vm()
+    vm._store.get_ui_pref.side_effect = lambda key, default=None: default
+    p = _panel(qtbot, vm=vm)
+    p._notif_btn.setChecked(False)
+    vm._store.set_ui_pref.assert_any_call("cmd_center_notifications_enabled", False)
+    assert p._notif_btn.text() == "🔕"
+    p._notif_btn.setChecked(True)
+    vm._store.set_ui_pref.assert_any_call("cmd_center_notifications_enabled", True)
+    assert p._notif_btn.text() == "🔔"
 
 
 def test_command_center_panel_commands_button_opens_manage_dialog(qtbot):
