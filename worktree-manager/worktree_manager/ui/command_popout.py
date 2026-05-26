@@ -11,7 +11,6 @@ class CommandPopout(QDialog):
         self.setWindowTitle(
             f"{handle.cmd_name} · {handle.repo_name} : {wt_name}"
         )
-        self.resize(900, 600)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         self._pane = CommandPane(

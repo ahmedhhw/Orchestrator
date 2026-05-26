@@ -153,15 +153,16 @@ class WorkspaceProjectsPanel(QWidget):
         short = "~" + worktree_path[len(home):] if worktree_path.startswith(home) else worktree_path
 
         row = QHBoxLayout()
-        lbl = QLabel(f"    {wt_name}: {short}")
+        lbl = QLabel(f"    {wt_name}")
         lbl.setStyleSheet("color: gray;")
+        lbl.setToolTip(worktree_path)
         row.addWidget(lbl, 1)
         if branches:
             combo = QComboBox()
             combo.addItems(branches)
             if current_branch in branches:
                 combo.setCurrentText(current_branch)
-            combo.setFixedWidth(180)
+            combo.setMinimumWidth(140)
             combo.currentTextChanged.connect(
                 lambda new, p=worktree_path, orig=current_branch:
                     self._on_branch_changed(p, orig, new)

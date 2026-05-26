@@ -9,7 +9,6 @@ class ManageNicknamesDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Manage Nicknames")
         self.setModal(True)
-        self.resize(480, 360)
         self._store = nickname_store
         self._build()
 

@@ -63,8 +63,7 @@ class SpotlightOverlay(QWidget):
         self.setWindowFlags(
             Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint
         )
-        self.resize(520, 320)
-
+        self.setMinimumSize(520, 320)
         self._parser = parser
         self._tab_cycle: dict | None = None
         self._on_action_executed = on_action_executed

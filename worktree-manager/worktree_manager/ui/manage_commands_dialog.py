@@ -13,7 +13,6 @@ class ManageCommandsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Manage Commands")
         self.setModal(True)
-        self.resize(520, 480)
         self._vm = vm
         self._initial_repo = initial_repo
         self._on_nickname = on_nickname

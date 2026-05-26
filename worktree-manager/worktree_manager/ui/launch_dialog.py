@@ -115,7 +115,6 @@ class LaunchDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Launch Command")
         self.setModal(True)
-        self.resize(440, 520)
         self._vm = vm
         self._locked_repo_path = locked_repo_path
         self._locked_worktree_path = locked_worktree_path

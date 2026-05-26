@@ -50,7 +50,6 @@ class CleanupWizard(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Cleanup Wizard")
         self.setModal(True)
-        self.resize(520, 520)
         self._on_delete = on_delete_selected
         self._pairs: list[tuple[CleanupCandidate, QCheckBox]] = []
         self._protected_pairs: list[tuple[CleanupCandidate, QCheckBox]] = []

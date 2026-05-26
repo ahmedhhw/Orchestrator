@@ -4,7 +4,7 @@ import time
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.main_window_vm import MainWindowViewModel
@@ -119,7 +119,8 @@ class MainWindow(QWidget):
 
         wt_name = os.path.basename(wt.path) if not wt.is_main else "(main)"
         name_label = QLabel(wt_name)
-        name_label.setFixedWidth(200)
+        name_label.setMinimumWidth(160)
+        name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout.addWidget(name_label)
 
         age = QLabel(_fmt_age(wt.last_commit_ts))
@@ -146,7 +147,8 @@ class MainWindow(QWidget):
         combo.addItems(all_branches)
         if wt.branch in all_branches:
             combo.setCurrentText(wt.branch)
-        combo.setFixedWidth(160)
+        combo.setMinimumWidth(140)
+        combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         def _on_change(new_branch, path=wt.path, c=combo, orig=wt.branch):
             if new_branch == orig:

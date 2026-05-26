@@ -10,7 +10,6 @@ class QuickLaunchDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Run Command")
         self.setModal(True)
-        self.resize(460, 140)
         self._worktree_path = worktree_path
         self._on_run = on_run
         self._build()

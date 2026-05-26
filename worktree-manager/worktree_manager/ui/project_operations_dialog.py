@@ -23,7 +23,6 @@ class ProjectOperationsDialog(QDialog):
 
         self.setWindowTitle("Edit Project" if self._editing else "New Workspace Project")
         self.setModal(True)
-        self.resize(460, 460)
         self._build()
         if self._editing:
             self._prepopulate(existing_project)

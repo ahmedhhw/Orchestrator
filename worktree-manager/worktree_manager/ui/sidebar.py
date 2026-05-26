@@ -27,7 +27,7 @@ class Sidebar(QWidget):
         self._active_repo_path = active_repo_path
         self._repo_buttons: dict = {}
 
-        self.setFixedWidth(220)
+        self.setMinimumWidth(200)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(4, 8, 4, 12)
@@ -53,7 +53,6 @@ class Sidebar(QWidget):
 
         self._repo_scroll = QScrollArea()
         self._repo_scroll.setWidgetResizable(True)
-        self._repo_scroll.setFixedHeight(220)
         self._repo_container = QWidget()
         self._repo_layout = QVBoxLayout(self._repo_container)
         self._repo_layout.setContentsMargins(0, 0, 0, 0)
