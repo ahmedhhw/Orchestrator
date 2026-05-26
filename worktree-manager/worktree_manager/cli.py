@@ -298,8 +298,7 @@ class App(QMainWindow):
 
     def _on_command_finished(self, run_id: str, handle) -> None:
         from worktree_manager.command_runner import RunStatus
-        if isinstance(self._current_panel, CommandCenterPanel):
-            return
+        
         cmd_name = handle.cmd_name
         if handle.status == RunStatus.ERROR:
             body = f"❌ \"{cmd_name}\" exited with code {handle.returncode}"
