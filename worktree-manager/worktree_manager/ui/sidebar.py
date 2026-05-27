@@ -120,6 +120,11 @@ class Sidebar(QWidget):
 
         self._apply_highlights()
 
+    def set_active_tab(self, key: str) -> None:
+        """Update the sidebar highlight without triggering the tab callback."""
+        self._active_key = key
+        self._apply_highlights()
+
     def _activate(self, key: str) -> None:
         self._active_key = key
         self._apply_highlights()

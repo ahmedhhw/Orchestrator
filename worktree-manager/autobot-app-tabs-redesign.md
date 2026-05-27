@@ -477,3 +477,28 @@ Additional decisions from this round:
 
 **How to confirm:** Run the app (`python3.14 -m worktree_manager` or however you launch it), perform each action above, and check off each item manually.
 Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] Click **Branch Management** then the **Cleanup** section tab — a working Cleanup UI appears (not "Coming soon").
+- [ ] The Cleanup section shows a **Repo selector** at the top with each registered repo listed, plus an **"all repos"** option.
+- [ ] Select a single repo — branches appear grouped under **Merged**, **Stale**, **Healthy**, **Protected**, and **Cannot delete** (same grouping as the old Cleanup Wizard). Any empty group shows "(none)".
+- [ ] Merged branches are sub-grouped by merge target (e.g. "→ into main") with a per-subgroup **[Select all]** button.
+- [ ] Stale branches have their own **[Select all]** button.
+- [ ] Healthy branches are unchecked by default; Merged and Stale are checked by default.
+- [ ] Protected branches have disabled checkboxes (cannot check them without Admin Mode).
+- [ ] Cannot-delete entries show a dash row with "⚠ uncommitted" or "⚠ checked out" tag and no checkbox.
+- [ ] Toggle **Admin Mode** — the orange warning banner appears and Protected checkboxes become enabled.
+- [ ] The global **[Select All]** / **[Deselect All]** button toggles correctly as you check/uncheck items.
+- [ ] Select **"all repos"** — branches from every registered repo appear aggregated in the same grouped format.
+- [ ] Click the **[Delete]** button with some items checked — the selected branches are deleted and the list refreshes.
+- [ ] In **Worktree Management**, click a repo, then click the **🧹** button in the right pane — the app switches to the **Branch Management → Cleanup** tab with that repo pre-selected in the repo selector.
+- [ ] **Regression:** Command Center, Workspace Projects, and Worktree Management tabs still function correctly with no crashes.
+- [ ] **Regression:** The sidebar's [⚙ Settings] button still opens the settings dialog.
+
+**How to confirm:** Run the app (`python3.14 -m worktree_manager`), perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.

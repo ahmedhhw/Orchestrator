@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from worktree_manager.branch_mgmt_vm import BranchMgmtViewModel
 from worktree_manager.command_center_vm import CommandCenterViewModel
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
@@ -72,6 +73,9 @@ class App(QMainWindow):
         self._finished_bridge.startup_detected.connect(self._on_startup_detected)
 
         self._wt_mgmt_vm = WorktreeMgmtViewModel(
+            config_store=self._store, git_service=self._git,
+        )
+        self._branch_mgmt_vm = BranchMgmtViewModel(
             config_store=self._store, git_service=self._git,
         )
 
@@ -719,7 +723,7 @@ class App(QMainWindow):
         self._set_panel(panel)
 
     def _show_branch_management(self):
-        self._set_panel(BranchManagementPanel())
+        self._set_panel(BranchManagementPanel(vm=self._branch_mgmt_vm))
 
     def _handle_settings(self):
         repo_path = self._active_repo_path or next(iter(self._store.all_repos()), None)
@@ -761,13 +765,10 @@ class App(QMainWindow):
         wizard.exec()
 
     def _show_cleanup_for_repo(self, repo_path: str):
-        from worktree_manager.main_window_vm import MainWindowViewModel
-        vm = MainWindowViewModel(
-            repo_path=repo_path,
-            config_store=self._store,
-            git_service=self._git,
-        )
-        self._show_cleanup(vm)
+        if not isinstance(self._current_panel, BranchManagementPanel):
+            self._set_panel(BranchManagementPanel(vm=self._branch_mgmt_vm))
+        self._current_panel.show_cleanup(repo_path=repo_path)
+        self._sidebar.set_active_tab("branch_management")
 
     def _on_cleanup_loaded(self, wizard, candidates: list) -> None:
         if not candidates:
