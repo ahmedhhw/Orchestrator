@@ -456,3 +456,24 @@ Additional decisions from this round:
 - Update the row label on success and collapse the form. Errors render inline in red.
 
 **Builds on:** Iteration 3.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 0
+
+> STOP. Do not proceed to Iteration 1 until every item below is checked off by the user.
+
+- [ ] Launch the app — the sidebar shows exactly four tab entries: **Command Center**, **Workspace Projects**, **Branch Management**, **Worktree Management**. There is no REPOS list directly in the sidebar.
+- [ ] A **[⚙ Settings]** button is visible at the bottom of the sidebar and opens the settings dialog from any active tab.
+- [ ] Click **Worktree Management** — the left pane shows the list of registered repos; the right pane shows the empty-state message ("Select a repo on the left, or click + Add Repo to register one") when no repo is selected.
+- [ ] Click a repo in the left pane — the right pane renders that repo's worktrees correctly (same data as before the refactor).
+- [ ] The right pane header reads **"Worktrees — \<repo\>"** with no ⚙ button in it.
+- [ ] **[+ Add Repo]** and **[↻ Refresh]** buttons are in the Worktree Management tab's left pane footer, not in the sidebar.
+- [ ] The repo-row right-click context menu (nickname / cleanup / delete repo) still appears and its items are present.
+- [ ] Click **Branch Management** — the section tab strip ("Sync from origin" / "Cleanup") is visible at the top; below it the placeholder text is shown. Clicking either section tab does not crash.
+- [ ] Click **Command Center** — existing Command Center UI renders correctly (no regression).
+- [ ] Click **Workspace Projects** — existing Workspace Projects UI renders correctly (no regression).
+- [ ] The active sidebar tab is visually highlighted (accent border or bold label) and switches correctly as you click different tabs.
+
+**How to confirm:** Run the app (`python3.14 -m worktree_manager` or however you launch it), perform each action above, and check off each item manually.
+Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.

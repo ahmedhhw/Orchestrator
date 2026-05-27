@@ -85,10 +85,13 @@ def test_trigger_run_command_fires_callback_with_worktree_path(qtbot):
     assert called == ["/repos/proj-wt/feat-auth"]
 
 
-def test_app_provides_on_run_command_to_main_window(qtbot, monkeypatch):
+def test_app_provides_on_run_command_to_right_pane(qtbot, monkeypatch):
+    from worktree_manager.ui.worktree_management_panel import WorktreeManagementPanel
     app, _ = _make_app(qtbot, monkeypatch)
-    assert isinstance(app._current_panel, MainWindow)
-    assert app._current_panel._on_run_command is not None
+    assert isinstance(app._current_panel, WorktreeManagementPanel)
+    right_pane = app._current_panel._right_pane
+    assert right_pane is not None
+    assert right_pane._on_run_command is not None
 
 
 def test_on_run_command_opens_launch_dialog_with_locked_repo_and_worktree(qtbot, monkeypatch):

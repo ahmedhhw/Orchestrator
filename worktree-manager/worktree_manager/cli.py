@@ -18,14 +18,16 @@ from worktree_manager.git_service import GitService
 from worktree_manager.setup_settings_vm import RepoSetupViewModel, SettingsViewModel
 from worktree_manager.workspace_projects_vm import WorkspaceProjectsViewModel
 from worktree_manager.workspace_service import WorkspaceService
+from worktree_manager.worktree_mgmt_vm import WorktreeMgmtViewModel
 from worktree_manager.ui.cleanup_wizard import CleanupWizard
 from worktree_manager.ui.command_center_panel import CommandCenterPanel
 from worktree_manager.ui.create_dialog import CreateDialog
-from worktree_manager.ui.main_window import MainWindow
 from worktree_manager.ui.repo_setup_dialog import RepoSetupDialog
 from worktree_manager.ui.settings_panel import SettingsDialog
 from worktree_manager.ui.launch_dialog import LaunchDialog
 from worktree_manager.ui.workspace_projects_panel import WorkspaceProjectsPanel
+from worktree_manager.ui.branch_management_panel import BranchManagementPanel
+from worktree_manager.ui.worktree_management_panel import WorktreeManagementPanel
 
 
 class _CleanupLoadBridge(QObject):
@@ -69,6 +71,10 @@ class App(QMainWindow):
         self._finished_bridge.command_finished.connect(self._on_command_finished)
         self._finished_bridge.startup_detected.connect(self._on_startup_detected)
 
+        self._wt_mgmt_vm = WorktreeMgmtViewModel(
+            config_store=self._store, git_service=self._git,
+        )
+
         central = QWidget()
         self._central_layout = QHBoxLayout(central)
         self._central_layout.setContentsMargins(0, 0, 0, 0)
@@ -80,14 +86,10 @@ class App(QMainWindow):
             store=self._store,
             on_command_center=self._show_command_center,
             on_workspace_projects=self._show_workspace_projects,
-            on_add_repo=self._pick_and_add_repo,
+            on_branch_management=self._show_branch_management,
+            on_worktree_management=self._show_worktree_management,
+            on_settings=self._handle_settings,
             on_refresh=self._refresh,
-            on_repo_selected=self._switch_repo,
-            on_repo_delete=lambda p: self._confirm_delete_repo(
-                p, is_active=(p == self._active_repo_path),
-            ),
-            active_repo_path=None,
-            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
         )
         self._central_layout.addWidget(self._sidebar)
 
@@ -131,7 +133,6 @@ class App(QMainWindow):
             description="Open a workspace project",
         ))
 
-        # ── settings project editor <cursor|vscode> ───────────────────────
         def _run_set_project_editor(args):
             self._store.set_ui_pref("project_editor", args["editor"])
 
@@ -146,7 +147,6 @@ class App(QMainWindow):
             description="Set the editor used to open workspace projects",
         ))
 
-        # ── edit project ──────────────────────────────────────────────────
         from worktree_manager.ui.project_operations_dialog import (
             ProjectOperationsDialog,
         )
@@ -177,7 +177,6 @@ class App(QMainWindow):
             description="Edit a workspace project",
         ))
 
-        # ── repo <name> ───────────────────────────────────────────────────
         def _repo_path_by_name(name: str) -> str | None:
             for path in self._store.all_repos():
                 if Path(path).name == name:
@@ -200,7 +199,6 @@ class App(QMainWindow):
             description="Focus a repo's main window",
         ))
 
-        # ── command <repo> <worktree> <cmd-name> ──────────────────────────
         def _command_worktrees(prev):
             path = _repo_path_by_name(prev.get("repo", ""))
             if path is None:
@@ -253,7 +251,6 @@ class App(QMainWindow):
             description="Run a saved command",
         ))
 
-        # ── switch <worktree> <branch> ────────────────────────────────────
         def _all_worktree_names(_prev):
             names = []
             for repo_path in self._store.all_repos():
@@ -299,7 +296,6 @@ class App(QMainWindow):
             description="Switch a worktree's branch",
         ))
 
-        # ── cleanup <repo> ────────────────────────────────────────────────
         def _run_cleanup_repo(args):
             path = _repo_path_by_name(args["name"])
             if path is None:
@@ -323,14 +319,8 @@ class App(QMainWindow):
             description="Open cleanup wizard",
         ))
 
-        # ── settings ──────────────────────────────────────────────────────
         def _run_settings(_args):
-            repo_path = self._active_repo_path or next(
-                iter(self._store.all_repos()), None
-            )
-            if repo_path is None:
-                return
-            self._show_settings(repo_path)
+            self._handle_settings()
 
         self._spotlight_registry.register(ActionSpec(
             name="open_settings",
@@ -340,7 +330,6 @@ class App(QMainWindow):
             description="Open settings",
         ))
 
-        # ── nicknames ─────────────────────────────────────────────────────
         def _run_nicknames(_args):
             from worktree_manager.ui.manage_nicknames_dialog import ManageNicknamesDialog
             dlg = ManageNicknamesDialog(parent=self, nickname_store=self._nickname_store)
@@ -354,7 +343,6 @@ class App(QMainWindow):
             description="View and delete saved nicknames",
         ))
 
-        # ── new worktree <repo> ───────────────────────────────────────────
         from worktree_manager.main_window_vm import MainWindowViewModel
 
         def _run_new_worktree(args):
@@ -379,7 +367,6 @@ class App(QMainWindow):
             description="Create a new worktree",
         ))
 
-        # ── new project ───────────────────────────────────────────────────
         def _run_new_project(_args):
             dlg = ProjectOperationsDialog(
                 parent=self, vm=self._wp_vm,
@@ -398,7 +385,6 @@ class App(QMainWindow):
             description="Create a new workspace project",
         ))
 
-        # ── new command <repo> ────────────────────────────────────────────
         from worktree_manager.ui.add_command_dialog import AddCommandDialog
 
         def _run_new_command(args):
@@ -423,7 +409,6 @@ class App(QMainWindow):
             description="Add a new saved command",
         ))
 
-        # ── edit command <repo> ───────────────────────────────────────────
         def _run_edit_command(args):
             from worktree_manager.ui.launch_dialog import LaunchDialog
             path = _repo_path_by_name(args["repo"])
@@ -447,7 +432,6 @@ class App(QMainWindow):
             description="Manage saved commands for a repo",
         ))
 
-        # ── new repo ──────────────────────────────────────────────────────
         self._spotlight_registry.register(ActionSpec(
             name="new_repo",
             keywords=["new", "repo"],
@@ -456,7 +440,6 @@ class App(QMainWindow):
             description="Add a new repo",
         ))
 
-        # ── delete worktree <repo> <worktree> ─────────────────────────────
         from worktree_manager.ui.spotlight_confirm_dialog import SpotlightConfirmDialog
 
         def _delete_worktree_worktrees(prev):
@@ -523,7 +506,6 @@ class App(QMainWindow):
             description="Delete a worktree",
         ))
 
-        # ── delete project <name> ─────────────────────────────────────────
         def _run_delete_project(args):
             name = args["name"]
             dlg = SpotlightConfirmDialog(
@@ -546,7 +528,6 @@ class App(QMainWindow):
             description="Delete a workspace project",
         ))
 
-        # ── delete command <repo> <cmd> ───────────────────────────────────
         def _run_delete_command(args):
             repo_path = _repo_path_by_name(args["repo"])
             if repo_path is None:
@@ -574,7 +555,6 @@ class App(QMainWindow):
             description="Delete a saved command",
         ))
 
-        # ── delete repo <name> ────────────────────────────────────────────
         def _run_delete_repo(args):
             path = _repo_path_by_name(args["name"])
             if path is None:
@@ -658,7 +638,7 @@ class App(QMainWindow):
                 args=dict(args),
             ))
 
-    # ── panel swap helpers ──────────────────────────────────────────────────
+    # ── panel swap helpers ──────────────────────────────────────────────────────
 
     def _set_panel(self, widget):
         if self._current_panel is not None:
@@ -671,7 +651,7 @@ class App(QMainWindow):
         from worktree_manager.ui.landing_screen import LandingScreen
         self._set_panel(LandingScreen())
 
-    # ── repo lifecycle ──────────────────────────────────────────────────────
+    # ── repo lifecycle ──────────────────────────────────────────────────────────
 
     def _pick_and_add_repo(self):
         path = QFileDialog.getExistingDirectory(self, "Select git repo")
@@ -682,9 +662,6 @@ class App(QMainWindow):
             return
         self._load_repo(path)
 
-    def _switch_repo(self, repo_path):
-        self._load_repo(repo_path)
-
     def _load_repo(self, repo_path):
         cfg = self._store.get_repo(repo_path)
         if cfg is None:
@@ -694,32 +671,13 @@ class App(QMainWindow):
                 on_confirm=lambda: self._show_main(repo_path),
             )
             dlg.exec()
-            self._sidebar.populate_repo_rows()
             return
         self._show_main(repo_path)
 
     def _show_main(self, repo_path):
-        from worktree_manager.main_window_vm import MainWindowViewModel
-        from worktree_manager.ui.main_window import MainWindow
-
         self._active_repo_path = repo_path
-        self._sidebar.set_active_repo(repo_path)
-
-        vm = MainWindowViewModel(
-            repo_path=repo_path,
-            config_store=self._store,
-            git_service=self._git,
-        )
-        repo_name = Path(repo_path).name
-        self._set_panel(MainWindow(
-            vm=vm, repo_name=repo_name,
-            on_settings=lambda: self._show_settings(repo_path),
-            on_cleanup=lambda: self._show_cleanup(vm),
-            on_new=lambda: self._show_new_worktree(vm),
-            on_generate_project=self._on_generate_project,
-            on_run_command=self._on_run_command,
-            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
-        ))
+        self._wt_mgmt_vm.select_repo(repo_path)
+        self._show_worktree_management()
 
     def _confirm_delete_repo(self, repo_path, is_active):
         name = Path(repo_path).name
@@ -736,15 +694,38 @@ class App(QMainWindow):
         self._store.delete_repo(repo_path)
         if is_active:
             self._active_repo_path = None
-            self._sidebar.set_active_repo(None)
+            self._wt_mgmt_vm.select_repo(None)
             self._show_empty_main()
-        else:
-            self._sidebar.populate_repo_rows()
+        elif isinstance(self._current_panel, WorktreeManagementPanel):
+            self._current_panel.populate_repos()
 
     def _refresh(self):
-        self._sidebar.populate_repo_rows()
         if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
             self._current_panel.refresh()
+
+    # ── tab panel handlers ──────────────────────────────────────────────────────
+
+    def _show_worktree_management(self):
+        panel = WorktreeManagementPanel(
+            vm=self._wt_mgmt_vm,
+            on_add_repo=self._pick_and_add_repo,
+            on_refresh=self._refresh,
+            on_cleanup=self._show_cleanup_for_repo,
+            on_new_worktree=self._show_new_worktree,
+            on_generate_project=self._on_generate_project,
+            on_run_command=self._on_run_command,
+            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
+        )
+        self._set_panel(panel)
+
+    def _show_branch_management(self):
+        self._set_panel(BranchManagementPanel())
+
+    def _handle_settings(self):
+        repo_path = self._active_repo_path or next(iter(self._store.all_repos()), None)
+        if repo_path is None:
+            return
+        self._show_settings(repo_path)
 
     # ── stubs for panels arriving in later iterations ───────────────────────
 
@@ -778,6 +759,15 @@ class App(QMainWindow):
 
         threading.Thread(target=_load, daemon=True).start()
         wizard.exec()
+
+    def _show_cleanup_for_repo(self, repo_path: str):
+        from worktree_manager.main_window_vm import MainWindowViewModel
+        vm = MainWindowViewModel(
+            repo_path=repo_path,
+            config_store=self._store,
+            git_service=self._git,
+        )
+        self._show_cleanup(vm)
 
     def _on_cleanup_loaded(self, wizard, candidates: list) -> None:
         if not candidates:
@@ -925,8 +915,7 @@ class App(QMainWindow):
         svc.generate_code_workspace(project)
         action = "updated" if self._store.get_project(name) else "created"
         self._store.save_project(project)
-        if isinstance(self._current_panel, MainWindow):
-            self._current_panel.show_toast(f"✅ Project \"{name}\" {action}")
+        self.show_toast(f"✅ Project \"{name}\" {action}")
 
 
 def main():

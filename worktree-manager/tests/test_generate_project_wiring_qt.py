@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from worktree_manager.cli import App
 from worktree_manager.models import RepoConfig
-from worktree_manager.ui.main_window import MainWindow
+from worktree_manager.ui.worktree_management_panel import WorktreeManagementPanel
 
 
 def _repo_cfg(path="/repos/proj"):
@@ -33,10 +33,16 @@ def _make_app(qtbot, monkeypatch):
     return app, store
 
 
-def test_main_window_receives_on_generate_project_callback(qtbot, monkeypatch):
+def test_worktree_panel_shown_when_repo_configured(qtbot, monkeypatch):
     app, _ = _make_app(qtbot, monkeypatch)
-    assert isinstance(app._current_panel, MainWindow)
-    assert app._current_panel._on_generate_project is not None
+    assert isinstance(app._current_panel, WorktreeManagementPanel)
+
+
+def test_right_pane_receives_on_generate_project_callback(qtbot, monkeypatch):
+    app, _ = _make_app(qtbot, monkeypatch)
+    right_pane = app._current_panel._right_pane
+    assert right_pane is not None
+    assert right_pane._on_generate_project is not None
 
 
 def test_on_generate_project_creates_project_via_workspace_service(
@@ -44,7 +50,6 @@ def test_on_generate_project_creates_project_via_workspace_service(
 ):
     app, store = _make_app(qtbot, monkeypatch)
 
-    workspace_dir = tmp_path / "workspaces"
     with patch(
         "worktree_manager.cli.WorkspaceService",
         return_value=MagicMock(generate_code_workspace=MagicMock()),
@@ -58,12 +63,11 @@ def test_on_generate_project_creates_project_via_workspace_service(
     assert call_args.entries[0].worktree_path == "/repos/proj-wt/feat-auth"
 
 
-def test_on_generate_project_shows_toast_on_main_window(qtbot, monkeypatch):
+def test_on_generate_project_shows_toast_on_status_bar(qtbot, monkeypatch):
     app, _ = _make_app(qtbot, monkeypatch)
-    panel = app._current_panel
 
     with patch("worktree_manager.cli.WorkspaceService"):
         app._on_generate_project("/repos/proj-wt/feat-auth")
 
-    assert not panel._toast_label.isHidden()
-    assert "feat-auth" in panel._toast_label.text()
+    # Toast is shown on the App's statusBar (not a per-panel _toast_label)
+    assert "feat-auth" in app.statusBar().currentMessage()

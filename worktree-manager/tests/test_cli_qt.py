@@ -78,9 +78,9 @@ def test_app_sidebar_present_when_no_repo(qtbot, empty_store):
     assert isinstance(app._sidebar, Sidebar)
 
 
-def test_app_loads_main_window_when_repo_configured(qtbot, empty_store):
+def test_app_loads_worktree_management_when_repo_configured(qtbot, empty_store):
     from worktree_manager.models import RepoConfig
-    from worktree_manager.ui.main_window import MainWindow
+    from worktree_manager.ui.worktree_management_panel import WorktreeManagementPanel
 
     cfg = RepoConfig(
         repo_path="/repos/proj", worktree_storage="/repos/proj-wt",
@@ -95,7 +95,7 @@ def test_app_loads_main_window_when_repo_configured(qtbot, empty_store):
         MockVM.return_value.list_branches_with_checkout_status.return_value = []
         app = App(repo_path="/repos/proj")
         qtbot.addWidget(app)
-        assert isinstance(app._current_panel, MainWindow)
+        assert isinstance(app._current_panel, WorktreeManagementPanel)
 
 
 def test_app_pick_repo_uses_qfiledialog(qtbot, empty_store):
