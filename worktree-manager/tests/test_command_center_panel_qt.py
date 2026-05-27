@@ -38,7 +38,6 @@ def _panel(qtbot, vm=None, on_close=None):
 def test_command_center_panel_toolbar_has_expected_buttons(qtbot):
     p = _panel(qtbot)
     texts = [b.text() for b in p.findChildren(QPushButton)]
-    assert any("Commands" in t for t in texts)
     assert any("Launch" in t for t in texts)
     assert "×" in texts
 
@@ -65,7 +64,7 @@ def test_command_center_panel_add_pane_is_idempotent_by_run_id(qtbot):
     assert p.pane_count() == 1
 
 
-def test_command_center_panel_newest_pane_appears_at_top(qtbot):
+def test_command_center_panel_panes_appear_in_insertion_order(qtbot):
     p = _panel(qtbot)
     p.add_pane(_handle(run_id="r1", cmd_name="first"))
     p.add_pane(_handle(run_id="r2", cmd_name="second"))
@@ -76,7 +75,7 @@ def test_command_center_panel_newest_pane_appears_at_top(qtbot):
         w = layout.itemAt(i).widget()
         if isinstance(w, CommandPane):
             pane_order.append(w._run_id)
-    assert pane_order == ["r3", "r2", "r1"]
+    assert pane_order == ["r1", "r2", "r3"]
 
 
 def test_command_center_panel_remove_pane_calls_vm_and_drops_pane(qtbot):
@@ -170,17 +169,6 @@ def test_notif_toggle_persists_to_store(qtbot):
     assert p._notif_btn.text() == "🔔"
 
 
-def test_command_center_panel_commands_button_opens_manage_dialog(qtbot):
-    p = _panel(qtbot)
-    with patch(
-        "worktree_manager.ui.command_center_panel.ManageCommandsDialog"
-    ) as MockDlg:
-        instance = MagicMock(spec=QDialog)
-        MockDlg.return_value = instance
-        p._open_manage_commands_dialog()
-    MockDlg.assert_called_once()
-    instance.exec.assert_called_once()
-
 
 def test_command_center_panel_wires_vm_callbacks(qtbot):
     vm = _vm()
@@ -202,3 +190,32 @@ def test_command_center_panel_maximize_and_restore_tiled(qtbot):
     p.restore_tiled()
     assert p.is_maximized("r1") is False
     assert p.is_visible("r2") is True
+
+
+def test_pane_maximize_button_triggers_maximize_in_panel(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle(run_id="r1"))
+    p.add_pane(_handle(run_id="r2"))
+    pane = p.get_pane("r1")
+    pane.trigger_maximize()
+    assert p.is_maximized("r1") is True
+    assert p.is_visible("r2") is False
+
+
+def test_pane_maximize_then_trigger_again_restores_tiled(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle(run_id="r1"))
+    p.add_pane(_handle(run_id="r2"))
+    pane = p.get_pane("r1")
+    pane.trigger_maximize()
+    assert p.is_maximized("r1") is True
+    pane.trigger_maximize()
+    assert p.is_maximized("r1") is False
+    assert p.is_visible("r2") is True
+
+
+def test_no_popout_button_in_pane_added_by_panel(qtbot):
+    p = _panel(qtbot)
+    p.add_pane(_handle(run_id="r1"))
+    pane = p.get_pane("r1")
+    assert not any(b.toolTip() == "Pop out" for b in pane.findChildren(QPushButton))

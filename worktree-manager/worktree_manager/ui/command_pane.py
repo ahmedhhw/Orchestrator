@@ -4,7 +4,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractScrollArea, QApplication, QComboBox, QHBoxLayout, QLabel,
-    QLineEdit, QMenu, QPushButton, QStyle, QTextEdit, QVBoxLayout, QWidget,
+    QLineEdit, QMenu, QMessageBox, QPushButton, QStyle, QTextEdit, QVBoxLayout,
+    QWidget,
 )
 
 from worktree_manager.command_runner import RunHandle, RunStatus
@@ -185,11 +186,13 @@ class _StdinLineEdit(QLineEdit):
 class CommandPane(QWidget):
     def __init__(self, parent, handle: RunHandle, on_maximize, on_stop,
                  on_restart, on_remove=None, show_popout_btn=True, on_nickname=None,
-                 on_change_worktree=None, worktrees=None, on_send=None):
+                 on_change_worktree=None, worktrees=None, on_send=None,
+                 on_unmaximize=None, confirm_fn=None):
         super().__init__(parent)
         self._handle = handle
         self._run_id = handle.run_id
         self._on_maximize = on_maximize
+        self._on_unmaximize = on_unmaximize
         self._on_stop = on_stop
         self._on_restart = on_restart
         self._on_remove = on_remove
@@ -199,6 +202,8 @@ class CommandPane(QWidget):
         self._worktrees = worktrees or []
         self._status = handle.status
         self._on_send = on_send
+        self._maximized = False
+        self._confirm_fn = confirm_fn
         self._find_matches: list[int] = []
         self._find_cursor = 0
         self._find_query_len = 0
@@ -233,8 +238,9 @@ class CommandPane(QWidget):
         header.addWidget(self._wt_combo, 1)
 
         if self._show_popout_btn:
-            header.addWidget(self._mk_icon_btn(
-                QStyle.SP_TitleBarMaxButton, "Pop out", self.trigger_maximize))
+            self._maximize_btn = self._mk_icon_btn(
+                QStyle.SP_TitleBarMaxButton, "Maximize", self.trigger_maximize)
+            header.addWidget(self._maximize_btn)
         header.addWidget(self._mk_icon_btn(
             QStyle.SP_BrowserReload, "Restart", self.trigger_restart))
         header.addWidget(self._mk_icon_btn(
@@ -325,8 +331,8 @@ class CommandPane(QWidget):
         current_path = self._handle.worktree_path
         selected = 0
         for i, wt in enumerate(self._worktrees):
-            label = wt.path.split("/")[-1]
-            self._wt_combo.addItem(label, userData=wt.path)
+            folder = wt.path.split("/")[-1]
+            self._wt_combo.addItem(folder, userData=wt.path)
             if wt.path == current_path:
                 selected = i
         self._wt_combo.setCurrentIndex(selected)
@@ -342,7 +348,8 @@ class CommandPane(QWidget):
     # --- public API ---
 
     def header_text(self) -> str:
-        return self._label.text() + " " + self._wt_combo.currentText()
+        wt_folder = self._handle.worktree_path.split("/")[-1]
+        return self._label.text() + " " + (self._wt_combo.currentText() or wt_folder)
 
     def append_line(self, line: str) -> None:
         self._textbox.append_ansi_line(line)
@@ -377,8 +384,19 @@ class CommandPane(QWidget):
         if on_remove is not None:
             self._on_remove = on_remove
 
+    def _confirm(self, message: str) -> bool:
+        if self._confirm_fn is not None:
+            return self._confirm_fn(message)
+        return QMessageBox.question(
+            self, "Confirm", message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        ) == QMessageBox.StandardButton.Yes
+
     def trigger_remove(self) -> None:
-        if self._on_remove:
+        if not self._on_remove:
+            return
+        if self._confirm(f'Remove "{self._handle.cmd_name}"?'):
             self._on_remove()
 
     def trigger_stop(self) -> None:
@@ -388,7 +406,21 @@ class CommandPane(QWidget):
         self._on_restart()
 
     def trigger_maximize(self) -> None:
-        self._on_maximize(self)
+        if self._maximized:
+            self._maximized = False
+            if self._show_popout_btn:
+                self._maximize_btn.setToolTip("Maximize")
+                self._maximize_btn.setIcon(
+                    self.style().standardIcon(QStyle.SP_TitleBarMaxButton))
+            if self._on_unmaximize:
+                self._on_unmaximize(self)
+        else:
+            self._maximized = True
+            if self._show_popout_btn:
+                self._maximize_btn.setToolTip("Unmaximize")
+                self._maximize_btn.setIcon(
+                    self.style().standardIcon(QStyle.SP_TitleBarNormalButton))
+            self._on_maximize(self)
 
     def trigger_copy(self) -> None:
         QApplication.clipboard().setText(self.get_output_text())

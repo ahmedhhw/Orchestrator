@@ -12,13 +12,15 @@ from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialo
 
 class WorkspaceProjectsPanel(QWidget):
     def __init__(self, parent, vm, on_close,
-                 on_generate_project=None, on_run_command=None, on_nickname=None):
+                 on_generate_project=None, on_run_command=None, on_nickname=None,
+                 confirm_fn=None):
         super().__init__(parent)
         self._vm = vm
         self._on_close = on_close
         self._on_generate_project = on_generate_project
         self._on_run_command = on_run_command
         self._on_nickname = on_nickname
+        self._confirm_fn = confirm_fn
         self._collapsed: set[str] = set(vm._store.get_ui_pref("projects_collapsed", []))
         self._editor: str = vm._store.get_ui_pref("projects_editor", "cursor")
         self._empty_visible: bool = True
@@ -223,7 +225,18 @@ class WorkspaceProjectsPanel(QWidget):
     def open_project(self, name: str) -> None:
         self._vm.open_project(name, self._editor)
 
+    def _confirm(self, message: str) -> bool:
+        if self._confirm_fn is not None:
+            return self._confirm_fn(message)
+        return QMessageBox.question(
+            self, "Confirm", message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        ) == QMessageBox.StandardButton.Yes
+
     def delete_project(self, name: str) -> None:
+        if not self._confirm(f'Delete project "{name}"?'):
+            return
         self._vm.delete_project(name)
         self.refresh()
 

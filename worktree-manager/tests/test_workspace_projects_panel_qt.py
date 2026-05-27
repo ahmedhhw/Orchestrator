@@ -20,10 +20,11 @@ def _vm(projects=None, editor="cursor", collapsed=None,
     return vm
 
 
-def _panel(qtbot, vm=None, on_close=None):
+def _panel(qtbot, vm=None, on_close=None, confirm=True):
     p = WorkspaceProjectsPanel(
         parent=None, vm=vm or _vm(),
         on_close=on_close or (lambda: None),
+        confirm_fn=lambda msg: confirm,
     )
     qtbot.addWidget(p)
     return p
@@ -81,9 +82,17 @@ def test_workspace_panel_open_invokes_vm(qtbot):
 def test_workspace_panel_delete_invokes_vm_and_refreshes(qtbot):
     proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
     vm = _vm(projects=[proj])
-    p = _panel(qtbot, vm=vm)
+    p = _panel(qtbot, vm=vm, confirm=True)
     p.delete_project("alpha")
     vm.delete_project.assert_called_once_with("alpha")
+
+
+def test_workspace_panel_delete_cancelled_does_not_delete(qtbot):
+    proj = WorkspaceProject(name="alpha", entries=[WorkspaceEntry(worktree_path="/r/proj")])
+    vm = _vm(projects=[proj])
+    p = _panel(qtbot, vm=vm, confirm=False)
+    p.delete_project("alpha")
+    vm.delete_project.assert_not_called()
 
 
 def test_workspace_panel_close_invokes_callback(qtbot):

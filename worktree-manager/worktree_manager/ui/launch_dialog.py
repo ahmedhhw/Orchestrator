@@ -3,8 +3,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMenu, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout,
-    QWidget,
+    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy,
+    QVBoxLayout, QWidget,
 )
 
 from worktree_manager.command_runner import RunStatus
@@ -111,13 +111,15 @@ class _TrackableButton(QPushButton):
 class LaunchDialog(QDialog):
     def __init__(self, parent, vm,
                  locked_repo_path: str | None = None,
-                 locked_worktree_path: str | None = None):
+                 locked_worktree_path: str | None = None,
+                 confirm_fn=None):
         super().__init__(parent)
         self.setWindowTitle("Launch Command")
         self.setModal(True)
         self._vm = vm
         self._locked_repo_path = locked_repo_path
         self._locked_worktree_path = locked_worktree_path
+        self._confirm_fn = confirm_fn
         self._commands: list[SavedCommand] = []
         self._worktrees: list[WorktreeModel] = []
         self._selected_cmd: SavedCommand | None = None
@@ -169,6 +171,7 @@ class LaunchDialog(QDialog):
         row2.addWidget(QLabel("Worktree:"))
         self._wt_combo = QComboBox()
         self._wt_combo.setMinimumWidth(200)
+        self._wt_combo.currentIndexChanged.connect(self._on_wt_combo_changed)
         if self._locked_worktree_path:
             self._wt_combo.setEnabled(False)
         row2.addWidget(self._wt_combo, 1)
@@ -273,6 +276,7 @@ class LaunchDialog(QDialog):
         self._cmd_filter.blockSignals(False)
         self._worktrees = self._vm.list_worktrees(repo_path)
         wt_labels = [f"{wt.branch}  ({wt.path})" for wt in self._worktrees]
+        self._wt_combo.blockSignals(True)
         self._wt_combo.clear()
         self._wt_combo.addItems(wt_labels)
         if self._locked_worktree_path:
@@ -280,7 +284,25 @@ class LaunchDialog(QDialog):
                 if wt.path == self._locked_worktree_path:
                     self._wt_combo.setCurrentIndex(i)
                     break
+        else:
+            saved = self._vm._store.get_ui_pref("last_worktree_per_repo", {})
+            last_path = saved.get(repo_path)
+            if last_path:
+                for i, wt in enumerate(self._worktrees):
+                    if wt.path == last_path:
+                        self._wt_combo.setCurrentIndex(i)
+                        break
+        self._wt_combo.blockSignals(False)
         self._render_cmd_list()
+
+    def _on_wt_combo_changed(self, index: int) -> None:
+        if self._locked_worktree_path or index < 0 or index >= len(self._worktrees):
+            return
+        repo_path = self._current_repo_path()
+        wt_path = self._worktrees[index].path
+        saved = dict(self._vm._store.get_ui_pref("last_worktree_per_repo", {}))
+        saved[repo_path] = wt_path
+        self._vm._store.set_ui_pref("last_worktree_per_repo", saved)
 
     def _current_repo_path(self) -> str:
         if self._locked_repo_path:
@@ -420,7 +442,18 @@ class LaunchDialog(QDialog):
         menu.addAction("Delete").triggered.connect(lambda: self._delete_cmd(cmd))
         menu.exec(pos)
 
+    def _confirm(self, message: str) -> bool:
+        if self._confirm_fn is not None:
+            return self._confirm_fn(message)
+        return QMessageBox.question(
+            self, "Confirm", message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        ) == QMessageBox.StandardButton.Yes
+
     def _delete_cmd(self, cmd: SavedCommand) -> None:
+        if not self._confirm(f'Delete "{cmd.name}"?'):
+            return
         repo_path = self._current_repo_path()
         self._vm.delete_command(repo_path, cmd.name)
         if self._selected_cmd is cmd:
@@ -483,7 +516,12 @@ class LaunchDialog(QDialog):
         if not cmd_text or not name:
             return
         repo_path = self._current_repo_path()
-        self._vm.save_command(repo_path, name, cmd_text)
+        pattern = (
+            getattr(self._selected_cmd, "startup_pattern", None)
+            if self._selected_cmd and self._selected_cmd.name == name
+            else None
+        )
+        self._vm.save_command(repo_path, name, cmd_text, startup_pattern=pattern)
         self._on_repo_changed(Path(repo_path).name)
 
     def _show_conflict(self, message: str, show_restart: bool,

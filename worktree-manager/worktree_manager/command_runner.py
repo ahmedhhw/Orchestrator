@@ -75,6 +75,7 @@ class CommandRunner:
             stdout=slave_fd,
             stderr=slave_fd,
             close_fds=True,
+            start_new_session=True,
         )
         os.close(slave_fd)
         self._handles[run_id] = handle

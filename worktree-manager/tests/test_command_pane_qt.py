@@ -1,18 +1,30 @@
 from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QLineEdit, QPlainTextEdit, QPushButton
+from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QPlainTextEdit, QPushButton
 
 from worktree_manager.command_runner import RunHandle, RunStatus
+from worktree_manager.models import WorktreeModel
 from worktree_manager.ui.command_pane import CommandPane
 
 
-def _handle(status=RunStatus.RUNNING, run_id="r1"):
+def _handle(status=RunStatus.RUNNING, run_id="r1", worktree_path="/r/proj-wt/feature-x"):
     return RunHandle(
         run_id=run_id, cmd_name="frontend", repo_path="/r/proj",
-        repo_name="proj", worktree_path="/r/proj-wt/feature-x",
+        repo_name="proj", worktree_path=worktree_path,
         command=["echo", "hi"], status=status,
     )
+
+
+def _worktrees():
+    return [
+        WorktreeModel(path="/r/proj-wt/feature-x", branch="feature/x", is_main=False,
+                      last_commit_ts=0, is_merged=False, is_stale=False),
+        WorktreeModel(path="/r/proj-wt/main", branch="main", is_main=True,
+                      last_commit_ts=0, is_merged=False, is_stale=False),
+    ]
+
+
 
 
 def _pane(qtbot, **overrides):
@@ -22,6 +34,7 @@ def _pane(qtbot, **overrides):
         on_stop=lambda: None,
         on_restart=lambda: None,
         on_remove=lambda: None,
+        confirm_fn=lambda msg: True,
     )
     callbacks.update(overrides)
     p = CommandPane(parent=None, **callbacks)
@@ -82,7 +95,8 @@ def test_command_pane_restart_button_invokes_callback(qtbot):
 
 def test_command_pane_remove_button_invokes_callback(qtbot):
     calls = []
-    p = _pane(qtbot, on_remove=lambda: calls.append("remove"))
+    p = _pane(qtbot, on_remove=lambda: calls.append("remove"),
+              confirm_fn=lambda msg: True)
     p.trigger_remove()
     assert calls == ["remove"]
 
@@ -119,7 +133,7 @@ def test_command_pane_update_run_id_changes_attribute(qtbot):
 
 
 def test_command_pane_update_callbacks_replaces_handlers(qtbot):
-    p = _pane(qtbot)
+    p = _pane(qtbot, confirm_fn=lambda msg: True)
     calls = []
     p.update_callbacks(
         on_stop=lambda: calls.append("s"),
@@ -269,3 +283,90 @@ def test_empty_text_is_not_sent(qtbot):
     p.set_stdin_text("")
     p.trigger_send()
     assert sent == []
+
+
+# ── worktree combo ────────────────────────────────────────────────────────────
+
+def test_worktree_combo_shows_folder_names(qtbot):
+    p = _pane(qtbot, worktrees=_worktrees())
+    combo = p.findChild(QComboBox)
+    wt_texts = [combo.itemText(i) for i in range(combo.count())]
+    assert "feature-x" in wt_texts
+    assert "main" in wt_texts
+
+
+# ── maximize toggle ───────────────────────────────────────────────────────────
+
+def test_maximize_button_is_present_when_show_popout_btn_true(qtbot):
+    p = _pane(qtbot)
+    assert any(b.toolTip() == "Maximize" for b in p.findChildren(QPushButton))
+
+
+def test_maximize_button_absent_when_show_popout_btn_false(qtbot):
+    p = CommandPane(
+        parent=None, handle=_handle(),
+        on_maximize=lambda x: None, on_stop=lambda: None,
+        on_restart=lambda: None, on_remove=lambda: None,
+        show_popout_btn=False,
+    )
+    qtbot.addWidget(p)
+    assert not any(b.toolTip() in ("Maximize", "Unmaximize")
+                   for b in p.findChildren(QPushButton))
+
+
+def test_no_popout_button_present(qtbot):
+    p = _pane(qtbot)
+    assert not any(b.toolTip() == "Pop out" for b in p.findChildren(QPushButton))
+
+
+def test_maximize_toggle_calls_on_maximize_then_on_unmaximize(qtbot):
+    maximize_calls = []
+    unmaximize_calls = []
+    p = _pane(qtbot,
+              on_maximize=lambda pane: maximize_calls.append(pane),
+              on_unmaximize=lambda pane: unmaximize_calls.append(pane))
+    # First click → maximize
+    p.trigger_maximize()
+    assert maximize_calls == [p]
+    assert unmaximize_calls == []
+    # Second click → unmaximize
+    p.trigger_maximize()
+    assert unmaximize_calls == [p]
+
+
+def test_remove_shows_confirmation_before_removing(qtbot):
+    removed = []
+    p = _pane(qtbot, on_remove=lambda: removed.append(True),
+              confirm_fn=lambda msg: False)
+    p.trigger_remove()
+    assert removed == []
+
+
+def test_remove_proceeds_when_confirmed(qtbot):
+    removed = []
+    p = _pane(qtbot, on_remove=lambda: removed.append(True),
+              confirm_fn=lambda msg: True)
+    p.trigger_remove()
+    assert removed == [True]
+
+
+def test_maximize_toggle_button_tooltip_changes(qtbot):
+    maximize_btn = None
+
+    def find_btn(pane):
+        return next(
+            (b for b in pane.findChildren(QPushButton)
+             if b.toolTip() in ("Maximize", "Unmaximize")),
+            None,
+        )
+
+    p = _pane(qtbot,
+              on_maximize=lambda pane: None,
+              on_unmaximize=lambda pane: None)
+    btn = find_btn(p)
+    assert btn is not None
+    assert btn.toolTip() == "Maximize"
+    p.trigger_maximize()
+    assert btn.toolTip() == "Unmaximize"
+    p.trigger_maximize()
+    assert btn.toolTip() == "Maximize"

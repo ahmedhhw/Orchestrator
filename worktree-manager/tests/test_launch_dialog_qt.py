@@ -30,8 +30,8 @@ def _vm(repos=None, last_used="/repos/proj", saved=None, worktrees=None,
     return vm
 
 
-def _dlg(qtbot, vm=None):
-    d = LaunchDialog(parent=None, vm=vm or _vm())
+def _dlg(qtbot, vm=None, confirm=True):
+    d = LaunchDialog(parent=None, vm=vm or _vm(), confirm_fn=lambda msg: confirm)
     qtbot.addWidget(d)
     return d
 
@@ -166,7 +166,7 @@ def test_update_trigger_calls_save_command(qtbot):
     d._cmd_edit.setPlainText("make -j8")
     d._name_entry.setText("build")
     d._trigger_save()
-    vm.save_command.assert_called_with("/repos/proj", "build", "make -j8")
+    vm.save_command.assert_called_with("/repos/proj", "build", "make -j8", startup_pattern=None)
 
 
 # ── run ───────────────────────────────────────────────────────────────────────
@@ -341,7 +341,7 @@ def test_trigger_save_does_not_close_dialog(qtbot):
 
 def test_delete_cmd_calls_vm_delete(qtbot):
     vm = _vm()
-    d = _dlg(qtbot, vm=vm)
+    d = _dlg(qtbot, vm=vm, confirm=True)
     cmd = d._commands[0]
     d._delete_cmd(cmd)
     vm.delete_command.assert_called_once_with(d._current_repo_path(), "build")
@@ -352,11 +352,27 @@ def test_delete_cmd_clears_selection_when_selected(qtbot):
     vm.delete_command.side_effect = lambda *a: vm.saved_commands.configure_mock(
         return_value=[SavedCommand(name="test", command="pytest")]
     )
-    d = _dlg(qtbot, vm=vm)
+    d = _dlg(qtbot, vm=vm, confirm=True)
     d.set_command("build")
     cmd = next(c for c in d._commands if c.name == "build")
     d._delete_cmd(cmd)
     assert d._selected_cmd is None
+
+
+def test_delete_cmd_shows_confirmation_before_deleting(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm, confirm=False)
+    cmd = d._commands[0]
+    d._delete_cmd(cmd)
+    vm.delete_command.assert_not_called()
+
+
+def test_delete_cmd_proceeds_when_confirmed(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm, confirm=True)
+    cmd = d._commands[0]
+    d._delete_cmd(cmd)
+    vm.delete_command.assert_called_once_with(d._current_repo_path(), "build")
 
 
 def test_copy_command_puts_text_on_clipboard(qtbot):
@@ -367,3 +383,80 @@ def test_copy_command_puts_text_on_clipboard(qtbot):
     QApplication.clipboard().setText("")
     QApplication.clipboard().setText(cmd.command)
     assert QApplication.clipboard().text() == "make"
+
+
+# ── save preserves startup_pattern ───────────────────────────────────────────
+
+def test_save_preserves_startup_pattern_from_selected_command(qtbot):
+    vm = _vm(saved=[SavedCommand(name="serve", command="npm start",
+                                 startup_pattern="ready on")])
+    d = _dlg(qtbot, vm=vm)
+    d.set_command("serve")
+    d._trigger_save()
+    vm.save_command.assert_called_once_with(
+        "/repos/proj", "serve", "npm start", startup_pattern="ready on"
+    )
+
+
+def test_save_passes_none_startup_pattern_when_no_saved_cmd_selected(qtbot):
+    vm = _vm()
+    d = _dlg(qtbot, vm=vm)
+    d.set_run_once_text("echo hi")
+    d._name_entry.setText("newcmd")
+    d._trigger_save()
+    vm.save_command.assert_called_once_with(
+        "/repos/proj", "newcmd", "echo hi", startup_pattern=None
+    )
+
+
+# ── worktree selection persistence ───────────────────────────────────────────
+
+def test_worktree_selection_persisted_on_change(qtbot):
+    wts = [
+        _wt(branch="main", path="/r/proj"),
+        _wt(branch="feature", path="/r/proj-feature"),
+    ]
+    vm = _vm(worktrees=wts)
+    vm._store.get_ui_pref.return_value = {}
+    d = _dlg(qtbot, vm=vm)
+    d._wt_combo.setCurrentIndex(1)
+    vm._store.set_ui_pref.assert_called_with(
+        "last_worktree_per_repo", {"/repos/proj": "/r/proj-feature"}
+    )
+
+
+def test_worktree_selection_restored_on_open(qtbot):
+    wts = [
+        _wt(branch="main", path="/r/proj"),
+        _wt(branch="feature", path="/r/proj-feature"),
+    ]
+    vm = _vm(worktrees=wts)
+    vm._store.get_ui_pref.side_effect = lambda key, default=None: (
+        {"/repos/proj": "/r/proj-feature"} if key == "last_worktree_per_repo" else default
+    )
+    d = _dlg(qtbot, vm=vm)
+    assert d._wt_combo.currentIndex() == 1
+
+
+def test_worktree_selection_restored_per_repo(qtbot):
+    wts = [
+        _wt(branch="main", path="/r/proj"),
+        _wt(branch="feature", path="/r/proj-feature"),
+    ]
+    vm = _vm(worktrees=wts)
+    vm._store.get_ui_pref.side_effect = lambda key, default=None: (
+        {"/repos/proj": "/r/proj-feature", "/repos/other": "/r/other-wt"}
+        if key == "last_worktree_per_repo" else default
+    )
+    d = _dlg(qtbot, vm=vm)
+    assert d._wt_combo.currentIndex() == 1
+
+
+def test_worktree_selection_falls_back_to_first_when_saved_path_missing(qtbot):
+    wts = [_wt(branch="main", path="/r/proj")]
+    vm = _vm(worktrees=wts)
+    vm._store.get_ui_pref.side_effect = lambda key, default=None: (
+        {"/repos/proj": "/r/gone"} if key == "last_worktree_per_repo" else default
+    )
+    d = _dlg(qtbot, vm=vm)
+    assert d._wt_combo.currentIndex() == 0

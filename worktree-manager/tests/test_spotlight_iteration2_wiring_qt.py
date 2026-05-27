@@ -138,14 +138,19 @@ def test_edit_command_chain_is_registered(qtbot, tmp_path, monkeypatch):
     assert spec.name == "edit_command"
 
 
-def test_edit_command_opens_manage_commands_dialog_for_repo(qtbot, tmp_path, monkeypatch):
+def test_edit_command_opens_launch_dialog_for_repo(qtbot, tmp_path, monkeypatch):
+    from unittest.mock import MagicMock, patch
     cfg = _seed(tmp_path, repos=["/tmp/fakerepoA"])
     _patch(monkeypatch, cfg)
     opened = []
-    monkeypatch.setattr(
-        "worktree_manager.ui.manage_commands_dialog.ManageCommandsDialog.exec",
-        lambda self: opened.append(self._initial_repo),  # set via new param
-    )
+
+    class _FakeLaunchDialog:
+        def __init__(self, parent, vm, locked_repo_path=None, **kw):
+            opened.append(locked_repo_path)
+        def exec(self):
+            pass
+
+    monkeypatch.setattr("worktree_manager.ui.launch_dialog.LaunchDialog", _FakeLaunchDialog)
     app = App()
     qtbot.addWidget(app)
     app.show()

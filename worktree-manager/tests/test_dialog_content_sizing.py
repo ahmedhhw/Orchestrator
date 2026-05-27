@@ -15,7 +15,6 @@ from worktree_manager.spotlight.action_registry import ActionRegistry, ActionSpe
 from worktree_manager.ui.cleanup_wizard import CleanupWizard
 from worktree_manager.ui.command_popout import CommandPopout
 from worktree_manager.ui.launch_dialog import LaunchDialog
-from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
 from worktree_manager.ui.manage_nicknames_dialog import ManageNicknamesDialog
 from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialog
 from worktree_manager.ui.quick_launch_dialog import QuickLaunchDialog
@@ -95,17 +94,6 @@ def test_spotlight_overlay_has_minimum_size_not_fixed_size(qtbot):
     from PySide6.QtWidgets import QSizePolicy
     assert overlay.maximumWidth() > overlay.minimumWidth() or overlay.maximumWidth() >= 16777215
 
-
-# ── manage commands dialog: was resize(520, 480) ──────────────────────────────
-
-def test_manage_commands_dialog_not_fixed_520x480(qtbot):
-    vm = MagicMock()
-    vm.all_repos.return_value = {"/repos/proj": MagicMock()}
-    vm.get_last_used_repo.return_value = "/repos/proj"
-    vm.saved_commands.return_value = [SavedCommand(name="build", command="make")]
-    dlg = ManageCommandsDialog(parent=None, vm=vm)
-    qtbot.addWidget(dlg)
-    assert not (dlg.width() == 520 and dlg.height() == 480)
 
 
 # ── manage nicknames dialog: was resize(480, 360) ─────────────────────────────

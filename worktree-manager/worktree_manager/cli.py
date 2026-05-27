@@ -117,9 +117,7 @@ class App(QMainWindow):
 
         def _run_open_project(args):
             name = args["name"]
-            repos = self._store.all_repos()
-            cfg = next(iter(repos.values()), None)
-            editor = cfg.last_editor if cfg else "code"
+            editor = self._store.get_ui_pref("project_editor", "cursor")
             self._wp_vm.open_project(name, editor)
 
         self._spotlight_registry.register(ActionSpec(
@@ -131,6 +129,21 @@ class App(QMainWindow):
             )],
             runner=_run_open_project,
             description="Open a workspace project",
+        ))
+
+        # ── settings project editor <cursor|vscode> ───────────────────────
+        def _run_set_project_editor(args):
+            self._store.set_ui_pref("project_editor", args["editor"])
+
+        self._spotlight_registry.register(ActionSpec(
+            name="set_project_editor",
+            keywords=["settings", "project", "editor"],
+            slots=[ArgSlot(
+                name="editor",
+                candidates=lambda prev: ["cursor", "vscode"],
+            )],
+            runner=_run_set_project_editor,
+            description="Set the editor used to open workspace projects",
         ))
 
         # ── edit project ──────────────────────────────────────────────────
@@ -411,17 +424,15 @@ class App(QMainWindow):
         ))
 
         # ── edit command <repo> ───────────────────────────────────────────
-        from worktree_manager.ui.manage_commands_dialog import ManageCommandsDialog
-
         def _run_edit_command(args):
+            from worktree_manager.ui.launch_dialog import LaunchDialog
             path = _repo_path_by_name(args["repo"])
             if path is None:
                 return
             self._ensure_command_center_vm()
-            dlg = ManageCommandsDialog(
+            dlg = LaunchDialog(
                 parent=self, vm=self._command_center_vm,
-                initial_repo=path,
-                on_nickname=lambda action_name, kw_args: self._add_nickname(action_name, kw_args),
+                locked_repo_path=path,
             )
             dlg.exec()
 

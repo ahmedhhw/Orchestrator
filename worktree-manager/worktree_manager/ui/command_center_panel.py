@@ -117,7 +117,8 @@ class CommandCenterPanel(QWidget):
             worktrees = []
         pane = CommandPane(
             parent=self._scroll_container, handle=handle,
-            on_maximize=lambda p: self._open_popout(p._run_id),
+            on_maximize=lambda p: self.maximize_pane(p._run_id),
+            on_unmaximize=lambda p: self.restore_tiled(),
             on_stop=lambda: self._vm.stop(handle.run_id),
             on_restart=lambda: self._do_restart(handle.run_id),
             on_remove=lambda: self.remove_pane(handle.run_id),
@@ -274,8 +275,22 @@ class CommandCenterPanel(QWidget):
     def maximize_pane(self, run_id: str) -> None:
         self._maximized_id = run_id
         self._apply_filter()
+        pane = self._panes.get(run_id)
+        if pane is not None:
+            viewport_h = self._scroll.viewport().height()
+            pane.setMinimumHeight(max(viewport_h, 140))
+            idx = self._scroll_layout.indexOf(pane)
+            if idx >= 0:
+                self._scroll_layout.setStretch(idx, 1)
 
     def restore_tiled(self) -> None:
+        if self._maximized_id is not None:
+            pane = self._panes.get(self._maximized_id)
+            if pane is not None:
+                pane.setMinimumHeight(140)
+                idx = self._scroll_layout.indexOf(pane)
+                if idx >= 0:
+                    self._scroll_layout.setStretch(idx, 0)
         self._maximized_id = None
         self._apply_filter()
 
