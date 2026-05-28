@@ -68,7 +68,7 @@ class App(QMainWindow):
         self._active_repo_path = None
         self._current_panel = None
         self._command_center_vm: CommandCenterViewModel | None = None
-        self._command_center_panel: CommandCenterPanel | None = None
+        self._panel_cache: dict[str, QWidget] = {}
         self._finished_bridge = _FinishedBridge()
         self._finished_bridge.command_finished.connect(self._on_command_finished)
         self._finished_bridge.startup_detected.connect(self._on_startup_detected)
@@ -648,7 +648,7 @@ class App(QMainWindow):
     def _set_panel(self, widget):
         if self._current_panel is not None:
             self._central_layout.removeWidget(self._current_panel)
-            if self._current_panel is self._command_center_panel:
+            if self._current_panel in self._panel_cache.values():
                 self._current_panel.hide()
             else:
                 self._current_panel.deleteLater()
@@ -714,22 +714,32 @@ class App(QMainWindow):
     # ── tab panel handlers ──────────────────────────────────────────────────────
 
     def _show_worktree_management(self):
-        panel = WorktreeManagementPanel(
-            vm=self._wt_mgmt_vm,
-            on_add_repo=self._pick_and_add_repo,
-            on_refresh=self._refresh,
-            on_cleanup=self._show_cleanup_for_repo,
-            on_new_worktree=self._show_new_worktree,
-            on_generate_project=self._on_generate_project,
-            on_run_command=self._on_run_command,
-            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
-        )
+        if "worktree_management" not in self._panel_cache:
+            self._panel_cache["worktree_management"] = WorktreeManagementPanel(
+                vm=self._wt_mgmt_vm,
+                on_add_repo=self._pick_and_add_repo,
+                on_refresh=self._refresh,
+                on_cleanup=self._show_cleanup_for_repo,
+                on_new_worktree=self._show_new_worktree,
+                on_generate_project=self._on_generate_project,
+                on_run_command=self._on_run_command,
+                on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
+            )
+        panel = self._panel_cache["worktree_management"]
         self._set_panel(panel)
+        panel.show()
 
     def _show_branch_management(self):
-        panel = BranchManagementPanel(vm=self._branch_mgmt_vm)
+        first_visit = "branch_management" not in self._panel_cache
+        if first_visit:
+            self._panel_cache["branch_management"] = BranchManagementPanel(
+                vm=self._branch_mgmt_vm,
+            )
+        panel = self._panel_cache["branch_management"]
         self._set_panel(panel)
-        panel.show_sync()
+        panel.show()
+        if first_visit:
+            panel.show_sync()
 
     def _handle_settings(self):
         repo_path = self._active_repo_path or next(iter(self._store.all_repos()), None)
@@ -772,7 +782,7 @@ class App(QMainWindow):
 
     def _show_cleanup_for_repo(self, repo_path: str):
         if not isinstance(self._current_panel, BranchManagementPanel):
-            self._set_panel(BranchManagementPanel(vm=self._branch_mgmt_vm))
+            self._show_branch_management()
         self._current_panel.show_cleanup(repo_path=repo_path)
         self._sidebar.set_active_tab("branch_management")
 
@@ -821,31 +831,39 @@ class App(QMainWindow):
 
     def _show_command_center(self):
         self._ensure_command_center_vm()
-        if self._command_center_panel is None:
-            self._command_center_panel = CommandCenterPanel(
+        if "command_center" not in self._panel_cache:
+            self._panel_cache["command_center"] = CommandCenterPanel(
                 parent=self,
                 vm=self._command_center_vm,
                 on_close=self._on_command_center_close,
                 on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
             )
-        self._set_panel(self._command_center_panel)
-        self._command_center_panel.show()
+        panel = self._panel_cache["command_center"]
+        self._set_panel(panel)
+        panel.show()
 
     def _on_command_center_close(self):
         self._show_empty_main()
 
+    def _on_workspace_projects_close(self):
+        self._show_empty_main()
+
     def _show_workspace_projects(self):
-        vm = WorkspaceProjectsViewModel(
-            config_store=self._store,
-            git_service=self._git,
-            workspace_service=WorkspaceService(),
-        )
-        self._set_panel(WorkspaceProjectsPanel(
-            parent=self, vm=vm, on_close=self._show_empty_main,
-            on_generate_project=self._on_generate_project,
-            on_run_command=self._on_run_command,
-            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
-        ))
+        if "workspace_projects" not in self._panel_cache:
+            vm = WorkspaceProjectsViewModel(
+                config_store=self._store,
+                git_service=self._git,
+                workspace_service=WorkspaceService(),
+            )
+            self._panel_cache["workspace_projects"] = WorkspaceProjectsPanel(
+                parent=self, vm=vm, on_close=self._on_workspace_projects_close,
+                on_generate_project=self._on_generate_project,
+                on_run_command=self._on_run_command,
+                on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
+            )
+        panel = self._panel_cache["workspace_projects"]
+        self._set_panel(panel)
+        panel.show()
 
     def _repo_path_for_worktree(self, worktree_path: str) -> str:
         for repo in self._store.all_repos():

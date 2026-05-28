@@ -190,3 +190,20 @@ Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan
 - `_set_panel` hides any cached panel rather than destroying it; non-cached panels (dialogs etc. — none currently flow through this path) keep today's destroy behaviour.
 - Tests: assert each of the four panel-show methods returns the same instance on repeated calls, and that switching between any two preserves both instances in the cache.
 **Builds on:** Iteration 1.
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not declare the feature complete until every item below is checked off.
+
+- [ ] Launch the app. Open the Workspace Projects panel (sidebar → "Projects"). Scroll down if there are projects, or note the empty state.
+- [ ] Click "Worktrees". Then click "Projects" again — confirm you are returned to the exact same scroll position and state you left (not a freshly constructed panel).
+- [ ] Open the Worktrees panel. Navigate to a repo, scroll the worktree list partway down.
+- [ ] Click "Commands", then click "Worktrees" again — confirm the scroll position and repo selection are preserved.
+- [ ] Open the Branches panel (sidebar → "Branches"). Expand or interact with it.
+- [ ] Click "Worktrees", then click "Branches" again — confirm the panel state is preserved, not reset.
+- [ ] Cycle through all four tabs in order (Projects → Worktrees → Branches → Commands → Projects) and confirm each returns to the state it was left in.
+- [ ] Regression: Command Center still preserves running panes and streaming output across tab switches (Iteration 1 behaviour still works).
+- [ ] Regression: Long lines in command output still wrap and no horizontal scrollbar appears (Iteration 0 behaviour still works).
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) before declaring the feature done.
