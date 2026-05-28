@@ -30,11 +30,11 @@ def _panel(qtbot, vm=None, on_close=None, confirm=True):
     return p
 
 
-def test_workspace_panel_toolbar_has_new_and_close(qtbot):
+def test_workspace_panel_toolbar_has_new_button(qtbot):
     p = _panel(qtbot)
     texts = [b.text() for b in p.findChildren(QPushButton)]
     assert any("New" in t for t in texts)
-    assert "×" in texts
+    assert "×" not in texts
 
 
 def test_workspace_panel_editor_radio_defaults_from_pref(qtbot):

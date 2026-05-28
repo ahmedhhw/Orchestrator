@@ -41,10 +41,6 @@ class WorkspaceProjectsPanel(QWidget):
         new_btn = QPushButton("+ New")
         new_btn.clicked.connect(self._open_new_dialog)
         toolbar.addWidget(new_btn)
-        close_btn = QPushButton("×")
-        close_btn.setFixedWidth(32)
-        close_btn.clicked.connect(self.trigger_close)
-        toolbar.addWidget(close_btn)
         outer.addLayout(toolbar)
 
         editor_row = QHBoxLayout()

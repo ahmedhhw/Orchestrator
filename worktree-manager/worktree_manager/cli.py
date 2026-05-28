@@ -68,6 +68,7 @@ class App(QMainWindow):
         self._active_repo_path = None
         self._current_panel = None
         self._command_center_vm: CommandCenterViewModel | None = None
+        self._command_center_panel: CommandCenterPanel | None = None
         self._finished_bridge = _FinishedBridge()
         self._finished_bridge.command_finished.connect(self._on_command_finished)
         self._finished_bridge.startup_detected.connect(self._on_startup_detected)
@@ -647,7 +648,10 @@ class App(QMainWindow):
     def _set_panel(self, widget):
         if self._current_panel is not None:
             self._central_layout.removeWidget(self._current_panel)
-            self._current_panel.deleteLater()
+            if self._current_panel is self._command_center_panel:
+                self._current_panel.hide()
+            else:
+                self._current_panel.deleteLater()
         self._current_panel = widget
         self._central_layout.addWidget(widget, 1)
 
@@ -817,12 +821,15 @@ class App(QMainWindow):
 
     def _show_command_center(self):
         self._ensure_command_center_vm()
-        self._set_panel(CommandCenterPanel(
-            parent=self,
-            vm=self._command_center_vm,
-            on_close=self._on_command_center_close,
-            on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
-        ))
+        if self._command_center_panel is None:
+            self._command_center_panel = CommandCenterPanel(
+                parent=self,
+                vm=self._command_center_vm,
+                on_close=self._on_command_center_close,
+                on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
+            )
+        self._set_panel(self._command_center_panel)
+        self._command_center_panel.show()
 
     def _on_command_center_close(self):
         self._show_empty_main()

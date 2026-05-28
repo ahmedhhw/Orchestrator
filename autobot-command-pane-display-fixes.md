@@ -168,6 +168,20 @@ classDiagram
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
 
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] Launch the app and open the Command Center (sidebar → "Commands"). Launch a command that produces continuous output (e.g. `while true; do echo "tick $(date)"; sleep 1; done`).
+- [ ] While the command is running, click a different sidebar tab (e.g. "Worktrees"). Wait 3–5 seconds so new output lines accumulate.
+- [ ] Click "Commands" to return to the Command Center. Confirm the pane is still there, all output lines are visible (including those that arrived while you were away), and new lines keep streaming in.
+- [ ] Confirm the scroll position and any maximized pane state are preserved exactly as you left them.
+- [ ] Click the × (close) button on the Command Center toolbar. Confirm the view clears (e.g. landing screen appears). Click "Commands" again — confirm the same pane is restored with all output intact.
+- [ ] Regression: wrap-anywhere still works — long lines still wrap and no horizontal scrollbar appears.
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
 ### Iteration 2 — Persist remaining sidebar panels
 **Delivers:** Projects, Worktrees, and Branches panels also persist across tab switches — scroll position, selection, and any in-panel state survive. Sidebar navigation feels stateful, not "reset on every click."
 **Scope:**

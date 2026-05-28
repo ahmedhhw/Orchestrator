@@ -39,7 +39,7 @@ def test_command_center_panel_toolbar_has_expected_buttons(qtbot):
     p = _panel(qtbot)
     texts = [b.text() for b in p.findChildren(QPushButton)]
     assert any("Launch" in t for t in texts)
-    assert "×" in texts
+    assert "×" not in texts
 
 
 def test_command_center_panel_empty_state_visible_initially(qtbot):

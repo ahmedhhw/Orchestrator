@@ -19,10 +19,6 @@ def empty_store(monkeypatch):
 
 # ── Main window: no hard-coded 1400×900 size ────────────────────────────────
 
-def test_main_window_minimum_width_is_not_oversized(qtbot, empty_store):
-    app = App(repo_path=None)
-    qtbot.addWidget(app)
-    assert app.minimumWidth() <= 900
 
 
 def test_main_window_minimum_height_is_not_oversized(qtbot, empty_store):

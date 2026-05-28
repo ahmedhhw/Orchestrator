@@ -61,10 +61,6 @@ class CommandCenterPanel(QWidget):
         launch_btn = QPushButton("+ Launch")
         launch_btn.clicked.connect(self._open_launch_dialog)
         toolbar.addWidget(launch_btn)
-        close_btn = QPushButton("×")
-        close_btn.setFixedWidth(32)
-        close_btn.clicked.connect(self.trigger_close)
-        toolbar.addWidget(close_btn)
         outer.addLayout(toolbar)
 
         self._search = QLineEdit()
