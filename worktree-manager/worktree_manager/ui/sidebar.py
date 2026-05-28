@@ -1,8 +1,62 @@
-from pathlib import Path
-
 from PySide6.QtWidgets import (
-    QHBoxLayout, QMenu, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame, QSizePolicy, QVBoxLayout, QPushButton, QWidget,
 )
+
+
+_TAB_DEFS = [
+    ("workspace_projects", "📁  Projects"),
+    ("cmd_center",         "⊞  Commands"),
+    ("worktree_management","🌳  Worktrees"),
+    ("branch_management",  "🌿  Branches"),
+]
+
+_ACTIVE_STYLE = (
+    "QPushButton {"
+    "  text-align: left;"
+    "  font-weight: bold;"
+    "  padding: 10px 12px;"
+    "  border: 1px solid #2980b9;"
+    "  border-left: 4px solid #2980b9;"
+    "  border-radius: 6px;"
+    "  background-color: #e8f4fd;"
+    "}"
+)
+
+_INACTIVE_STYLE = (
+    "QPushButton {"
+    "  text-align: left;"
+    "  padding: 10px 12px;"
+    "  border: 1px solid #d0d0d0;"
+    "  border-radius: 6px;"
+    "  background-color: transparent;"
+    "}"
+    "QPushButton:hover {"
+    "  background-color: #f5f5f5;"
+    "  border-color: #bbb;"
+    "}"
+)
+
+_BOTTOM_STYLE = (
+    "QPushButton {"
+    "  text-align: left;"
+    "  padding: 10px 12px;"
+    "  border: 1px solid #d0d0d0;"
+    "  border-radius: 6px;"
+    "  background-color: transparent;"
+    "}"
+    "QPushButton:hover {"
+    "  background-color: #f5f5f5;"
+    "  border-color: #bbb;"
+    "}"
+)
+
+
+def _divider() -> QFrame:
+    line = QFrame()
+    line.setFrameShape(QFrame.HLine)
+    line.setFrameShadow(QFrame.Sunken)
+    line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    return line
 
 
 class Sidebar(QWidget):
@@ -11,137 +65,75 @@ class Sidebar(QWidget):
         store,
         on_command_center,
         on_workspace_projects,
-        on_add_repo,
-        on_refresh,
-        on_repo_selected,
-        on_repo_delete,
-        active_repo_path=None,
+        on_branch_management,
+        on_worktree_management,
+        on_settings,
+        on_refresh=None,
         parent=None,
-        on_nickname=None,
     ):
         super().__init__(parent)
         self._store = store
-        self._on_repo_selected = on_repo_selected
-        self._on_repo_delete = on_repo_delete
-        self._on_nickname = on_nickname
-        self._active_repo_path = active_repo_path
-        self._repo_buttons: dict = {}
+        self._callbacks = {
+            "cmd_center": on_command_center,
+            "workspace_projects": on_workspace_projects,
+            "branch_management": on_branch_management,
+            "worktree_management": on_worktree_management,
+        }
+        self._on_settings = on_settings
+        self._on_refresh = on_refresh
+        self._active_key: str = "workspace_projects"
+        self._tab_buttons: dict[str, QPushButton] = {}
 
-        self.setMinimumWidth(200)
+        self.setMinimumWidth(220)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 8, 4, 12)
-        outer.setSpacing(4)
+        outer.setContentsMargins(10, 16, 10, 16)
+        outer.setSpacing(6)
 
-        cc_btn = QPushButton("⊞ Command Center")
-        cc_btn.clicked.connect(on_command_center)
-        outer.addWidget(cc_btn)
-
-        wp_btn = QPushButton("⊞ Workspace Projects")
-        wp_btn.clicked.connect(on_workspace_projects)
-        outer.addWidget(wp_btn)
-
-        self._collapsed = bool(store.get_ui_pref("repos_collapsed", False))
-        arrow = "▶" if self._collapsed else "▼"
-        self._header_btn = QPushButton(f"{arrow} REPOS")
-        self._header_btn.setFlat(True)
-        self._header_btn.setStyleSheet(
-            "text-align: left; color: gray; font-weight: bold;"
-        )
-        self._header_btn.clicked.connect(self.toggle_repos_section)
-        outer.addWidget(self._header_btn)
-
-        self._repo_scroll = QScrollArea()
-        self._repo_scroll.setWidgetResizable(True)
-        self._repo_container = QWidget()
-        self._repo_layout = QVBoxLayout(self._repo_container)
-        self._repo_layout.setContentsMargins(0, 0, 0, 0)
-        self._repo_layout.setSpacing(2)
-        self._repo_layout.addStretch(1)
-        self._repo_scroll.setWidget(self._repo_container)
-        outer.addWidget(self._repo_scroll)
-        self._repo_scroll.setVisible(not self._collapsed)
+        for key, label in _TAB_DEFS:
+            btn = QPushButton(label)
+            btn.setStyleSheet(_INACTIVE_STYLE)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setFixedHeight(44)
+            btn.clicked.connect(lambda _checked=False, k=key: self._activate(k))
+            outer.addWidget(btn)
+            self._tab_buttons[key] = btn
 
         outer.addStretch(1)
+        outer.addWidget(_divider())
+        outer.addSpacing(4)
 
-        add_btn = QPushButton("+ Add Repo")
-        add_btn.clicked.connect(on_add_repo)
-        outer.addWidget(add_btn)
+        if on_refresh is not None:
+            refresh_btn = QPushButton("↻  Refresh")
+            refresh_btn.setStyleSheet(_BOTTOM_STYLE)
+            refresh_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            refresh_btn.setFixedHeight(44)
+            refresh_btn.clicked.connect(self._on_refresh)
+            outer.addWidget(refresh_btn)
 
-        refresh_btn = QPushButton("↻ Refresh")
-        refresh_btn.clicked.connect(on_refresh)
-        outer.addWidget(refresh_btn)
+        settings_btn = QPushButton("⚙  Settings")
+        settings_btn.setStyleSheet(_BOTTOM_STYLE)
+        settings_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        settings_btn.setFixedHeight(44)
+        settings_btn.clicked.connect(self._on_settings)
+        outer.addWidget(settings_btn)
 
-        self.populate_repo_rows()
+        self._apply_highlights()
 
-    def populate_repo_rows(self):
-        while self._repo_layout.count():
-            item = self._repo_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-        self._repo_buttons.clear()
+    def set_active_tab(self, key: str) -> None:
+        """Update the sidebar highlight without triggering the tab callback."""
+        self._active_key = key
+        self._apply_highlights()
 
-        for path in self._store.all_repos().keys():
-            name = Path(path).name
-            is_active = (path == self._active_repo_path)
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(2)
+    def _activate(self, key: str) -> None:
+        self._active_key = key
+        self._apply_highlights()
+        self._callbacks[key]()
 
-            label = ("● " if is_active else "○ ") + name
-            btn = QPushButton(label)
-            btn.setStyleSheet("text-align: left;")
-            btn.clicked.connect(
-                lambda _checked=False, p=path: self._on_repo_selected(p)
-            )
-            if self._on_nickname is not None:
-                from PySide6.QtCore import Qt as _Qt
-                btn.setContextMenuPolicy(_Qt.CustomContextMenu)
-                btn.customContextMenuRequested.connect(
-                    lambda pos, n=name, b=btn: self._show_repo_nickname_menu(b, n)
-                )
-            row_layout.addWidget(btn, 1)
-
-            del_btn = QPushButton("✕")
-            del_btn.setFixedWidth(28)
-            del_btn.setStyleSheet(
-                "background-color: #c0392b; color: white; border: none;"
-            )
-            del_btn.clicked.connect(
-                lambda _checked=False, p=path: self._on_repo_delete(p)
-            )
-            row_layout.addWidget(del_btn)
-
-            self._repo_layout.addWidget(row)
-            self._repo_buttons[path] = btn
-
-        self._repo_layout.addStretch(1)
-
-    def _show_repo_nickname_menu(self, btn: QPushButton, repo_name: str) -> None:
-        menu = QMenu(self)
-        menu.addAction("Add Nickname for 'repo'…").triggered.connect(
-            lambda: self._on_nickname("focus_repo", {"name": repo_name})
-        )
-        menu.addAction("Add Nickname for 'cleanup'…").triggered.connect(
-            lambda: self._on_nickname("cleanup_repo", {"name": repo_name})
-        )
-        menu.addAction("Add Nickname for 'delete repo'…").triggered.connect(
-            lambda: self._on_nickname("delete_repo", {"name": repo_name})
-        )
-        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
-
-    def set_active_repo(self, repo_path):
-        self._active_repo_path = repo_path
-        self.populate_repo_rows()
-
-    def repos_visible(self):
-        return not self._collapsed
-
-    def toggle_repos_section(self):
-        self._collapsed = not self._collapsed
-        self._store.set_ui_pref("repos_collapsed", self._collapsed)
-        arrow = "▶" if self._collapsed else "▼"
-        self._header_btn.setText(f"{arrow} REPOS")
-        self._repo_scroll.setVisible(not self._collapsed)
+    def _apply_highlights(self) -> None:
+        for key, btn in self._tab_buttons.items():
+            is_active = (key == self._active_key)
+            btn.setStyleSheet(_ACTIVE_STYLE if is_active else _INACTIVE_STYLE)
+            btn.setProperty("active_tab", True if is_active else None)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)

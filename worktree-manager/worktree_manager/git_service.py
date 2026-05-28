@@ -1,7 +1,29 @@
 import os
 import subprocess
 import time
+from dataclasses import dataclass
+
 from worktree_manager.models import WorktreeModel
+
+
+@dataclass
+class UpstreamStatus:
+    has_upstream: bool
+    ahead: int
+    behind: int
+
+
+@dataclass
+class PullOutcome:
+    status: str   # "up_to_date" | "pulled" | "non_ff" | "dirty" | "error"
+    new_commits: int = 0
+    error: str | None = None
+
+
+@dataclass
+class UpdateOutcome:
+    status: str   # "up_to_date" | "pulled" | "non_ff" | "error"
+    error: str | None = None
 
 
 class GitService:
@@ -99,6 +121,12 @@ class GitService:
     def checkout_branch(self, worktree_path: str, branch: str) -> None:
         self._run(["git", "checkout", branch], cwd=worktree_path)
 
+    def checkout_new_branch(self, worktree_path: str, new_branch: str, base_branch: str) -> None:
+        if base_branch == "HEAD":
+            self._run(["git", "checkout", "-b", new_branch], cwd=worktree_path)
+        else:
+            self._run(["git", "checkout", "-b", new_branch, base_branch], cwd=worktree_path)
+
     def create_worktree_from_existing(
         self, repo_path: str, worktree_path: str, branch: str
     ) -> None:
@@ -136,3 +164,81 @@ class GitService:
                 if branch and branch not in result and branch not in target_set:
                     result[branch] = target
         return result
+
+    # ── sync methods ──────────────────────────────────────────────────────────
+
+    def fetch(self, repo_path: str) -> str | None:
+        """Fetch from origin. Returns None on success, error string on failure."""
+        try:
+            self._run(["git", "fetch", "origin"], cwd=repo_path)
+            return None
+        except subprocess.CalledProcessError as e:
+            return e.stderr or str(e)
+
+    def upstream_status(self, repo_path: str, branch: str) -> UpstreamStatus:
+        """Return ahead/behind counts vs the tracking branch, or has_upstream=False."""
+        try:
+            out = self._run(
+                ["git", "rev-list", "--left-right", "--count",
+                 f"{branch}...@{{u}}"],
+                cwd=repo_path,
+            ).strip()
+            ahead_str, behind_str = out.split()
+            return UpstreamStatus(
+                has_upstream=True, ahead=int(ahead_str), behind=int(behind_str)
+            )
+        except (subprocess.CalledProcessError, ValueError):
+            return UpstreamStatus(has_upstream=False, ahead=0, behind=0)
+
+    def list_feature_and_main_branches(self, repo_path: str) -> list[str]:
+        """Return local branches that are main or start with feature/."""
+        out = self._run(["git", "branch", "--format=%(refname:short)"], cwd=repo_path)
+        return [
+            b for b in out.splitlines()
+            if b == "main" or b.startswith("feature/")
+        ]
+
+    def worktree_for_branch(self, repo_path: str, branch: str) -> str | None:
+        """Return the worktree path that has branch checked out, or None."""
+        out = self._run(["git", "worktree", "list", "--porcelain"], cwd=repo_path)
+        blocks = [b.strip() for b in out.strip().split("\n\n") if b.strip()]
+        for block in blocks:
+            lines = {
+                k: v
+                for k, v in (
+                    line.split(" ", 1) for line in block.splitlines() if " " in line
+                )
+            }
+            branch_ref = lines.get("branch", "")
+            wt_branch = branch_ref.removeprefix("refs/heads/")
+            if wt_branch == branch:
+                return lines.get("worktree")
+        return None
+
+    def pull_ff_only(self, worktree_path: str) -> PullOutcome:
+        """Run git pull --ff-only in a worktree. Returns a PullOutcome."""
+        try:
+            out = self._run(["git", "pull", "--ff-only"], cwd=worktree_path)
+            if "Already up to date" in out or "Already up-to-date" in out:
+                return PullOutcome(status="up_to_date", new_commits=0)
+            return PullOutcome(status="pulled", new_commits=0)
+        except subprocess.CalledProcessError as e:
+            raw_stderr = e.stderr or str(e)
+            stderr = raw_stderr.lower()
+            if "local changes" in stderr or "overwritten" in stderr:
+                return PullOutcome(status="dirty", error=raw_stderr)
+            return PullOutcome(status="non_ff", error=raw_stderr)
+
+    def update_ref_from_remote(self, repo_path: str, branch: str) -> UpdateOutcome:
+        """Fast-forward a local branch from origin without checking it out."""
+        try:
+            self._run(
+                ["git", "fetch", "origin", f"{branch}:{branch}"], cwd=repo_path
+            )
+            return UpdateOutcome(status="pulled")
+        except subprocess.CalledProcessError as e:
+            raw_stderr = e.stderr or str(e)
+            stderr = raw_stderr.lower()
+            if "non-fast-forward" in stderr or "rejected" in stderr:
+                return UpdateOutcome(status="non_ff", error=raw_stderr)
+            return UpdateOutcome(status="error", error=raw_stderr)

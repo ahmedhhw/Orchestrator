@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QComboBox, QLabel, QPushButton
 
 from worktree_manager.main_window_vm import MainWindowViewModel
 from worktree_manager.models import WorktreeModel
-from worktree_manager.ui.main_window import MainWindow
+from worktree_manager.ui.per_repo_worktrees_view import PerRepoWorktreesView
 
 
 def _make_vm():
@@ -22,11 +22,10 @@ def _make_vm():
     return vm
 
 
-def _make_window(qtbot, vm=None, on_settings=None, on_cleanup=None, on_new=None):
-    win = MainWindow(
+def _make_window(qtbot, vm=None, on_cleanup=None, on_new=None):
+    win = PerRepoWorktreesView(
         vm=vm or _make_vm(),
         repo_name="proj",
-        on_settings=on_settings or (lambda: None),
         on_cleanup=on_cleanup or (lambda: None),
         on_new=on_new or (lambda: None),
     )
@@ -47,11 +46,10 @@ def test_main_window_header_shows_repo_name(qtbot):
     assert any("proj" in t for t in _label_texts(win))
 
 
-def test_main_window_has_new_settings_cleanup_buttons(qtbot):
+def test_main_window_has_new_and_cleanup_buttons(qtbot):
     win = _make_window(qtbot)
     btn_texts = [b.text() for b in _buttons(win)]
     assert any("New" in t for t in btn_texts)
-    assert any("⚙" in t for t in btn_texts)
     assert any("🧹" in t for t in btn_texts)
 
 
@@ -108,14 +106,6 @@ def test_main_window_new_button_invokes_callback(qtbot):
     btn = next(b for b in _buttons(win) if "New" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
     assert called == ["new"]
-
-
-def test_main_window_settings_button_invokes_callback(qtbot):
-    called: list = []
-    win = _make_window(qtbot, on_settings=lambda: called.append("settings"))
-    btn = next(b for b in _buttons(win) if "⚙" in b.text())
-    qtbot.mouseClick(btn, Qt.LeftButton)
-    assert called == ["settings"]
 
 
 def test_main_window_cleanup_button_invokes_callback(qtbot):

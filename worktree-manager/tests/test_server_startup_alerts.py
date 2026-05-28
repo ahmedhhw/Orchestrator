@@ -280,7 +280,9 @@ def test_save_command_resets_startup_fired_for_live_run(vm, tmp_path):
         worktree_path=str(tmp_path),
         startup_pattern="ready",
     )
-    time.sleep(0.3)
+    deadline = time.monotonic() + 5.0
+    while not detected and time.monotonic() < deadline:
+        time.sleep(0.05)
     assert len(detected) == 1
     assert run_id in vm._startup_fired
 

@@ -43,10 +43,15 @@ def test_sidebar_is_not_fixed_width(qtbot, empty_store):
     assert sidebar.minimumWidth() != sidebar.maximumWidth() or sidebar.maximumWidth() > 220
 
 
-def test_sidebar_repo_scroll_has_no_fixed_height(qtbot, empty_store):
+def test_worktree_panel_repo_scroll_has_no_fixed_height(qtbot, empty_store):
+    from worktree_manager.ui.worktree_management_panel import WorktreeManagementPanel
     app = App(repo_path=None)
     qtbot.addWidget(app)
-    scroll = app._sidebar._repo_scroll
+    # Trigger Worktree Management tab to mount the panel
+    app._show_worktree_management()
+    panel = app._current_panel
+    assert isinstance(panel, WorktreeManagementPanel)
+    scroll = panel._repo_scroll
     # setFixedHeight pins min==max to the given value. We want it to stretch.
     assert scroll.minimumHeight() != scroll.maximumHeight() or scroll.maximumHeight() > 220
 
@@ -72,60 +77,55 @@ def loaded_store(monkeypatch):
     return store
 
 
-def test_worktree_name_label_is_not_fixed_width(qtbot, loaded_store):
+def test_worktree_name_label_is_not_fixed_width(qtbot):
+    from worktree_manager.main_window_vm import MainWindowViewModel
     from worktree_manager.models import WorktreeModel
-    from worktree_manager.ui.main_window import MainWindow
+    from worktree_manager.ui.per_repo_worktrees_view import PerRepoWorktreesView
 
-    vm = MagicMock()
+    vm = MagicMock(spec=MainWindowViewModel)
     wt = WorktreeModel(
         path="/repos/proj", branch="main", is_main=True,
         last_commit_ts=0, is_stale=False, is_merged=False,
     )
     vm.load_worktrees.return_value = [wt]
     vm.list_branches_with_checkout_status.return_value = [("main", False)]
-    vm.is_protected_branch.return_value = False
 
-    with patch("worktree_manager.main_window_vm.MainWindowViewModel") as MockVM:
-        MockVM.return_value = vm
-        app = App(repo_path="/repos/proj")
-        qtbot.addWidget(app)
+    view = PerRepoWorktreesView(
+        vm=vm, repo_name="proj", on_cleanup=lambda: None, on_new=lambda: None,
+    )
+    qtbot.addWidget(view)
 
-    mw = app._current_panel
-    assert mw._worktree_rows, "expected at least one row"
-    row = mw._worktree_rows[0]
-    # Find the name label (second widget in the row layout after the dot)
+    assert view._worktree_rows, "expected at least one row"
+    row = view._worktree_rows[0]
     layout = row.layout()
     name_label = layout.itemAt(1).widget()
-    # setFixedWidth pins min==max; we want it not pinned (maxWidth > minWidth)
     assert name_label.minimumWidth() != name_label.maximumWidth() or name_label.maximumWidth() > 200
 
 
-def test_worktree_branch_combo_is_not_fixed_width(qtbot, loaded_store):
+def test_worktree_branch_combo_is_not_fixed_width(qtbot):
     from PySide6.QtWidgets import QComboBox
+    from worktree_manager.main_window_vm import MainWindowViewModel
     from worktree_manager.models import WorktreeModel
-    from worktree_manager.ui.main_window import MainWindow
+    from worktree_manager.ui.per_repo_worktrees_view import PerRepoWorktreesView
 
-    vm = MagicMock()
+    vm = MagicMock(spec=MainWindowViewModel)
     wt = WorktreeModel(
         path="/repos/proj", branch="main", is_main=True,
         last_commit_ts=0, is_stale=False, is_merged=False,
     )
     vm.load_worktrees.return_value = [wt]
     vm.list_branches_with_checkout_status.return_value = [("main", False)]
-    vm.is_protected_branch.return_value = False
 
-    with patch("worktree_manager.main_window_vm.MainWindowViewModel") as MockVM:
-        MockVM.return_value = vm
-        app = App(repo_path="/repos/proj")
-        qtbot.addWidget(app)
+    view = PerRepoWorktreesView(
+        vm=vm, repo_name="proj", on_cleanup=lambda: None, on_new=lambda: None,
+    )
+    qtbot.addWidget(view)
 
-    mw = app._current_panel
-    row = mw._worktree_rows[0]
+    row = view._worktree_rows[0]
     layout = row.layout()
     combo = next(
         layout.itemAt(i).widget()
         for i in range(layout.count())
         if isinstance(layout.itemAt(i).widget(), QComboBox)
     )
-    # setFixedWidth pins min==max; we want combo to be able to grow
     assert combo.minimumWidth() != combo.maximumWidth() or combo.maximumWidth() > 160
