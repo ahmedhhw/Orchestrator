@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.background_job import BackgroundJob
 from worktree_manager.ui.cleanup_wizard import (
     _group_candidates, _merged_subgroups, _reason,
 )
+from worktree_manager.ui.inline_progress import InlineProgress
 
 
 class BranchManagementPanel(QWidget):
@@ -34,6 +36,11 @@ class BranchManagementPanel(QWidget):
         self._error_btn_slots: dict = {}   # (repo_path, branch) -> QHBoxLayout
         self._last_fetch_label: QLabel | None = None
         self._last_fetch_ts: int | None = None
+        self._sync_loading: bool = False
+        self._fetch_btn: QPushButton | None = None
+        self._sync_all_btn: QPushButton | None = None
+        self._sync_body_layout: QVBoxLayout | None = None
+        self._sync_job: BackgroundJob | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -123,6 +130,13 @@ class BranchManagementPanel(QWidget):
         self._current_repo_path = repo_path
         self._switch_section("cleanup")
 
+    def refresh(self) -> None:
+        """Reload the currently visible section."""
+        if self._sync_btn.isChecked() and self._vm is not None and self._sync_body_layout is not None:
+            self._start_sync_load()
+        elif self._cleanup_btn.isChecked() and self._vm is not None:
+            self._load_and_render(self._current_repo_path)
+
     # ── sync UI builder ────────────────────────────────────────────────────
 
     def _build_sync_ui(self):
@@ -137,23 +151,18 @@ class BranchManagementPanel(QWidget):
         title.setStyleSheet("font-weight: bold;")
         header_row.addWidget(title)
         header_row.addStretch(1)
-        fetch_btn = QPushButton("↻ Fetch all")
-        fetch_btn.clicked.connect(self._trigger_fetch_all)
-        header_row.addWidget(fetch_btn)
-        sync_all_btn = QPushButton("⏬ Sync all")
-        sync_all_btn.clicked.connect(self._trigger_sync_all)
-        header_row.addWidget(sync_all_btn)
+        self._fetch_btn = QPushButton("↻ Fetch all")
+        self._fetch_btn.clicked.connect(self._trigger_fetch_all)
+        header_row.addWidget(self._fetch_btn)
+        self._sync_all_btn = QPushButton("⏬ Sync all")
+        self._sync_all_btn.clicked.connect(self._trigger_sync_all)
+        header_row.addWidget(self._sync_all_btn)
         layout.addLayout(header_row)
 
-        # branch list
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        list_container = QWidget()
-        self._sync_list_layout = QVBoxLayout(list_container)
-        self._sync_list_layout.setContentsMargins(0, 0, 0, 0)
-        self._sync_list_layout.setSpacing(2)
-        scroll.setWidget(list_container)
-        layout.addWidget(scroll, 1)
+        # body area (holds InlineProgress while loading, then scroll+rows)
+        self._sync_body_layout = QVBoxLayout()
+        self._sync_body_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(self._sync_body_layout, 1)
 
         # last fetch footer
         self._last_fetch_label = QLabel("")
@@ -161,7 +170,84 @@ class BranchManagementPanel(QWidget):
         layout.addWidget(self._last_fetch_label)
 
         self._content_area.addWidget(container)
-        self._render_sync_rows()
+        self._start_sync_load()
+
+    def _clear_sync_body(self):
+        while self._sync_body_layout.count():
+            item = self._sync_body_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+    def _set_sync_action_buttons_enabled(self, enabled: bool) -> None:
+        if self._fetch_btn:
+            self._fetch_btn.setEnabled(enabled)
+        if self._sync_all_btn:
+            self._sync_all_btn.setEnabled(enabled)
+
+    def _start_sync_load(self):
+        self._sync_loading = True
+        self._set_sync_action_buttons_enabled(False)
+        self._status_labels = {}
+        self._error_btn_slots = {}
+
+        loader = InlineProgress()
+        loader.start_determinate("Loading branches…", total=1)
+        self._clear_sync_body()
+        self._sync_body_layout.addWidget(loader)
+
+        job = BackgroundJob(self)
+        self._sync_job = job
+        job.progress.connect(
+            lambda cur, tot, lbl: loader.update(cur, lbl) if self._sync_loading else None
+        )
+        job.finished.connect(lambda rows: self._on_sync_loaded(rows))
+        job.failed.connect(lambda exc: self._on_sync_failed(exc))
+        job.start(self._vm.load_syncable_branches)
+
+    def _on_sync_loaded(self, rows: list) -> None:
+        self._sync_loading = False
+        self._set_sync_action_buttons_enabled(True)
+        self._clear_sync_body()
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        list_container = QWidget()
+        self._sync_list_layout = QVBoxLayout(list_container)
+        self._sync_list_layout.setContentsMargins(0, 0, 0, 0)
+        self._sync_list_layout.setSpacing(2)
+        scroll.setWidget(list_container)
+        self._sync_body_layout.addWidget(scroll)
+
+        self._sync_rows = rows
+        by_repo: dict[str, list] = {}
+        for row in rows:
+            by_repo.setdefault(row.repo_path, []).append(row)
+        for repo_path, repo_rows in by_repo.items():
+            repo_label = QLabel(f"▼ {os.path.basename(repo_path.rstrip('/'))}")
+            repo_label.setStyleSheet("font-weight: bold; margin-top: 4px;")
+            self._sync_list_layout.addWidget(repo_label)
+            for row in repo_rows:
+                self._sync_list_layout.addWidget(self._make_branch_row_widget(row))
+        self._sync_list_layout.addStretch(1)
+
+    def _on_sync_failed(self, exc: Exception) -> None:
+        self._sync_loading = False
+        self._set_sync_action_buttons_enabled(True)
+        self._clear_sync_body()
+
+        error_widget = QWidget()
+        err_layout = QVBoxLayout(error_widget)
+        err_layout.setAlignment(Qt.AlignCenter)
+        err_lbl = QLabel(f"⚠ Couldn't load branches.\n{exc}")
+        err_lbl.setAlignment(Qt.AlignCenter)
+        err_lbl.setStyleSheet("color: #c0392b;")
+        err_layout.addWidget(err_lbl)
+        retry_btn = QPushButton("Retry")
+        retry_btn.setFixedWidth(80)
+        retry_btn.clicked.connect(self._start_sync_load)
+        err_layout.addWidget(retry_btn, 0, Qt.AlignCenter)
+        self._sync_body_layout.addWidget(error_widget)
 
     def _render_sync_rows(self):
         while self._sync_list_layout.count():

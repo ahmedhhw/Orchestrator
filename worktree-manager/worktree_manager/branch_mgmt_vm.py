@@ -100,29 +100,34 @@ class BranchMgmtViewModel:
             mapping.pop(key, None)
         self._store.set_ui_pref(_EXCLUDED_PREF_KEY, mapping)
 
-    def load_syncable_branches(self) -> list[BranchRow]:
+    def load_syncable_branches(self, on_progress=None) -> list[BranchRow]:
         excluded_map = self._excluded_map()
         rows: list[BranchRow] = []
+        all_branches = []
         for repo_path in self.list_repos():
-            branches = self._git.list_feature_and_main_branches(repo_path)
-            for branch in branches:
-                status = self._git.upstream_status(repo_path, branch)
-                wt_path = self._git.worktree_for_branch(repo_path, branch)
-                has_uncommitted = (
-                    self._git.has_uncommitted_changes(wt_path)
-                    if wt_path else False
-                )
-                key = f"{repo_path}::{branch}"
-                rows.append(BranchRow(
-                    repo_path=repo_path,
-                    branch=branch,
-                    has_upstream=status.has_upstream,
-                    ahead=status.ahead,
-                    behind=status.behind,
-                    worktree_path=wt_path,
-                    has_uncommitted=has_uncommitted,
-                    excluded=bool(excluded_map.get(key)),
-                ))
+            for branch in self._git.list_feature_and_main_branches(repo_path):
+                all_branches.append((repo_path, branch))
+        total = len(all_branches)
+        for idx, (repo_path, branch) in enumerate(all_branches, start=1):
+            status = self._git.upstream_status(repo_path, branch)
+            wt_path = self._git.worktree_for_branch(repo_path, branch)
+            has_uncommitted = (
+                self._git.has_uncommitted_changes(wt_path)
+                if wt_path else False
+            )
+            key = f"{repo_path}::{branch}"
+            rows.append(BranchRow(
+                repo_path=repo_path,
+                branch=branch,
+                has_upstream=status.has_upstream,
+                ahead=status.ahead,
+                behind=status.behind,
+                worktree_path=wt_path,
+                has_uncommitted=has_uncommitted,
+                excluded=bool(excluded_map.get(key)),
+            ))
+            if on_progress:
+                on_progress(idx, total, branch)
         self._sync_rows = rows
         return rows
 

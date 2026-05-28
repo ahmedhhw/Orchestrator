@@ -708,8 +708,13 @@ class App(QMainWindow):
             self._current_panel.populate_repos()
 
     def _refresh(self):
+        # Refresh the visible panel first so the user sees an immediate response,
+        # then refresh all other cached panels so their data is current on next visit.
         if self._current_panel is not None and hasattr(self._current_panel, "refresh"):
             self._current_panel.refresh()
+        for panel in self._panel_cache.values():
+            if panel is not self._current_panel and hasattr(panel, "refresh"):
+                panel.refresh()
 
     # ── tab panel handlers ──────────────────────────────────────────────────────
 

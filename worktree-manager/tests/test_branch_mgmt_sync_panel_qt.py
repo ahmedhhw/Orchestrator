@@ -44,6 +44,7 @@ def _make_panel(qtbot, rows=None, sync_results=None):
     panel = BranchManagementPanel(vm=mock_vm)
     qtbot.addWidget(panel)
     panel.show_sync()
+    qtbot.waitUntil(lambda: not panel._sync_loading, timeout=2000)
     return panel, mock_vm
 
 
