@@ -96,6 +96,8 @@ Mermaid diagram(s) showing:
 - Data flow (sequence diagram if async, component diagram if structural)
 - New models, services, or view models and how they relate
 
+Whenever you reference an existing file, function, class, or method in the prose, diagrams, or bullet lists of this section (or anywhere else in the document), link to it with markdown: `[path/from/repo/root.ext](relative/path/from/doc.ext)` for files, `[file.ext:42](relative/path/from/doc.ext#L42)` for specific lines. **Link paths must be relative to the location of the autobot document itself** (e.g. if the doc is in `docs/`, a file at `worktree_manager/cli.py` is linked as `../worktree_manager/cli.py`). New files being introduced by the feature should be named with their intended path but not linked (they don't exist yet).
+
 ## Open Questions
 Bullet list of any ambiguities or decisions still to make.
 ```
@@ -125,7 +127,7 @@ Steps:
 
 ### Iteration 0 — Walking Skeleton
 **Delivers:** One sentence — what a human can see and touch after this iteration.
-**Scope:** Bullet list of what is included.
+**Scope:** Bullet list of what is included. When any item mentions an existing file, class, function, or method, link to it with markdown (`[path/from/repo/root.ext](relative/path/from/doc.ext)` or `[file.ext:42](relative/path/from/doc.ext#L42)`). **Paths must be relative to the autobot document's location.** Name new files with their intended path but do not link them.
 **Explicitly out of scope:** Bullet list of what is intentionally deferred.
 
 ### Iteration 1 — <Short Name>
@@ -170,6 +172,8 @@ Steps:
 
 ### Phase 0.N — <Short Phase Name>
 **What it covers:** One sentence.
+
+**Files touched:** Bullet list of the files this phase modifies or creates. Link existing files with markdown (`[path/from/repo/root.ext](relative/path/from/doc.ext)`); name new files with their intended path but do not link them. If the phase references existing functions, classes, or call sites, link them with line anchors (`[file.ext:42](relative/path/from/doc.ext#L42)`). **All paths must be relative to the autobot document's location.**
 
 **Tests (Red) — write these first:**
 \`\`\`
@@ -271,6 +275,8 @@ Steps:
 ### Phase N.M — <Short Phase Name>
 **What it covers:** One sentence.
 
+**Files touched:** Bullet list of the files this phase modifies or creates. Link existing files with markdown (`[path/from/repo/root.ext](relative/path/from/doc.ext)`); name new files with their intended path but do not link them. If the phase references existing functions, classes, or call sites, link them with line anchors (`[file.ext:42](relative/path/from/doc.ext#L42)`). **All paths must be relative to the autobot document's location.**
+
 **Tests (Red) — write these first:**
 \`\`\`
 // Full test code here — complete, copy-pasteable
@@ -320,6 +326,7 @@ When the user confirms the last iteration's manual testing gate:
 
 ## Rules
 
+- **Always link to existing repo files when referencing them in the autobot document.** Use markdown link syntax with **paths relative to the autobot document's own location** (not the repo root): `[path/to/file.ext](relative/path/from/doc.ext)` for files, `[file.ext:42](relative/path/from/doc.ext#L42)` for specific lines or symbols. For example, if the autobot doc lives in `docs/` and the file is at `worktree_manager/cli.py`, the link path is `../worktree_manager/cli.py`. Apply this everywhere — design prose, architecture diagrams, iteration scope bullets, phase `Files touched` lists, and any inline mention of an existing function/class/method. The goal is two-fold: a human reading the doc can click straight into the code for deeper context, and a downstream agent implementing a phase does not have to re-discover where things live. New files being introduced by the feature should be named with their intended path but not linked (they don't exist yet).
 - Never write production code before a failing test for it exists — this applies whether or not the user chose to see the TDD plan upfront
 - **Always append the Manual Testing Gate to `autobot-<feature-slug>.md` before starting implementation** — this is mandatory regardless of whether the user chose "show me the plan" or "implement on your own". The gate is never skipped and never omitted from the file.
 - Never advance to the next stage without user sign-off
