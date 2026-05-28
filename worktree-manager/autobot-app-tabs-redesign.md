@@ -502,3 +502,29 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run the app (`python3.14 -m worktree_manager`), perform each action above, and check off each item manually.
 Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off by the user.
+
+- [ ] Click **Branch Management** then the **Sync from origin** section tab — a working Sync UI appears (not "Coming soon").
+- [ ] The Sync section shows a collapsible list of repos, each containing `main` and `feature/*` branches that have an upstream tracking branch.
+- [ ] Each branch row shows: branch name, upstream name, an ahead/behind status badge, and a per-row **[↻]** sync button.
+- [ ] Branches with no upstream show **✗ no upstream** and no **[↻]** button.
+- [ ] Each branch row has a **✓/☐ checkbox** that controls whether it is included in Sync all.
+- [ ] Clicking **[↻ Fetch all]** fetches every repo once and updates the ahead/behind counts without merging anything.
+- [ ] Clicking **[⏬ Sync all]** pulls (fast-forward only) every included branch: branches backed by a worktree are pulled in that worktree; branches with no worktree are fast-forwarded via ref update.
+- [ ] A branch that is **dirty** (uncommitted changes in its worktree) shows **⚠ dirty — skipped** after Sync all and is not pulled.
+- [ ] A branch that cannot fast-forward shows **✗ non-ff — manual fix**.
+- [ ] A branch already up to date shows **✓ up to date**; one that was pulled shows **✓ pulled (n new)**.
+- [ ] The per-row **[↻]** button syncs only that one branch (fetch + ff-pull) and updates its badge inline.
+- [ ] The **"Last fetch: Xm ago"** footer updates after a fetch.
+- [ ] Checkbox exclude state **persists across app restarts** (re-launch the app and verify unchecked branches stay unchecked).
+- [ ] **Regression:** Branch Management → Cleanup section still works correctly.
+- [ ] **Regression:** Worktree Management, Command Center, and Workspace Projects tabs still function with no crashes.
+- [ ] **Regression:** The sidebar's [⚙ Settings] button still opens the settings dialog.
+
+**How to confirm:** Run the app (`python3.14 -m worktree_manager`), perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
