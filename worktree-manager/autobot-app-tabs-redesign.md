@@ -528,3 +528,27 @@ Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run the app (`python3.14 -m worktree_manager`), perform each action above, and check off each item manually.
 Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. Do not proceed to Iteration 4 until every item below is checked off by the user.
+
+- [ ] Open the Project Create/Edit dialog — the "Worktrees in \<repo\>" picker shows each worktree row with a `⚠ dirty` marker next to worktrees that have uncommitted changes.
+- [ ] Clean worktrees have no dirty marker.
+- [ ] The "Entries in this project" list also shows a `⚠` marker next to any entry whose worktree has uncommitted changes.
+- [ ] When at least one entry is dirty, a footer warning appears: "⚠ N entries have uncommitted changes. You can still save the project."
+- [ ] A `[+ Create new worktree ▾]` button is visible next to the worktree picker area.
+- [ ] Clicking `[+ Create new worktree ▾]` expands an inline panel with: New branch / Existing branch radio, Worktree name field, Branch name field (or Existing branch dropdown), Base branch picker, [Cancel] and [Create + Add] buttons.
+- [ ] Clicking `[Cancel]` inside the inline panel collapses it without creating anything.
+- [ ] Filling in the new-branch form and clicking `[Create + Add]` creates the worktree, adds it to the Entries list, and collapses the panel — without leaving the dialog.
+- [ ] Filling in the existing-branch form and clicking `[Create + Add]` creates the worktree from the existing branch, adds it to the Entries list, and collapses the panel.
+- [ ] If creation fails (e.g. branch already exists), an inline red error message appears below the form — no popup dialog.
+- [ ] The `[New branch here…]` button placeholder is visible on each worktree row (button can be non-functional — wiring lands in Iteration 4).
+- [ ] **Regression:** Adding and removing worktrees via the existing picker still works correctly.
+- [ ] **Regression:** Saving a project (Create / Edit) still works correctly.
+- [ ] **Regression:** Branch Management and Worktree Management tabs still function with no crashes.
+
+**How to confirm:** Run the app (`python3.14 -m worktree_manager`), open the New Workspace Project dialog, perform each action above, and check off each item manually.
+Reply "Iteration 3 confirmed" (or describe any failures) before I write the plan for Iteration 4.
