@@ -1,7 +1,7 @@
 import re
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
     QAbstractScrollArea, QApplication, QComboBox, QHBoxLayout, QLabel,
     QLineEdit, QMenu, QMessageBox, QPushButton, QStyle, QTextEdit, QVBoxLayout,
@@ -111,7 +111,9 @@ class _AnsiTextEdit(QTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setReadOnly(True)
-        self.setLineWrapMode(QTextEdit.NoWrap)
+        self.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.setWordWrapMode(QTextOption.WrapAnywhere)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         font = QFont("Menlo, Monaco, Courier New, monospace")
         font.setStyleHint(QFont.Monospace)
         self.setFont(font)

@@ -1,7 +1,8 @@
 from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QPlainTextEdit, QPushButton
+from PySide6.QtGui import QTextOption
+from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTextEdit
 
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.models import WorktreeModel
@@ -370,3 +371,22 @@ def test_maximize_toggle_button_tooltip_changes(qtbot):
     assert btn.toolTip() == "Unmaximize"
     p.trigger_maximize()
     assert btn.toolTip() == "Maximize"
+
+
+def test_output_area_uses_widget_width_line_wrap(qtbot):
+    p = _pane(qtbot)
+    text_edit = p.findChildren(QTextEdit)[0]
+    assert text_edit.lineWrapMode() == QTextEdit.WidgetWidth
+
+
+def test_output_area_uses_wrap_anywhere_word_wrap(qtbot):
+    p = _pane(qtbot)
+    text_edit = p.findChildren(QTextEdit)[0]
+    assert text_edit.wordWrapMode() == QTextOption.WrapAnywhere
+
+
+def test_output_area_has_no_horizontal_scrollbar(qtbot):
+    from PySide6.QtCore import Qt as _Qt
+    p = _pane(qtbot)
+    text_edit = p.findChildren(QTextEdit)[0]
+    assert text_edit.horizontalScrollBarPolicy() == _Qt.ScrollBarAlwaysOff
