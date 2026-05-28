@@ -552,3 +552,24 @@ Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run the app (`python3.14 -m worktree_manager`), open the New Workspace Project dialog, perform each action above, and check off each item manually.
 Reply "Iteration 3 confirmed" (or describe any failures) before I write the plan for Iteration 4.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 4
+
+> STOP. Do not proceed to Iteration 5 until every item below is checked off by the user.
+
+- [ ] Click `[New branch here…]` on a **clean** worktree row — an inline form appears under that row with: a "New branch name" field, a freely-editable "Base from" dropdown (listing all local branches plus "current HEAD"), and `[Cancel]` / `[Create branch & checkout]` buttons. No warning banner is shown.
+- [ ] Click `[New branch here…]` on a **dirty** worktree row — the same inline form appears, but a warning banner is shown ("⚠ This worktree has uncommitted changes…"), and the "Base from" picker is locked to "current HEAD" (other options are disabled).
+- [ ] Clicking `[Cancel]` inside the inline form collapses it without creating any branch.
+- [ ] Only one inline "New branch here…" form is open at a time — opening a second row's form closes the first.
+- [ ] Fill in a valid new branch name on a clean worktree and click `[Create branch & checkout]` — the branch is created, the row's branch label updates to the new branch name, and the form collapses.
+- [ ] On a dirty worktree (base locked to current HEAD), fill in a valid branch name and click `[Create branch & checkout]` — the branch is created successfully (uncommitted changes carry over), the row label updates, and the form collapses.
+- [ ] If creation fails (e.g. branch name already exists), an inline red error message appears inside the form — no popup dialog — and the form stays open.
+- [ ] **Regression:** The `[+ Create new worktree ▾]` panel still works correctly (open, fill, create, collapse).
+- [ ] **Regression:** Dirty markers (`⚠ dirty`) still appear correctly on worktree rows and entries.
+- [ ] **Regression:** Adding worktrees via `[Add]` and saving a project still works correctly.
+- [ ] **Regression:** Branch Management and Worktree Management tabs still function with no crashes.
+
+**How to confirm:** Run the app (`python3.14 -m worktree_manager`), open the New Workspace Project dialog, perform each action above, and check off each item manually.
+Reply "Iteration 4 confirmed" (or describe any failures) before I write the plan for Iteration 5.

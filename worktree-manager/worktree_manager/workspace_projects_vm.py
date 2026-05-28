@@ -89,6 +89,22 @@ class WorkspaceProjectsViewModel:
             has_uncommitted=False,
         )
 
+    def checkout_new_branch_on_worktree(
+        self, worktree_path: str, new_branch: str, base_branch: str
+    ) -> WorktreeStatus:
+        dirty = self._git.has_uncommitted_changes(worktree_path)
+        if dirty and base_branch != "HEAD":
+            raise ValueError(
+                "Worktree has uncommitted changes. Base must be current HEAD."
+            )
+        self._git.checkout_new_branch(worktree_path, new_branch, base_branch)
+        return WorktreeStatus(
+            path=worktree_path,
+            branch=new_branch,
+            is_main=False,
+            has_uncommitted=dirty,
+        )
+
     def list_branches_for_worktree(self, worktree_path: str) -> list[str]:
         repo_root = self._git.repo_root(worktree_path)
         return self._git.list_local_branches(repo_root)

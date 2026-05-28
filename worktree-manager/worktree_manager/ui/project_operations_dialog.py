@@ -23,6 +23,8 @@ class ProjectOperationsDialog(QDialog):
         self._worktree_path_map: dict[str, str] = {}
         # maps path -> WorktreeStatus for dirty detection
         self._worktree_status_map: dict[str, object] = {}
+        # currently-open "New branch here…" panel widget, or None
+        self._active_new_branch_panel = None
 
         self.setWindowTitle("Edit Project" if self._editing else "New Workspace Project")
         self.setModal(True)
@@ -259,22 +261,14 @@ class ProjectOperationsDialog(QDialog):
             self._refresh_worktrees(path)
 
     def _refresh_worktrees(self, repo_path: str) -> None:
-        # Clear existing worktree rows
-        while self._wt_list_layout.count():
-            item = self._wt_list_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-
         try:
             statuses = self._vm.list_worktrees_with_dirty(repo_path)
         except Exception:
             statuses = []
 
         self._worktree_status_map = {s.path: s for s in statuses}
-        self._worktree_path_map = {}
 
-        # Also refresh the base branch combo and existing branch combo
+        # Refresh the branch combos in the create-worktree panel
         try:
             all_branches = self._vm.list_branches_for_worktree(repo_path) if statuses else []
         except Exception:
@@ -284,6 +278,23 @@ class ProjectOperationsDialog(QDialog):
         self._new_base_combo.addItems(all_branches or ["main"])
         self._existing_branch_combo.clear()
         self._existing_branch_combo.addItems(all_branches or ["(none)"])
+
+        self._render_worktree_rows(statuses)
+
+    def _refresh_worktrees_from_cache(self) -> None:
+        statuses = list(self._worktree_status_map.values())
+        self._render_worktree_rows(statuses)
+
+    def _render_worktree_rows(self, statuses: list) -> None:
+        # Clear existing worktree rows
+        while self._wt_list_layout.count():
+            item = self._wt_list_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+
+        self._worktree_path_map = {}
+        self._active_new_branch_panel = None
 
         for status in statuses:
             if status.is_main:
@@ -307,14 +318,139 @@ class ProjectOperationsDialog(QDialog):
             row.addWidget(add_btn)
 
             new_branch_btn = QPushButton("New branch here…")
+            new_branch_btn.clicked.connect(
+                lambda _=False, p=status.path, s=status: self._toggle_new_branch_panel(p, s)
+            )
             row.addWidget(new_branch_btn)
 
             wrap = QWidget()
             wrap.setLayout(row)
             self._wt_list_layout.addWidget(wrap)
 
+            # placeholder slot for this row's inline "New branch here" panel
+            slot = QWidget()
+            slot.setVisible(False)
+            slot.setObjectName(f"nb_slot_{status.path}")
+            self._wt_list_layout.addWidget(slot)
+
         if not statuses:
             self._wt_list_layout.addWidget(QLabel("(no worktrees)"))
+
+    def _new_branch_here_panel_visible(self) -> bool:
+        return (
+            self._active_new_branch_panel is not None
+            and self._active_new_branch_panel.isVisibleTo(self)
+        )
+
+    def _toggle_new_branch_panel(self, worktree_path: str, status) -> None:
+        # Close any currently-open panel
+        if self._active_new_branch_panel is not None:
+            self._active_new_branch_panel.setVisible(False)
+            self._active_new_branch_panel = None
+
+        slot_name = f"nb_slot_{worktree_path}"
+        slot = self.findChild(QWidget, slot_name)
+        if slot is None:
+            return
+
+        # Build panel inside the slot
+        panel = self._build_new_branch_panel(worktree_path, status, slot)
+        self._active_new_branch_panel = panel
+        panel.setVisible(True)
+
+    def _build_new_branch_panel(self, worktree_path: str, status, parent: QWidget) -> QWidget:
+        layout = QVBoxLayout(parent)
+        layout.setContentsMargins(12, 6, 0, 6)
+        layout.setSpacing(4)
+
+        dirty = status.has_uncommitted
+
+        if dirty:
+            warn = QLabel(
+                "⚠ This worktree has uncommitted changes. To avoid merge conflicts "
+                "you must branch from the current HEAD. Your uncommitted changes will "
+                "carry onto the new branch."
+            )
+            warn.setWordWrap(True)
+            warn.setStyleSheet("color: #e67e22;")
+            layout.addWidget(warn)
+
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("New branch name:"))
+        branch_le = QLineEdit()
+        name_row.addWidget(branch_le, 1)
+        layout.addLayout(name_row)
+
+        base_row = QHBoxLayout()
+        base_row.addWidget(QLabel("Base from:"))
+        base_combo = QComboBox()
+        if dirty:
+            base_combo.addItem("current HEAD")
+            base_combo.setEnabled(False)
+        else:
+            try:
+                branches = self._vm.list_branches_for_worktree(worktree_path)
+            except Exception:
+                branches = []
+            base_combo.addItem("current HEAD")
+            base_combo.addItems(branches)
+            base_combo.setEnabled(True)
+        base_row.addWidget(base_combo, 1)
+        layout.addLayout(base_row)
+
+        error_lbl = QLabel("")
+        error_lbl.setStyleSheet("color: #e74c3c;")
+        error_lbl.setWordWrap(True)
+        layout.addWidget(error_lbl)
+
+        btn_row = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        create_btn = QPushButton("Create branch and checkout")
+        for btn in (cancel_btn, create_btn):
+            btn.setFlat(False)
+            btn.setAutoFillBackground(False)
+
+        def _cancel():
+            parent.setVisible(False)
+            self._active_new_branch_panel = None
+
+        def _create():
+            error_lbl.setText("")
+            new_branch = branch_le.text().strip()
+            if not new_branch:
+                error_lbl.setText("Error: Branch name is required.")
+                return
+            base_text = base_combo.currentText()
+            base = "HEAD" if base_text == "current HEAD" else base_text
+            try:
+                result = self._vm.checkout_new_branch_on_worktree(worktree_path, new_branch, base)
+            except Exception as e:
+                stderr = getattr(e, "stderr", None) or str(e)
+                error_lbl.setText(f"Error: {stderr.strip()}")
+                return
+            # Update status map and do a full refresh — but first mutate the
+            # cached statuses list so _refresh_worktrees sees the new branch name.
+            old = self._worktree_status_map.get(worktree_path)
+            from worktree_manager.workspace_projects_vm import WorktreeStatus
+            updated = WorktreeStatus(
+                path=result.path,
+                branch=result.branch,
+                is_main=old.is_main if old else False,
+                has_uncommitted=result.has_uncommitted,
+            )
+            self._worktree_status_map[worktree_path] = updated
+            self._active_new_branch_panel = None
+            # Refresh using the updated in-memory map so we don't need a round-trip
+            self._refresh_worktrees_from_cache()
+
+        cancel_btn.clicked.connect(_cancel)
+        create_btn.clicked.connect(_create)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch(1)
+        btn_row.addWidget(create_btn)
+        layout.addLayout(btn_row)
+
+        return parent
 
     def _add_selected(self) -> None:
         # Legacy path — kept for compatibility; the new UI uses per-row Add buttons

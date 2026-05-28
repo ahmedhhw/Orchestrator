@@ -121,6 +121,12 @@ class GitService:
     def checkout_branch(self, worktree_path: str, branch: str) -> None:
         self._run(["git", "checkout", branch], cwd=worktree_path)
 
+    def checkout_new_branch(self, worktree_path: str, new_branch: str, base_branch: str) -> None:
+        if base_branch == "HEAD":
+            self._run(["git", "checkout", "-b", new_branch], cwd=worktree_path)
+        else:
+            self._run(["git", "checkout", "-b", new_branch, base_branch], cwd=worktree_path)
+
     def create_worktree_from_existing(
         self, repo_path: str, worktree_path: str, branch: str
     ) -> None:
