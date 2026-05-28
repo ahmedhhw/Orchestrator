@@ -121,20 +121,22 @@ def test_no_upstream_row_shows_label(qtbot):
 
 def test_per_row_sync_button_present_when_has_upstream(qtbot):
     panel, _ = _make_panel(qtbot, rows=[_row(branch="main", has_upstream=True)])
-    # There should be a small per-row sync button (↻)
-    assert any("↻" in t for t in _button_texts(panel))
+    # There should be a small per-row sync button with exactly "Sync" text
+    per_row_sync_btns = [b for b in _buttons(panel) if b.text() == "Sync"]
+    assert len(per_row_sync_btns) == 1
 
 
 def test_no_per_row_sync_button_when_no_upstream(qtbot):
     panel, _ = _make_panel(qtbot, rows=[_row(branch="orphan", has_upstream=False)])
-    # No ↻ button for branches without upstream
-    assert not any("↻" in t for t in _button_texts(panel))
+    # No per-row "Sync" button for branches without upstream
+    per_row_sync_btns = [b for b in _buttons(panel) if b.text() == "Sync"]
+    assert len(per_row_sync_btns) == 0
 
 
 def test_per_row_sync_button_calls_sync_one(qtbot):
     row = _row(branch="main", has_upstream=True, worktree_path=None)
     panel, mock_vm = _make_panel(qtbot, rows=[row])
-    sync_row_btn = next(b for b in _buttons(panel) if b.text() == "↻")
+    sync_row_btn = next(b for b in _buttons(panel) if b.text() == "Sync")
     sync_row_btn.click()
     mock_vm.sync_one.assert_called_once_with(
         repo_path="/repo/a", branch="main", worktree_path=None

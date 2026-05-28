@@ -723,7 +723,9 @@ class App(QMainWindow):
         self._set_panel(panel)
 
     def _show_branch_management(self):
-        self._set_panel(BranchManagementPanel(vm=self._branch_mgmt_vm))
+        panel = BranchManagementPanel(vm=self._branch_mgmt_vm)
+        self._set_panel(panel)
+        panel.show_sync()
 
     def _handle_settings(self):
         repo_path = self._active_repo_path or next(iter(self._store.all_repos()), None)

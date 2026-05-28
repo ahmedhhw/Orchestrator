@@ -17,11 +17,13 @@ class UpstreamStatus:
 class PullOutcome:
     status: str   # "up_to_date" | "pulled" | "non_ff" | "dirty" | "error"
     new_commits: int = 0
+    error: str | None = None
 
 
 @dataclass
 class UpdateOutcome:
     status: str   # "up_to_date" | "pulled" | "non_ff" | "error"
+    error: str | None = None
 
 
 class GitService:
@@ -215,10 +217,11 @@ class GitService:
                 return PullOutcome(status="up_to_date", new_commits=0)
             return PullOutcome(status="pulled", new_commits=0)
         except subprocess.CalledProcessError as e:
-            stderr = (e.stderr or "").lower()
+            raw_stderr = e.stderr or str(e)
+            stderr = raw_stderr.lower()
             if "local changes" in stderr or "overwritten" in stderr:
-                return PullOutcome(status="dirty")
-            return PullOutcome(status="non_ff")
+                return PullOutcome(status="dirty", error=raw_stderr)
+            return PullOutcome(status="non_ff", error=raw_stderr)
 
     def update_ref_from_remote(self, repo_path: str, branch: str) -> UpdateOutcome:
         """Fast-forward a local branch from origin without checking it out."""
@@ -228,7 +231,8 @@ class GitService:
             )
             return UpdateOutcome(status="pulled")
         except subprocess.CalledProcessError as e:
-            stderr = (e.stderr or "").lower()
+            raw_stderr = e.stderr or str(e)
+            stderr = raw_stderr.lower()
             if "non-fast-forward" in stderr or "rejected" in stderr:
-                return UpdateOutcome(status="non_ff")
-            return UpdateOutcome(status="error")
+                return UpdateOutcome(status="non_ff", error=raw_stderr)
+            return UpdateOutcome(status="error", error=raw_stderr)

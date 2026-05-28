@@ -31,6 +31,7 @@ class SyncResult:
     branch: str
     status: str           # "up_to_date"|"pulled"|"dirty"|"non_ff"|"no_upstream"|"error"
     new_commits: int = 0
+    error: str | None = None
 
 
 class BranchMgmtViewModel:
@@ -143,11 +144,12 @@ class BranchMgmtViewModel:
             return SyncResult(
                 repo_path=repo_path, branch=branch,
                 status=outcome.status, new_commits=outcome.new_commits,
+                error=outcome.error,
             )
         outcome = self._git.update_ref_from_remote(repo_path, branch)
         return SyncResult(
             repo_path=repo_path, branch=branch,
-            status=outcome.status,
+            status=outcome.status, error=outcome.error,
         )
 
     def sync_included(self) -> list[SyncResult]:
@@ -175,10 +177,12 @@ class BranchMgmtViewModel:
                 results.append(SyncResult(
                     repo_path=row.repo_path, branch=row.branch,
                     status=outcome.status, new_commits=outcome.new_commits,
+                    error=outcome.error,
                 ))
             else:
                 outcome = self._git.update_ref_from_remote(row.repo_path, row.branch)
                 results.append(SyncResult(
-                    repo_path=row.repo_path, branch=row.branch, status=outcome.status,
+                    repo_path=row.repo_path, branch=row.branch,
+                    status=outcome.status, error=outcome.error,
                 ))
         return results

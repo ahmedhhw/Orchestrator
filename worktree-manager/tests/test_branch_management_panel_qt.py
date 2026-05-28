@@ -28,10 +28,11 @@ def test_has_cleanup_section_tab(qtbot):
     assert any("Cleanup" in t for t in _button_texts(panel))
 
 
-def test_shows_placeholder_text(qtbot):
+def test_shows_section_tab_buttons(qtbot):
     panel = _make_panel(qtbot)
-    texts = _label_texts(panel)
-    assert any(len(t) > 0 for t in texts)
+    btns = _button_texts(panel)
+    assert any("Sync from origin" in t for t in btns)
+    assert any("Cleanup" in t for t in btns)
 
 
 def test_clicking_section_tabs_does_not_crash(qtbot):
