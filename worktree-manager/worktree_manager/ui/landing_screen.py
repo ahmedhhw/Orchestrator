@@ -8,8 +8,7 @@ class LandingScreen(QWidget):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
         label = QLabel(
-            "No repo selected.\n"
-            "Pick one from the sidebar or click + Add Repo."
+            "Please select category from the left sidebar to get started."
         )
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("color: gray;")
