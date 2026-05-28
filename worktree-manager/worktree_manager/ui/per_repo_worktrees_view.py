@@ -82,6 +82,7 @@ class PerRepoWorktreesView(QWidget):
 
         self._list_scroll = QScrollArea()
         self._list_scroll.setWidgetResizable(True)
+        self._list_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list_container = QWidget()
         self._list_layout = QVBoxLayout(self._list_container)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
@@ -121,24 +122,17 @@ class PerRepoWorktreesView(QWidget):
 
         wt_name = os.path.basename(wt.path) if not wt.is_main else "(main)"
         name_label = QLabel(wt_name)
-        name_label.setMinimumWidth(160)
         name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout.addWidget(name_label)
 
         age = QLabel(_fmt_age(wt.last_commit_ts))
         age.setStyleSheet("color: gray;")
-        age.setFixedWidth(80)
         layout.addWidget(age)
 
         if wt.is_stale:
             stale = QLabel("⚠ stale")
             stale.setStyleSheet("color: orange;")
-            stale.setFixedWidth(70)
             layout.addWidget(stale)
-        else:
-            spacer = QLabel("")
-            spacer.setFixedWidth(70)
-            layout.addWidget(spacer)
 
         layout.addStretch(1)
 
@@ -149,7 +143,6 @@ class PerRepoWorktreesView(QWidget):
         combo.addItems(all_branches)
         if wt.branch in all_branches:
             combo.setCurrentText(wt.branch)
-        combo.setMinimumWidth(140)
         combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         def _on_change(new_branch, path=wt.path, c=combo, orig=wt.branch):
