@@ -17,19 +17,19 @@ class DiffPointSelector(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        layout.addWidget(QLabel("FROM (base — restore destination)"))
-        self._from_filter = QLineEdit()
-        self._from_filter.setPlaceholderText("🔍 Search...")
-        layout.addWidget(self._from_filter)
-        self._from_list = QListWidget()
-        layout.addWidget(self._from_list)
+        layout.addWidget(QLabel("NEWER POINT  ─── what you have now ───"))
+        self._newer_filter = QLineEdit()
+        self._newer_filter.setPlaceholderText("🔍 Search...")
+        layout.addWidget(self._newer_filter)
+        self._newer_list = QListWidget()
+        layout.addWidget(self._newer_list)
 
-        layout.addWidget(QLabel("TO (target — what to diff against)"))
-        self._to_filter = QLineEdit()
-        self._to_filter.setPlaceholderText("🔍 Search...")
-        layout.addWidget(self._to_filter)
-        self._to_list = QListWidget()
-        layout.addWidget(self._to_list)
+        layout.addWidget(QLabel("OLDER POINT  ─── compare against ───"))
+        self._older_filter = QLineEdit()
+        self._older_filter.setPlaceholderText("🔍 Search...")
+        layout.addWidget(self._older_filter)
+        self._older_list = QListWidget()
+        layout.addWidget(self._older_list)
 
         self._merge_base_note = QLabel("")
         self._merge_base_note.setObjectName("merge_base_note")
@@ -43,22 +43,39 @@ class DiffPointSelector(QWidget):
         btn_row.addWidget(self._compare_btn)
         layout.addLayout(btn_row)
 
-        self._from_filter.textChanged.connect(lambda text: self._apply_filter(self._from_list, text))
-        self._to_filter.textChanged.connect(lambda text: self._apply_filter(self._to_list, text))
+        self._newer_filter.textChanged.connect(lambda text: self._apply_filter(self._newer_list, text))
+        self._older_filter.textChanged.connect(lambda text: self._apply_filter(self._older_list, text))
         self._compare_btn.clicked.connect(self._on_compare_clicked)
-        self._from_list.currentItemChanged.connect(self._on_from_changed)
+        self._older_list.currentItemChanged.connect(self._on_older_changed)
+
+    # ── backward-compat aliases so existing tests and callers keep working ────
+    @property
+    def _from_list(self):
+        return self._older_list
+
+    @property
+    def _to_list(self):
+        return self._newer_list
+
+    @property
+    def _from_filter(self):
+        return self._older_filter
+
+    @property
+    def _to_filter(self):
+        return self._newer_filter
 
     def set_repo(self, repo_path: str, points: list, git_service=None) -> None:
         self._repo_path = repo_path
         self._git_service = git_service
         self._points = points
-        self._populate_list(self._from_list, points)
-        self._populate_list(self._to_list, points)
-        self._from_filter.clear()
-        self._to_filter.clear()
+        self._populate_list(self._newer_list, points)
+        self._populate_list(self._older_list, points)
+        self._newer_filter.clear()
+        self._older_filter.clear()
         self._merge_base_note.hide()
 
-    def _on_from_changed(self, current, previous) -> None:
+    def _on_older_changed(self, current, previous) -> None:
         if current is None:
             self._merge_base_note.hide()
             return
@@ -103,17 +120,17 @@ class DiffPointSelector(QWidget):
             item.setHidden(bool(lower) and lower not in item.text().lower())
 
     def pre_select(self, from_ref: str | None, to_ref: str | None) -> None:
-        self._from_list.clearSelection()
-        self._from_list.setCurrentItem(None)
-        self._to_list.clearSelection()
-        self._to_list.setCurrentItem(None)
-        if to_ref is not None:
-            self._select_by_ref(self._to_list, to_ref)
+        self._newer_list.clearSelection()
+        self._newer_list.setCurrentItem(None)
+        self._older_list.clearSelection()
+        self._older_list.setCurrentItem(None)
+        # from_ref maps to older (base), to_ref maps to newer (target) — same contract as before
         if from_ref is not None:
-            self._select_by_ref(self._from_list, from_ref)
+            self._select_by_ref(self._older_list, from_ref)
+        if to_ref is not None:
+            self._select_by_ref(self._newer_list, to_ref)
 
     def _select_by_ref(self, lst: QListWidget, ref: str) -> None:
-        from PySide6.QtCore import Qt
         for i in range(lst.count()):
             item = lst.item(i)
             if item.data(Qt.UserRole) == ref:
@@ -121,9 +138,10 @@ class DiffPointSelector(QWidget):
                 return
 
     def _on_compare_clicked(self) -> None:
-        from_item = self._from_list.currentItem()
-        to_item = self._to_list.currentItem()
-        if from_item is None or to_item is None:
+        older_item = self._older_list.currentItem()
+        newer_item = self._newer_list.currentItem()
+        if older_item is None or newer_item is None:
             return
         if self._compare_cb:
-            self._compare_cb(from_item.data(Qt.UserRole), to_item.data(Qt.UserRole))
+            # preserve existing contract: callback(base_ref, target_ref) == (older, newer)
+            self._compare_cb(older_item.data(Qt.UserRole), newer_item.data(Qt.UserRole))

@@ -208,7 +208,7 @@ class DiffPanel(QWidget):
         self._file_list.set_live_mode(self._vm.target_is_working_tree)
         self._hunk_view.set_hunks("", [], live_mode=False)
         self._summary_label.setText(
-            f"FROM: {base_ref}  →  TO: {target_ref}"
+            f"OLDER: {base_ref}  →  NEWER: {target_ref}"
         )
         self._summary_bar.show()
         self._right_area.setCurrentWidget(self._diff_splitter)

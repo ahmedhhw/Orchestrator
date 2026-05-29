@@ -278,3 +278,185 @@ sequenceDiagram
 - After success: rebuild `_repo_label_map`, repopulate `_repo_combo`, select the new repo, call `_refresh_worktrees()`
 - The dialog's constructor must accept a reference to `git_service` so `RepoSetupViewModel` can be instantiated inline
 **Builds on:** Iteration 0.
+
+---
+
+## Iteration 0 — Walking Skeleton
+
+### Phase 0.1 — Rename labels and flip layout in DiffPointSelector
+**What it covers:** Swap the widget order so NEWER POINT renders on top and OLDER POINT on the bottom; update all visible label copy; keep internal variable names unchanged.
+
+**Files touched:**
+- [`worktree_manager/ui/diff_point_selector.py`](../worktree_manager/ui/diff_point_selector.py)
+- tests/test_diff_point_selector_labels_qt.py (new)
+
+**Tests (Red) — write these first:**
+```python
+import pytest
+from worktree_manager.ui.diff_point_selector import DiffPointSelector
+from worktree_manager.diff_models import HistoryPoint
+from PySide6.QtWidgets import QLabel
+
+
+def _make_points():
+    return [
+        HistoryPoint(kind="working_tree_unstaged", label="Working tree (unstaged)"),
+        HistoryPoint(kind="branch", label="main", short_sha="abc", message="init"),
+    ]
+
+
+def _make_selector(qtbot):
+    sel = DiffPointSelector()
+    qtbot.addWidget(sel)
+    sel.set_repo("/repo", _make_points())
+    return sel
+
+
+def test_newer_point_label_shown(qtbot):
+    sel = _make_selector(qtbot)
+    labels = [w.text() for w in sel.findChildren(QLabel)]
+    assert any("NEWER POINT" in t for t in labels)
+
+
+def test_older_point_label_shown(qtbot):
+    sel = _make_selector(qtbot)
+    labels = [w.text() for w in sel.findChildren(QLabel)]
+    assert any("OLDER POINT" in t for t in labels)
+
+
+def test_from_label_not_shown(qtbot):
+    sel = _make_selector(qtbot)
+    labels = [w.text() for w in sel.findChildren(QLabel)]
+    assert not any("FROM" in t and "base" in t for t in labels)
+
+
+def test_to_label_not_shown(qtbot):
+    sel = _make_selector(qtbot)
+    labels = [w.text() for w in sel.findChildren(QLabel)]
+    assert not any("TO" in t and "target" in t for t in labels)
+
+
+def test_newer_point_list_is_above_older_point_list(qtbot):
+    sel = _make_selector(qtbot)
+    newer_y = sel._newer_list.mapTo(sel, sel._newer_list.rect().topLeft()).y()
+    older_y = sel._older_list.mapTo(sel, sel._older_list.rect().topLeft()).y()
+    assert newer_y < older_y
+```
+
+**Production code (Green):**
+
+Replace `diff_point_selector.py` — rename `_from_list` → `_newer_list`, `_to_list` → `_older_list`, `_from_filter` → `_newer_filter`, `_to_filter` → `_older_filter`; update labels; keep callback signature unchanged (`base_ref, target_ref` still passed as `older_ref, newer_ref` i.e. the compare callback receives `(older_ref, newer_ref)` matching the existing `(base_ref, target_ref)` contract).
+
+**Done when:** Tests pass; launching the app shows "NEWER POINT" on top and "OLDER POINT" below.
+
+### Phase 0.2 — Update summary bar copy in DiffPanel
+**What it covers:** Change the summary bar text from `FROM: {base_ref}  →  TO: {target_ref}` to `OLDER: {base_ref}  →  NEWER: {target_ref}`.
+
+**Files touched:**
+- [`worktree_manager/ui/diff_panel.py`](../worktree_manager/ui/diff_panel.py)
+- tests/test_diff_panel_summary_labels_qt.py (new)
+
+**Tests (Red) — write these first:**
+```python
+import pytest
+from unittest.mock import MagicMock
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QPushButton, QLabel
+
+from worktree_manager.ui.diff_panel import DiffPanel
+from worktree_manager.diff_models import HistoryPoint, DiffFile
+from worktree_manager.models import WorktreeModel
+import time
+
+
+def _make_git():
+    now = int(time.time())
+    git = MagicMock()
+    git.list_points.return_value = [
+        HistoryPoint(kind="working_tree_unstaged", label="Working tree (unstaged)"),
+        HistoryPoint(kind="branch", label="main", short_sha="abc", message="Merge"),
+    ]
+    git.diff_files.return_value = [DiffFile(path="src/foo.py", status="M")]
+    git.list_worktrees.return_value = [
+        WorktreeModel(path="/repos/myapp", branch="main", is_main=True,
+                      last_commit_ts=now, is_merged=False, is_stale=False),
+    ]
+    return git
+
+
+def _make_store():
+    store = MagicMock()
+    store.all_repos.return_value = ["/repos/myapp"]
+    store.get_repo.return_value = MagicMock(repo_path="/repos/myapp")
+    store.get_diff_pref.return_value = None
+    return store
+
+
+def _trigger_compare(qtbot, panel):
+    from worktree_manager.ui.diff_point_selector import DiffPointSelector
+    sel = panel._right_area.currentWidget()
+    sel._newer_list.setCurrentRow(0)   # working_tree_unstaged
+    sel._older_list.setCurrentRow(1)   # main
+    btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
+    qtbot.mouseClick(btn, Qt.LeftButton)
+
+
+def test_summary_bar_shows_older_label(qtbot):
+    panel = DiffPanel(git_service=_make_git(), config_store=_make_store())
+    qtbot.addWidget(panel)
+    _trigger_compare(qtbot, panel)
+    text = panel._summary_label.text()
+    assert "OLDER" in text
+
+
+def test_summary_bar_shows_newer_label(qtbot):
+    panel = DiffPanel(git_service=_make_git(), config_store=_make_store())
+    qtbot.addWidget(panel)
+    _trigger_compare(qtbot, panel)
+    text = panel._summary_label.text()
+    assert "NEWER" in text
+
+
+def test_summary_bar_does_not_show_from_label(qtbot):
+    panel = DiffPanel(git_service=_make_git(), config_store=_make_store())
+    qtbot.addWidget(panel)
+    _trigger_compare(qtbot, panel)
+    text = panel._summary_label.text()
+    assert "FROM:" not in text
+
+
+def test_summary_bar_does_not_show_to_label(qtbot):
+    panel = DiffPanel(git_service=_make_git(), config_store=_make_store())
+    qtbot.addWidget(panel)
+    _trigger_compare(qtbot, panel)
+    text = panel._summary_label.text()
+    assert "TO:" not in text
+```
+
+**Production code (Green):**
+
+In [`diff_panel.py`](../worktree_manager/ui/diff_panel.py) `_on_compare()`, change:
+```python
+f"FROM: {base_ref}  →  TO: {target_ref}"
+```
+to:
+```python
+f"OLDER: {base_ref}  →  NEWER: {target_ref}"
+```
+
+**Done when:** Tests pass; after clicking Compare the summary bar reads "OLDER: main → NEWER: Working tree (unstaged)".
+
+## ✋ Manual Testing Gate — Iteration 0
+
+> STOP. Do not proceed to Iteration 1 until every item below is checked off by the user.
+
+- [ ] Launch the app and navigate to the Diff tab — the point selector shows "NEWER POINT — what you have now" as the top section
+- [ ] Confirm "OLDER POINT — compare against" appears below the NEWER POINT section
+- [ ] Confirm neither "FROM (base" nor "TO (target" appear anywhere in the diff selector
+- [ ] Select any newer point and any older point, click "Compare →" — the summary bar reads "OLDER: <ref>  →  NEWER: <ref>"
+- [ ] Confirm the summary bar does not contain "FROM:" or "TO:"
+- [ ] Confirm search/filter still works in both lists
+- [ ] Confirm pre-selecting refs (e.g. switching worktrees) still highlights the correct items in the correct lists
+
+**How to confirm:** Run the app (`python3.14 run.py`), navigate to Diff, and check each item manually.
+Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
