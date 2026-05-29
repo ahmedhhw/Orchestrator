@@ -386,6 +386,9 @@ class GitService:
     def checkout_file(self, repo_path: str, file_path: str, ref: str) -> None:
         self._run(["git", "checkout", ref, "--", file_path], cwd=repo_path)
 
+    def resolve_merge_base(self, repo_path: str, branch: str, onto: str) -> str:
+        return self._run(["git", "merge-base", onto, branch], cwd=repo_path).strip()
+
     def _build_patch(self, file_path: str, hunks: list) -> str:
         lines = [
             f"--- a/{file_path}",

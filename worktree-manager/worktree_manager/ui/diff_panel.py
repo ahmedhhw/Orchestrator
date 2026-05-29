@@ -75,8 +75,11 @@ class DiffPanel(QWidget):
 
         self._point_selector.on_compare(self._on_compare)
         self._file_list.on_file_selected(self._on_file_selected)
+        self._file_list.on_focus_right(self._focus_hunk_view)
+        self._file_list.on_open_file(self._on_open_file)
         self._hunk_view.on_restore(self._on_restore)
         self._hunk_view.on_open_file(self._on_open_file)
+        self._hunk_view.on_focus_left(self._focus_file_list)
         self._populate_repos()
         self._repo_combo.currentIndexChanged.connect(self._on_repo_changed)
         self._worktree_combo.currentIndexChanged.connect(self._on_worktree_changed)
@@ -123,7 +126,10 @@ class DiffPanel(QWidget):
 
     def _load_worktree(self, worktree_path: str) -> None:
         self._vm.set_worktree(worktree_path)
-        self._point_selector.set_repo(worktree_path, self._vm.available_points)
+        self._point_selector.set_repo(worktree_path, self._vm.available_points, git_service=self._git)
+        pref = self._store.get_diff_pref(self._vm.repo_path)
+        if pref:
+            self._point_selector.pre_select(from_ref=pref.get("from_ref"), to_ref=pref.get("to_ref"))
         self._show_point_selector()
 
     def _show_point_selector(self) -> None:
@@ -163,8 +169,10 @@ class DiffPanel(QWidget):
 
     def _on_compare(self, base_ref: str, target_ref: str) -> None:
         self._vm.set_points(base_ref, target_ref)
+        self._store.set_diff_pref(self._vm.repo_path, base_ref, target_ref)
         files = self._vm.load_diff_files()
         self._file_list.set_files(files)
+        self._file_list.set_live_mode(self._vm.target_is_working_tree)
         self._hunk_view.set_hunks("", [], live_mode=False)
         self._summary_label.setText(
             f"FROM: {base_ref}  →  TO: {target_ref}"
@@ -205,6 +213,12 @@ class DiffPanel(QWidget):
             return
         self._file_list.set_files(self._vm.diff_files)
         self._on_file_selected(self._current_file_path)
+
+    def _focus_hunk_view(self) -> None:
+        self._hunk_view.focus()
+
+    def _focus_file_list(self) -> None:
+        self._file_list.focus()
 
     def _on_open_file(self) -> None:
         if self._current_file_path is None:

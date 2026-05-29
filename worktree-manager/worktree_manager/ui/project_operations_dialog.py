@@ -274,18 +274,21 @@ class ProjectOperationsDialog(QDialog):
         except Exception:
             all_branches = ["main"]
 
-        self._new_base_combo.clear()
-        self._new_base_combo.addItems(all_branches or ["main"])
-        self._existing_branch_combo.clear()
-        self._existing_branch_combo.addItems(all_branches or ["(none)"])
+        self._all_branches_cache = all_branches or ["main"]
 
-        self._render_worktree_rows(statuses)
+        self._new_base_combo.clear()
+        self._new_base_combo.addItems(self._all_branches_cache)
+        self._existing_branch_combo.clear()
+        self._existing_branch_combo.addItems(self._all_branches_cache or ["(none)"])
+
+        self._render_worktree_rows(statuses, self._all_branches_cache)
 
     def _refresh_worktrees_from_cache(self) -> None:
         statuses = list(self._worktree_status_map.values())
-        self._render_worktree_rows(statuses)
+        branches = getattr(self, "_all_branches_cache", ["main"])
+        self._render_worktree_rows(statuses, branches)
 
-    def _render_worktree_rows(self, statuses: list) -> None:
+    def _render_worktree_rows(self, statuses: list, branches: list = None) -> None:
         # Clear existing worktree rows
         while self._wt_list_layout.count():
             item = self._wt_list_layout.takeAt(0)
@@ -295,17 +298,38 @@ class ProjectOperationsDialog(QDialog):
 
         self._worktree_path_map = {}
         self._active_new_branch_panel = None
+        if branches is None:
+            branches = getattr(self, "_all_branches_cache", ["main"])
 
         for status in statuses:
-            if status.is_main:
-                display = f"(main): {status.branch}"
-            else:
-                display = f"{Path(status.path).name or status.path}: {status.branch}"
-            self._worktree_path_map[display] = status.path
+            wt_name = "(main)" if status.is_main else (Path(status.path).name or status.path)
+            self._worktree_path_map[wt_name] = status.path
 
             row = QHBoxLayout()
-            name_lbl = QLabel(display)
-            row.addWidget(name_lbl, 1)
+            name_lbl = QLabel(f"{wt_name}:")
+            row.addWidget(name_lbl)
+
+            branch_combo = QComboBox()
+            branch_combo.addItems(branches)
+            if status.branch in branches:
+                branch_combo.setCurrentText(status.branch)
+            _prev = [status.branch]
+
+            def _on_branch_changed(new_branch, path=status.path, combo=branch_combo, prev=_prev):
+                if new_branch == prev[0]:
+                    return
+                try:
+                    self._vm.switch_branch_in_project(path, new_branch)
+                    prev[0] = new_branch
+                except ValueError as e:
+                    from PySide6.QtWidgets import QMessageBox
+                    combo.blockSignals(True)
+                    combo.setCurrentText(prev[0])
+                    combo.blockSignals(False)
+                    QMessageBox.critical(self, "Cannot switch branch", str(e))
+
+            branch_combo.currentTextChanged.connect(_on_branch_changed)
+            row.addWidget(branch_combo, 1)
 
             if status.has_uncommitted:
                 dirty_lbl = QLabel("⚠ dirty")

@@ -2,12 +2,38 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent
+
+
+class _KeyInterceptList(QListWidget):
+    """QListWidget that intercepts ↑/↓/←/→/O and delegates to DiffFileList."""
+    def __init__(self, owner, parent=None):
+        super().__init__(parent)
+        self._owner = owner
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        key = event.key()
+        if key == Qt.Key_Down:
+            self._owner.select_next()
+        elif key == Qt.Key_Up:
+            self._owner.select_prev()
+        elif key == Qt.Key_Right:
+            if self._owner._focus_right_cb:
+                self._owner._focus_right_cb()
+        elif key == Qt.Key_O:
+            if self._owner._live_mode and self._owner._open_file_cb:
+                self._owner._open_file_cb()
+        else:
+            super().keyPressEvent(event)
 
 
 class DiffFileList(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._file_selected_cb = None
+        self._focus_right_cb = None
+        self._open_file_cb = None
+        self._live_mode = False
         self._files = []
 
         layout = QVBoxLayout(self)
@@ -18,7 +44,7 @@ class DiffFileList(QWidget):
         self._filter.setPlaceholderText("🔍 Filter...")
         layout.addWidget(self._filter)
 
-        self._list_widget = QListWidget()
+        self._list_widget = _KeyInterceptList(self)
         layout.addWidget(self._list_widget)
 
         self._filter.textChanged.connect(self._apply_filter)
@@ -36,6 +62,32 @@ class DiffFileList(QWidget):
 
     def on_file_selected(self, callback) -> None:
         self._file_selected_cb = callback
+
+    def on_focus_right(self, callback) -> None:
+        self._focus_right_cb = callback
+
+    def on_open_file(self, callback) -> None:
+        self._open_file_cb = callback
+
+    def set_live_mode(self, live: bool) -> None:
+        self._live_mode = live
+
+    def select_next(self) -> None:
+        count = self._list_widget.count()
+        if count == 0:
+            return
+        current = self._list_widget.currentRow()
+        self._list_widget.setCurrentRow((current + 1) % count)
+
+    def select_prev(self) -> None:
+        count = self._list_widget.count()
+        if count == 0:
+            return
+        current = self._list_widget.currentRow()
+        self._list_widget.setCurrentRow((current - 1) % count)
+
+    def focus(self) -> None:
+        self._list_widget.setFocus()
 
     def _apply_filter(self, text: str) -> None:
         lower = text.lower()

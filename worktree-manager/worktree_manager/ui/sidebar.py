@@ -71,6 +71,7 @@ class Sidebar(QWidget):
         on_settings,
         on_diff=None,
         on_refresh=None,
+        on_hide=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -84,6 +85,7 @@ class Sidebar(QWidget):
         }
         self._on_settings = on_settings
         self._on_refresh = on_refresh
+        self._on_hide = on_hide
         self._active_key: str = "workspace_projects"
         self._tab_buttons: dict[str, QPushButton] = {}
 
@@ -120,6 +122,14 @@ class Sidebar(QWidget):
         settings_btn.setFixedHeight(44)
         settings_btn.clicked.connect(self._on_settings)
         outer.addWidget(settings_btn)
+
+        if self._on_hide is not None:
+            hide_btn = QPushButton("◀  Hide")
+            hide_btn.setStyleSheet(_BOTTOM_STYLE)
+            hide_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            hide_btn.setFixedHeight(44)
+            hide_btn.clicked.connect(self._on_hide)
+            outer.addWidget(hide_btn)
 
         self._apply_highlights()
 

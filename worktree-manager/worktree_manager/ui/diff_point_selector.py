@@ -10,6 +10,8 @@ class DiffPointSelector(QWidget):
         super().__init__(parent)
         self._points = []
         self._compare_cb = None
+        self._repo_path = None
+        self._git_service = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -29,6 +31,12 @@ class DiffPointSelector(QWidget):
         self._to_list = QListWidget()
         layout.addWidget(self._to_list)
 
+        self._merge_base_note = QLabel("")
+        self._merge_base_note.setObjectName("merge_base_note")
+        self._merge_base_note.setStyleSheet("color: #e6ac00;")
+        self._merge_base_note.hide()
+        layout.addWidget(self._merge_base_note)
+
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
         self._compare_btn = QPushButton("Compare →")
@@ -38,13 +46,40 @@ class DiffPointSelector(QWidget):
         self._from_filter.textChanged.connect(lambda text: self._apply_filter(self._from_list, text))
         self._to_filter.textChanged.connect(lambda text: self._apply_filter(self._to_list, text))
         self._compare_btn.clicked.connect(self._on_compare_clicked)
+        self._from_list.currentItemChanged.connect(self._on_from_changed)
 
-    def set_repo(self, repo_path: str, points: list) -> None:
+    def set_repo(self, repo_path: str, points: list, git_service=None) -> None:
+        self._repo_path = repo_path
+        self._git_service = git_service
         self._points = points
         self._populate_list(self._from_list, points)
         self._populate_list(self._to_list, points)
         self._from_filter.clear()
         self._to_filter.clear()
+        self._merge_base_note.hide()
+
+    def _on_from_changed(self, current, previous) -> None:
+        if current is None:
+            self._merge_base_note.hide()
+            return
+        ref = current.data(Qt.UserRole)
+        point = self._find_point_by_ref(ref)
+        if point is None or point.kind != "branch" or self._git_service is None:
+            self._merge_base_note.hide()
+            return
+        try:
+            sha = self._git_service.resolve_merge_base(self._repo_path, ref, "HEAD")
+            self._merge_base_note.setText(f'⚠ "{ref}" resolved to merge-base {sha}')
+            self._merge_base_note.show()
+        except Exception:
+            self._merge_base_note.hide()
+
+    def _find_point_by_ref(self, ref: str):
+        for pt in self._points:
+            r = pt.kind if pt.kind.startswith("working_tree") else pt.label
+            if r == ref:
+                return pt
+        return None
 
     def on_compare(self, callback) -> None:
         self._compare_cb = callback

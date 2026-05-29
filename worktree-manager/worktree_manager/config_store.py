@@ -87,6 +87,18 @@ class ConfigStore:
         data.setdefault("ui", {})[key] = value
         self._save_raw(data)
 
+    def get_diff_pref(self, repo_path: str) -> dict | None:
+        data = self._load_raw()
+        return data.get("ui", {}).get("diff", {}).get(repo_path)
+
+    def set_diff_pref(self, repo_path: str, from_ref: str, to_ref: str) -> None:
+        data = self._load_raw()
+        data.setdefault("ui", {}).setdefault("diff", {})[repo_path] = {
+            "from_ref": from_ref,
+            "to_ref": to_ref,
+        }
+        self._save_raw(data)
+
     def _project_from_dict(self, name: str, data: dict) -> WorkspaceProject:
         return WorkspaceProject(
             name=name,

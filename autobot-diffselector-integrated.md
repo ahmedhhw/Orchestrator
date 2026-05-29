@@ -622,3 +622,28 @@ Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 3 confirmed" (or describe any failures) before I write the plan for Iteration 4.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 4
+
+> STOP. This is the final iteration. Confirm every item below before the feature is declared complete.
+
+- [ ] In the diff view (after Compare), press `↓` in the file list — the next file is selected and its hunks load in the right pane
+- [ ] Press `↑` in the file list — selection moves to the previous file; at the top, it wraps to the last file
+- [ ] Press `→` from the file list — focus moves to the hunk content pane (visual focus indicator changes)
+- [ ] Press `↑`/`↓` in the hunk pane — the hunk content scrolls up/down
+- [ ] Press `←` from the hunk pane — focus returns to the file list
+- [ ] With TO = working tree (live mode), press `O` in either pane — the file opens in the configured editor
+- [ ] Open the Diff tab, pick a branch as FROM — a note appears below the point selector showing the merge-base SHA (e.g. `⚠ "feature/x" resolved to merge-base abc1234`)
+- [ ] Open the Project Operations dialog (New or Edit a project) — each worktree row shows a branch dropdown (QComboBox) instead of a plain text label
+- [ ] In the Project Operations dialog, change the branch dropdown for a worktree — the branch switches inline; no error for a valid unused branch
+- [ ] In the Project Operations dialog, try to switch to a branch already checked out in another worktree — the dropdown reverts to the previous value and an error dialog appears
+- [ ] Open the Diff tab, pick a repo and FROM/TO, click Compare — the selections persist if you navigate away and return; next time you open the same repo the last-used FROM/TO refs are pre-selected
+- [ ] **Regression:** Diff tab hunk view with live mode restore still works (checkboxes, Restore, toast, Undo)
+- [ ] **Regression:** Open File button still opens the file in the configured editor
+- [ ] **Regression:** Worktrees tab and Projects tab context menu entry points still open Diff tab correctly
+- [ ] **Regression:** Worktrees tab dropdown and all normal worktree operations still work
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 4 confirmed" when done.

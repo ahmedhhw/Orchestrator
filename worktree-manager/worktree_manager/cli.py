@@ -87,6 +87,7 @@ class App(QMainWindow):
         self.setCentralWidget(central)
 
         from worktree_manager.ui.sidebar import Sidebar
+        self._sidebar_strip = None
         self._sidebar = Sidebar(
             store=self._store,
             on_command_center=self._show_command_center,
@@ -96,6 +97,7 @@ class App(QMainWindow):
             on_diff=self._show_diff,
             on_settings=self._handle_settings,
             on_refresh=self._refresh,
+            on_hide=self._collapse_sidebar,
         )
         self._central_layout.addWidget(self._sidebar)
 
@@ -643,6 +645,21 @@ class App(QMainWindow):
                 action_name=action_name,
                 args=dict(args),
             ))
+
+    # ── sidebar collapse ────────────────────────────────────────────────────────
+
+    def _collapse_sidebar(self) -> None:
+        from worktree_manager.ui.sidebar_strip import SidebarStrip
+        self._sidebar.hide()
+        self._sidebar_strip = SidebarStrip(on_restore=self._restore_sidebar)
+        self._central_layout.insertWidget(0, self._sidebar_strip)
+
+    def _restore_sidebar(self) -> None:
+        if self._sidebar_strip is not None:
+            self._central_layout.removeWidget(self._sidebar_strip)
+            self._sidebar_strip.deleteLater()
+            self._sidebar_strip = None
+        self._sidebar.show()
 
     # ── panel swap helpers ──────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QFrame, QCheckBox,
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QKeyEvent
 
 
 _REMOVED_BG = "#3d0000"
@@ -16,10 +16,13 @@ class DiffHunkView(QWidget):
         super().__init__(parent)
         self._on_open_file_cb = None
         self._on_restore_cb = None
+        self._focus_left_cb = None
+        self._live_mode = False
         self._hunk_checkboxes = []  # list of (hunk_index, QCheckBox)
         self._restore_btn = None
         self._toast_timer = None
         self._undo_callback = None
+        self.setFocusPolicy(Qt.StrongFocus)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -78,7 +81,31 @@ class DiffHunkView(QWidget):
         self._toast_container.hide()
         outer.addWidget(self._toast_container)
 
+    def on_focus_left(self, callback) -> None:
+        self._focus_left_cb = callback
+
+    def focus(self) -> None:
+        self.setFocus()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        key = event.key()
+        if key == Qt.Key_Left:
+            if self._focus_left_cb:
+                self._focus_left_cb()
+        elif key == Qt.Key_Up:
+            bar = self._scroll.verticalScrollBar()
+            bar.setValue(bar.value() - bar.singleStep() * 3)
+        elif key == Qt.Key_Down:
+            bar = self._scroll.verticalScrollBar()
+            bar.setValue(bar.value() + bar.singleStep() * 3)
+        elif key == Qt.Key_O:
+            if self._live_mode and self._on_open_file_cb:
+                self._on_open_file_cb()
+        else:
+            super().keyPressEvent(event)
+
     def set_hunks(self, path: str, hunks: list, live_mode: bool) -> None:
+        self._live_mode = live_mode
         self._file_label.setText(path)
         self._hunk_checkboxes.clear()
 
