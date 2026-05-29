@@ -327,3 +327,37 @@ For per-row actions in the Sync panel (single-row Sync, Fetch all, Sync all) the
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
 
+## Iteration 1 — Sync Panel Actions
+
+### Phase 1.1 — InlineProgress.mini() factory
+**What it covers:** Compact horizontal progress widget (label + thin bar) usable inside rows and toolbars.
+
+**Files touched:**
+- [worktree_manager/ui/inline_progress.py](worktree-manager/worktree_manager/ui/inline_progress.py) — added `mini()` static factory returning an `InlineProgress` configured with a horizontal `QHBoxLayout`
+
+### Phase 1.2 — on_progress for fetch_all and sync_included
+**What it covers:** Both VM methods now accept an optional `on_progress(current, total, label)` callback so the panel can show determinate progress.
+
+**Files touched:**
+- [worktree_manager/branch_mgmt_vm.py](worktree-manager/worktree_manager/branch_mgmt_vm.py) — `fetch_all(on_progress=None)` emits per-repo; `sync_included(on_progress=None)` emits per-branch
+
+### Phase 1.3 — Async toolbar actions and per-row Sync
+**What it covers:** All three action triggers (`_trigger_fetch_all`, `_trigger_sync_all`, `_trigger_sync_one`) now run via `BackgroundJob`. Both toolbar buttons are disabled while any action is in flight. Per-row Sync shows a mini indeterminate bar in the status cell and re-enables when done.
+
+**Files touched:**
+- [worktree_manager/ui/branch_management_panel.py](worktree-manager/worktree_manager/ui/branch_management_panel.py) — added `_action_running` state; rewired all three triggers; added `_on_fetch_done`, `_on_sync_all_done`, `_on_sync_one_done`, `_on_action_error` handlers; stores per-row buttons in `_sync_row_btns`
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] Open the app, navigate to Branch Management → "Sync from origin" tab and confirm branches load with the progress bar as before (regression: Iteration 0 behaviour intact).
+- [ ] Click "↻ Fetch all" — confirm both "Fetch all" and "Sync all" buttons immediately grey out while the fetch runs, then re-enable when done.
+- [ ] After "Fetch all" completes, confirm the "Last fetch: just now" label appears at the bottom of the panel.
+- [ ] Click "⏬ Sync all" — confirm both toolbar buttons grey out during the sync, then re-enable when done, and status badges on each row update (e.g. "✓ up to date", "✓ pulled (N new)").
+- [ ] Click the "Sync" button on an individual branch row — confirm only that row's Sync button disables and a small progress bar appears in the status cell while syncing; other rows' Sync buttons remain clickable. After completion the mini bar disappears and the status badge updates.
+- [ ] Confirm Fetch all / Sync all cannot be double-clicked into a second concurrent run (clicking while one is in flight has no effect).
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+

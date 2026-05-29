@@ -131,11 +131,15 @@ class BranchMgmtViewModel:
         self._sync_rows = rows
         return rows
 
-    def fetch_all(self) -> list[FetchResult]:
+    def fetch_all(self, on_progress=None) -> list[FetchResult]:
+        repos = self.list_repos()
+        total = len(repos)
         results = []
-        for repo_path in self.list_repos():
+        for idx, repo_path in enumerate(repos, start=1):
             error = self._git.fetch(repo_path)
             results.append(FetchResult(repo_path=repo_path, error=error))
+            if on_progress:
+                on_progress(idx, total, repo_path)
         return results
 
     def sync_one(
@@ -157,7 +161,7 @@ class BranchMgmtViewModel:
             status=outcome.status, error=outcome.error,
         )
 
-    def sync_included(self) -> list[SyncResult]:
+    def sync_included(self, on_progress=None) -> list[SyncResult]:
         rows = getattr(self, "_sync_rows", None)
         if rows is None:
             rows = self.load_syncable_branches()
@@ -170,13 +174,16 @@ class BranchMgmtViewModel:
                 self._git.fetch(row.repo_path)
                 fetched.add(row.repo_path)
 
+        total = len(included)
         results: list[SyncResult] = []
-        for row in included:
+        for idx, row in enumerate(included, start=1):
             if row.worktree_path is not None:
                 if self._git.has_uncommitted_changes(row.worktree_path):
                     results.append(SyncResult(
                         repo_path=row.repo_path, branch=row.branch, status="dirty"
                     ))
+                    if on_progress:
+                        on_progress(idx, total, row.branch)
                     continue
                 outcome = self._git.pull_ff_only(row.worktree_path)
                 results.append(SyncResult(
@@ -190,4 +197,6 @@ class BranchMgmtViewModel:
                     repo_path=row.repo_path, branch=row.branch,
                     status=outcome.status, error=outcome.error,
                 ))
+            if on_progress:
+                on_progress(idx, total, row.branch)
         return results

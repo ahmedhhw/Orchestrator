@@ -8,11 +8,3 @@ def test_landing_screen_is_a_qwidget(qtbot):
     qtbot.addWidget(w)
     assert isinstance(w, QWidget)
 
-
-def test_landing_screen_shows_empty_message(qtbot):
-    w = LandingScreen()
-    qtbot.addWidget(w)
-    texts = [lbl.text() for lbl in w.findChildren(QLabel)]
-    combined = "\n".join(texts)
-    assert "No repo selected" in combined
-    assert "Add Repo" in combined

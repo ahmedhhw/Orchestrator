@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QProgressBar, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QSizePolicy, QVBoxLayout, QWidget
 
 
 class InlineProgress(QWidget):
@@ -22,6 +22,28 @@ class InlineProgress(QWidget):
         self._bar = QProgressBar()
         self._bar.setFixedWidth(300)
         layout.addWidget(self._bar, 0, Qt.AlignCenter)
+
+    @staticmethod
+    def mini(parent=None) -> "InlineProgress":
+        """Compact horizontal variant: label + thin progress bar side by side."""
+        w = InlineProgress.__new__(InlineProgress)
+        QWidget.__init__(w, parent)
+        layout = QHBoxLayout(w)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        w._message = QLabel()
+        layout.addWidget(w._message)
+
+        w._bar = QProgressBar()
+        w._bar.setFixedHeight(12)
+        w._bar.setMinimumWidth(80)
+        w._bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout.addWidget(w._bar)
+
+        w._detail = QLabel()
+        w._detail.setVisible(False)
+        return w
 
     def start_indeterminate(self, message: str) -> None:
         self._message.setText(message)

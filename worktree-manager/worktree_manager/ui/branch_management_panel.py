@@ -34,9 +34,11 @@ class BranchManagementPanel(QWidget):
         self._sync_rows: list = []
         self._status_labels: dict = {}     # (repo_path, branch) -> QLabel
         self._error_btn_slots: dict = {}   # (repo_path, branch) -> QHBoxLayout
+        self._sync_row_btns: dict = {}     # (repo_path, branch) -> QPushButton
         self._last_fetch_label: QLabel | None = None
         self._last_fetch_ts: int | None = None
         self._sync_loading: bool = False
+        self._action_running: bool = False
         self._fetch_btn: QPushButton | None = None
         self._sync_all_btn: QPushButton | None = None
         self._sync_body_layout: QVBoxLayout | None = None
@@ -187,9 +189,11 @@ class BranchManagementPanel(QWidget):
 
     def _start_sync_load(self):
         self._sync_loading = True
+        self._action_running = False
         self._set_sync_action_buttons_enabled(False)
         self._status_labels = {}
         self._error_btn_slots = {}
+        self._sync_row_btns = {}
 
         loader = InlineProgress()
         loader.start_determinate("Loading branches…", total=1)
@@ -314,6 +318,7 @@ class BranchManagementPanel(QWidget):
                     self._trigger_sync_one(rp, br, wt)
             )
             layout.addWidget(sync_row_btn)
+            self._sync_row_btns[(row.repo_path, row.branch)] = sync_row_btn
         else:
             no_up_lbl = QLabel("✗ no upstream")
             no_up_lbl.setStyleSheet("color: gray;")
@@ -324,27 +329,83 @@ class BranchManagementPanel(QWidget):
         return w
 
     def _trigger_fetch_all(self):
-        if self._vm is None:
+        if self._vm is None or self._action_running:
             return
-        self._vm.fetch_all()
+        self._action_running = True
+        self._set_sync_action_buttons_enabled(False)
+        job = BackgroundJob(self)
+        job.finished.connect(self._on_fetch_done)
+        job.failed.connect(lambda exc: self._on_action_error(exc))
+        job.start(self._vm.fetch_all)
+
+    def _on_fetch_done(self, _results) -> None:
+        self._action_running = False
         self._last_fetch_ts = int(time.time())
         if self._last_fetch_label is not None:
             self._last_fetch_label.setText("Last fetch: just now")
-        self._render_sync_rows()
+        self._set_sync_action_buttons_enabled(True)
 
     def _trigger_sync_all(self):
-        if self._vm is None:
+        if self._vm is None or self._action_running:
             return
-        results = self._vm.sync_included()
+        self._action_running = True
+        self._set_sync_action_buttons_enabled(False)
+        job = BackgroundJob(self)
+        job.finished.connect(lambda results: self._on_sync_all_done(results))
+        job.failed.connect(lambda exc: self._on_action_error(exc))
+        job.start(self._vm.sync_included)
+
+    def _on_sync_all_done(self, results) -> None:
+        self._action_running = False
+        self._set_sync_action_buttons_enabled(True)
         self._apply_sync_results(results)
 
     def _trigger_sync_one(self, repo_path: str, branch: str, worktree_path):
-        if self._vm is None:
+        if self._vm is None or self._action_running:
             return
-        result = self._vm.sync_one(
-            repo_path=repo_path, branch=branch, worktree_path=worktree_path
+        self._action_running = True
+        key = (repo_path, branch)
+        btn = self._sync_row_btns.get(key)
+        if btn is not None:
+            btn.setEnabled(False)
+
+        # show mini indeterminate bar in the status cell
+        status_lbl = self._status_labels.get(key)
+        mini_bar = None
+        if status_lbl is not None:
+            from worktree_manager.ui.inline_progress import InlineProgress
+            mini_bar = InlineProgress.mini()
+            mini_bar.start_indeterminate("syncing…")
+            parent_layout = status_lbl.parent().layout() if status_lbl.parent() else None
+            if parent_layout is not None:
+                idx = parent_layout.indexOf(status_lbl)
+                status_lbl.setVisible(False)
+                parent_layout.insertWidget(idx, mini_bar)
+
+        job = BackgroundJob(self)
+        job.finished.connect(
+            lambda result, b=btn, mb=mini_bar, sl=status_lbl:
+                self._on_sync_one_done(result, b, mb, sl)
         )
+        job.failed.connect(lambda exc: self._on_action_error(exc, btn=btn))
+        job.start(self._vm.sync_one, repo_path=repo_path, branch=branch,
+                  worktree_path=worktree_path)
+
+    def _on_sync_one_done(self, result, btn, mini_bar, status_lbl) -> None:
+        self._action_running = False
+        if mini_bar is not None:
+            mini_bar.deleteLater()
+        if status_lbl is not None:
+            status_lbl.setVisible(True)
+        if btn is not None:
+            btn.setEnabled(True)
         self._apply_sync_results([result])
+
+    def _on_action_error(self, exc: Exception, btn=None) -> None:
+        self._action_running = False
+        self._set_sync_action_buttons_enabled(True)
+        if btn is not None:
+            btn.setEnabled(True)
 
     def _apply_sync_results(self, results):
         _badge = {

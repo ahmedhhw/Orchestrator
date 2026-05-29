@@ -179,6 +179,10 @@ def test_toggling_checkbox_calls_set_excluded(qtbot):
 
 # ── status badges after sync ──────────────────────────────────────────────────
 
+def _wait_action(qtbot, panel, timeout=3000):
+    qtbot.waitUntil(lambda: not panel._action_running, timeout=timeout)
+
+
 def test_sync_all_updates_status_badge_up_to_date(qtbot):
     row = _row(branch="main", has_upstream=True)
     sync_results = [SyncResult(repo_path="/repo/a", branch="main", status="up_to_date")]
@@ -186,6 +190,7 @@ def test_sync_all_updates_status_badge_up_to_date(qtbot):
 
     sync_btn = next(b for b in _buttons(panel) if "Sync all" in b.text())
     sync_btn.click()
+    _wait_action(qtbot, panel)
 
     assert any("up to date" in t.lower() for t in _label_texts(panel))
 
@@ -197,6 +202,7 @@ def test_sync_all_updates_status_badge_dirty(qtbot):
 
     sync_btn = next(b for b in _buttons(panel) if "Sync all" in b.text())
     sync_btn.click()
+    _wait_action(qtbot, panel)
 
     assert any("dirty" in t.lower() for t in _label_texts(panel))
 
@@ -208,6 +214,7 @@ def test_sync_all_updates_status_badge_pulled(qtbot):
 
     sync_btn = next(b for b in _buttons(panel) if "Sync all" in b.text())
     sync_btn.click()
+    _wait_action(qtbot, panel)
 
     assert any("pulled" in t.lower() for t in _label_texts(panel))
 
@@ -218,6 +225,7 @@ def test_last_fetch_label_shown_after_fetch(qtbot):
     panel, _ = _make_panel(qtbot)
     fetch_btn = next(b for b in _buttons(panel) if "Fetch all" in b.text())
     fetch_btn.click()
+    _wait_action(qtbot, panel)
     assert any("last fetch" in t.lower() for t in _label_texts(panel))
 
 
