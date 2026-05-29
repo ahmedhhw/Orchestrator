@@ -89,7 +89,7 @@ def test_app_provides_on_run_command_to_right_pane(qtbot, monkeypatch):
     from worktree_manager.ui.worktree_management_panel import WorktreeManagementPanel
     app, _ = _make_app(qtbot, monkeypatch)
     assert isinstance(app._current_panel, WorktreeManagementPanel)
-    right_pane = app._current_panel._right_pane
+    right_pane = app._current_panel._repo_view
     assert right_pane is not None
     assert right_pane._on_run_command is not None
 

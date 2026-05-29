@@ -9,6 +9,9 @@ from worktree_manager.diff_models import HistoryPoint, DiffFile
 
 
 def _make_git(points=None, files=None):
+    import time
+    from worktree_manager.models import WorktreeModel
+    now = int(time.time())
     git = MagicMock()
     git.list_points.return_value = points or [
         HistoryPoint(kind="working_tree_unstaged", label="Working tree (unstaged)"),
@@ -16,6 +19,10 @@ def _make_git(points=None, files=None):
     ]
     git.diff_files.return_value = files or [
         DiffFile(path="src/foo.py", status="M"),
+    ]
+    git.list_worktrees.return_value = [
+        WorktreeModel(path="/repos/myapp", branch="main", is_main=True,
+                      last_commit_ts=now, is_merged=False, is_stale=False),
     ]
     return git
 

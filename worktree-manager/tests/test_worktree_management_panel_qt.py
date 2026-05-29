@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QPushButton
+from PySide6.QtWidgets import QComboBox, QLabel, QPushButton
 
 from worktree_manager.main_window_vm import MainWindowViewModel
 from worktree_manager.models import WorktreeModel
@@ -58,22 +58,23 @@ def test_panel_shows_empty_state_when_no_repo_selected(qtbot):
     assert any("Select a repo" in t for t in texts)
 
 
-def test_panel_shows_repo_names_in_left_list(qtbot, tmp_path):
+def test_panel_shows_repo_names_in_dropdown(qtbot, tmp_path):
     repo_a = str(tmp_path / "repo-a")
     repo_b = str(tmp_path / "repo-b")
     vm = _make_vm(repos={repo_a: {}, repo_b: {}})
     panel = _make_panel(qtbot, vm=vm)
-    texts = _button_texts(panel)
-    assert any("repo-a" in t for t in texts)
-    assert any("repo-b" in t for t in texts)
+    combo = panel.findChild(QComboBox, "repo_combo")
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert any("repo-a" in t for t in items)
+    assert any("repo-b" in t for t in items)
 
 
-def test_clicking_repo_hides_empty_state(qtbot, tmp_path):
+def test_selecting_repo_from_dropdown_hides_empty_state(qtbot, tmp_path):
     repo = str(tmp_path / "repo-a")
     vm = _make_vm(repos={repo: {}})
     panel = _make_panel(qtbot, vm=vm)
-    btn = next(b for b in panel.findChildren(QPushButton) if "repo-a" in b.text())
-    qtbot.mouseClick(btn, Qt.LeftButton)
+    combo = panel.findChild(QComboBox, "repo_combo")
+    combo.setCurrentIndex(0)
     visible_texts = [lbl.text() for lbl in panel.findChildren(QLabel) if not lbl.isHidden()]
     assert not any("Select a repo" in t for t in visible_texts)
 
@@ -94,8 +95,9 @@ def test_refresh_button_invokes_callback(qtbot):
     assert triggered == [1]
 
 
-def test_panel_populate_repos_updates_list(qtbot, tmp_path):
+def test_panel_populate_repos_updates_dropdown(qtbot, tmp_path):
     repo = str(tmp_path / "repo-a")
     vm = _make_vm(repos={repo: {}})
     panel = _make_panel(qtbot, vm=vm)
-    assert any("repo-a" in t for t in _button_texts(panel))
+    combo = panel.findChild(QComboBox, "repo_combo")
+    assert any("repo-a" in combo.itemText(i) for i in range(combo.count()))

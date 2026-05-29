@@ -40,7 +40,7 @@ def test_worktree_panel_shown_when_repo_configured(qtbot, monkeypatch):
 
 def test_right_pane_receives_on_generate_project_callback(qtbot, monkeypatch):
     app, _ = _make_app(qtbot, monkeypatch)
-    right_pane = app._current_panel._right_pane
+    right_pane = app._current_panel._repo_view
     assert right_pane is not None
     assert right_pane._on_generate_project is not None
 

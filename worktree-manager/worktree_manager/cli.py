@@ -730,6 +730,8 @@ class App(QMainWindow):
                 on_generate_project=self._on_generate_project,
                 on_run_command=self._on_run_command,
                 on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
+                on_diff_from_working_tree=self._diff_from_working_tree,
+                on_diff_compare_branches=self._diff_compare_branches,
             )
         panel = self._panel_cache["worktree_management"]
         self._set_panel(panel)
@@ -758,6 +760,18 @@ class App(QMainWindow):
         self._set_panel(panel)
         self._sidebar.set_active_tab("diff")
         panel.show()
+
+    def _diff_from_working_tree(self, worktree_path: str) -> None:
+        repo_path = self._repo_path_for_worktree(worktree_path)
+        self._show_diff()
+        panel = self._panel_cache["diff"]
+        panel.show_diff(repo_path, worktree_path=worktree_path,
+                        to_ref="working_tree_unstaged", from_ref=None)
+
+    def _diff_compare_branches(self, repo_path: str) -> None:
+        self._show_diff()
+        panel = self._panel_cache["diff"]
+        panel.show_for_repo(repo_path)
 
     def _handle_settings(self):
         repo_path = self._active_repo_path or next(iter(self._store.all_repos()), None)
@@ -878,6 +892,8 @@ class App(QMainWindow):
                 on_generate_project=self._on_generate_project,
                 on_run_command=self._on_run_command,
                 on_nickname=lambda action_name, args: self._add_nickname(action_name, args),
+                on_diff_from_working_tree=self._diff_from_working_tree,
+                on_diff_compare_branches=self._diff_compare_branches,
             )
         panel = self._panel_cache["workspace_projects"]
         self._set_panel(panel)

@@ -36,6 +36,8 @@ class PerRepoWorktreesView(QWidget):
         on_run_command=None,
         parent=None,
         on_nickname=None,
+        on_diff_from_working_tree=None,
+        on_diff_compare_branches=None,
     ):
         super().__init__(parent)
         self._vm = vm
@@ -45,6 +47,8 @@ class PerRepoWorktreesView(QWidget):
         self._on_generate_project = on_generate_project
         self._on_run_command = on_run_command
         self._on_nickname = on_nickname
+        self._on_diff_from_working_tree = on_diff_from_working_tree
+        self._on_diff_compare_branches = on_diff_compare_branches
         self._worktree_rows: list[QWidget] = []
         self._toast_timer: QTimer | None = None
         self._loading: bool = False
@@ -244,7 +248,20 @@ class PerRepoWorktreesView(QWidget):
         gen_act.triggered.connect(lambda: self._trigger_generate_project(worktree_path))
         run_act = menu.addAction("Run Command…")
         run_act.triggered.connect(lambda: self._trigger_run_command(worktree_path))
+        menu.addSeparator()
+        diff_wt_act = menu.addAction("Diff from working tree…")
+        diff_wt_act.triggered.connect(lambda: self._trigger_diff_from_working_tree(worktree_path))
+        diff_br_act = menu.addAction("Compare branches…")
+        diff_br_act.triggered.connect(lambda: self._trigger_diff_compare_branches(worktree_path))
         return menu
+
+    def _trigger_diff_from_working_tree(self, worktree_path: str):
+        if self._on_diff_from_working_tree:
+            self._on_diff_from_working_tree(worktree_path)
+
+    def _trigger_diff_compare_branches(self, worktree_path: str):
+        if self._on_diff_compare_branches:
+            self._on_diff_compare_branches(worktree_path)
 
     def _show_context_menu(self, worktree_path: str, pos, row: QWidget):
         menu = self._build_context_menu(worktree_path)

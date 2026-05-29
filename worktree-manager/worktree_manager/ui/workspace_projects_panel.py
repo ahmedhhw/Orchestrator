@@ -15,7 +15,8 @@ from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialo
 class WorkspaceProjectsPanel(QWidget):
     def __init__(self, parent, vm, on_close,
                  on_generate_project=None, on_run_command=None, on_nickname=None,
-                 confirm_fn=None):
+                 confirm_fn=None,
+                 on_diff_from_working_tree=None, on_diff_compare_branches=None):
         super().__init__(parent)
         self._vm = vm
         self._on_close = on_close
@@ -23,6 +24,8 @@ class WorkspaceProjectsPanel(QWidget):
         self._on_run_command = on_run_command
         self._on_nickname = on_nickname
         self._confirm_fn = confirm_fn
+        self._on_diff_from_working_tree = on_diff_from_working_tree
+        self._on_diff_compare_branches = on_diff_compare_branches
         self._collapsed: set[str] = set(vm._store.get_ui_pref("projects_collapsed", []))
         self._editor: str = vm._store.get_ui_pref("projects_editor", "cursor")
         self._empty_visible: bool = True
@@ -236,7 +239,20 @@ class WorkspaceProjectsPanel(QWidget):
         gen_act.triggered.connect(lambda: self._trigger_generate_project(worktree_path))
         run_act = menu.addAction("Run Command…")
         run_act.triggered.connect(lambda: self._trigger_run_command(worktree_path))
+        menu.addSeparator()
+        diff_wt_act = menu.addAction("Diff from working tree…")
+        diff_wt_act.triggered.connect(lambda: self._trigger_diff_from_working_tree(worktree_path))
+        diff_br_act = menu.addAction("Compare branches…")
+        diff_br_act.triggered.connect(lambda: self._trigger_diff_compare_branches(worktree_path))
         return menu
+
+    def _trigger_diff_from_working_tree(self, worktree_path: str):
+        if self._on_diff_from_working_tree:
+            self._on_diff_from_working_tree(worktree_path)
+
+    def _trigger_diff_compare_branches(self, worktree_path: str):
+        if self._on_diff_compare_branches:
+            self._on_diff_compare_branches(worktree_path)
 
     def _show_entry_context_menu(self, worktree_path: str, pos, row: QWidget):
         self._build_entry_context_menu(worktree_path).exec(row.mapToGlobal(pos))

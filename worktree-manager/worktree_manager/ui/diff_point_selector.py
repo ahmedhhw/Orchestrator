@@ -67,6 +67,24 @@ class DiffPointSelector(QWidget):
             item = lst.item(i)
             item.setHidden(bool(lower) and lower not in item.text().lower())
 
+    def pre_select(self, from_ref: str | None, to_ref: str | None) -> None:
+        self._from_list.clearSelection()
+        self._from_list.setCurrentItem(None)
+        self._to_list.clearSelection()
+        self._to_list.setCurrentItem(None)
+        if to_ref is not None:
+            self._select_by_ref(self._to_list, to_ref)
+        if from_ref is not None:
+            self._select_by_ref(self._from_list, from_ref)
+
+    def _select_by_ref(self, lst: QListWidget, ref: str) -> None:
+        from PySide6.QtCore import Qt
+        for i in range(lst.count()):
+            item = lst.item(i)
+            if item.data(Qt.UserRole) == ref:
+                lst.setCurrentItem(item)
+                return
+
     def _on_compare_clicked(self) -> None:
         from_item = self._from_list.currentItem()
         to_item = self._to_list.currentItem()

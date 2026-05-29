@@ -560,3 +560,23 @@ _(none — all resolved)_
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] The Worktrees tab no longer has a left-pane repo button column — it shows a repo dropdown at the top instead
+- [ ] Selecting a repo from the Worktrees dropdown shows that repo's worktree list below the dropdown
+- [ ] Right-click on a worktree row in the Worktrees tab — the context menu shows "Diff from working tree…" and "Compare branches…" items
+- [ ] Click "Diff from working tree…" — the app switches to the Diff tab, the correct repo is selected, and the TO list has "Working tree (unstaged)" pre-selected; FROM is empty
+- [ ] Click "Compare branches…" — the app switches to the Diff tab, the correct repo is selected, and both FROM and TO are empty (user must pick both)
+- [ ] Right-click on a worktree entry row in the Projects tab — the context menu shows "Diff from working tree…" and "Compare branches…"
+- [ ] Click "Diff from working tree…" from the Projects tab — same behaviour as from Worktrees tab (Diff tab, correct repo, TO pre-set)
+- [ ] **Regression:** Diff tab still works end-to-end: pick FROM/TO → Compare → file list appears
+- [ ] **Regression:** Worktrees tab still allows creating, deleting, and switching branches normally
+- [ ] **Regression:** Projects tab still shows projects and allows opening them
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.

@@ -39,17 +39,16 @@ def test_sidebar_is_not_fixed_width(qtbot, empty_store):
     assert sidebar.minimumWidth() != sidebar.maximumWidth() or sidebar.maximumWidth() > 220
 
 
-def test_worktree_panel_repo_scroll_has_no_fixed_height(qtbot, empty_store):
+def test_worktree_panel_has_repo_dropdown(qtbot, empty_store):
+    from PySide6.QtWidgets import QComboBox
     from worktree_manager.ui.worktree_management_panel import WorktreeManagementPanel
     app = App(repo_path=None)
     qtbot.addWidget(app)
-    # Trigger Worktree Management tab to mount the panel
     app._show_worktree_management()
     panel = app._current_panel
     assert isinstance(panel, WorktreeManagementPanel)
-    scroll = panel._repo_scroll
-    # setFixedHeight pins min==max to the given value. We want it to stretch.
-    assert scroll.minimumHeight() != scroll.maximumHeight() or scroll.maximumHeight() > 220
+    combo = panel.findChild(QComboBox, "repo_combo")
+    assert combo is not None
 
 
 # ── Worktree rows: name label and combo are not fixed-width ─────────────────
