@@ -171,6 +171,7 @@ class App(QMainWindow):
                     old_name=old, new_name=new, entries=entries,
                 ),
                 existing_project=project,
+                config_store=self._store,
             )
             dlg.exec()
 
@@ -382,6 +383,7 @@ class App(QMainWindow):
                 on_create=lambda name, entries: self._wp_vm.create_project(
                     name=name, entries=entries,
                 ),
+                config_store=self._store,
             )
             dlg.exec()
 
@@ -685,6 +687,9 @@ class App(QMainWindow):
             return
         if not self._git.is_valid_repo(path):
             QMessageBox.critical(self, "Error", f"'{path}' is not a git repository.")
+            return
+        if self._store.get_repo(path) is not None:
+            QMessageBox.information(self, "Already added", f"'{Path(path).name}' is already in your repos.")
             return
         self._load_repo(path)
 

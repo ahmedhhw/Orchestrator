@@ -453,6 +453,14 @@ class GitService:
             feature_or_main = None
         return (parent, feature_or_main)
 
+    def rename_worktree(self, repo_path: str, old_path: str, new_path: str) -> None:
+        if not os.path.exists(old_path):
+            raise FileNotFoundError(f"Worktree path does not exist: {old_path}")
+        if os.path.exists(new_path):
+            raise FileExistsError(f"Target path already exists: {new_path}")
+        os.rename(old_path, new_path)
+        self._run(["git", "worktree", "repair"], cwd=new_path)
+
     def resolve_merge_base(self, repo_path: str, branch: str, onto: str) -> str:
         return self._run(["git", "merge-base", onto, branch], cwd=repo_path).strip()
 

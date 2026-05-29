@@ -100,10 +100,10 @@ This means the user can click "Diff" from any worktree and immediately hit "Comp
 
 **After — inline rename:**
 ```
-  feature/foo    [✏ Rename]  [Open]  [Delete]
+  feature/foo    [🖊 Rename]  [Open]  [Delete]
 ```
 
-**On clicking ✏ Rename:**
+**On clicking 🖊 Rename:**
 ```
   ┌─────────────────────────────────────────────────┐
   │  Rename worktree                                │
@@ -261,12 +261,12 @@ sequenceDiagram
 **Builds on:** Iteration 0.
 
 ### Iteration 2 — Worktree Rename
-**Delivers:** Each worktree row in the worktree management panel has a "✏ Rename" button that opens an inline panel; on confirm the folder is renamed on disk, git re-registers it, and all config references are updated atomically.
+**Delivers:** Each worktree row in the worktree management panel has a "🖊 Rename" button that opens an inline panel; on confirm the folder is renamed on disk, git re-registers it, and all config references are updated atomically.
 **Scope:**
 - Add `rename_worktree(repo_path, old_path, new_path)` to [`git_service.py`](../worktree_manager/git_service.py)
 - Add `rename_worktree_path(old_path, new_path)` to [`config_store.py`](../worktree_manager/config_store.py) — updates all project entries and diff prefs
 - Add `rename_worktree(repo_path, old_path, new_folder_name) -> str` to [`worktree_mgmt_vm.py`](../worktree_manager/worktree_mgmt_vm.py)
-- Add "✏ Rename" button + inline rename panel to each worktree row in [`ui/worktree_management_panel.py`](../worktree_manager/ui/worktree_management_panel.py)
+- Add "🖊 Rename" button + inline rename panel to each worktree row in [`ui/worktree_management_panel.py`](../worktree_manager/ui/worktree_management_panel.py)
 **Explicitly out of scope:** Renaming the git branch itself (folder rename only).
 **Builds on:** Iteration 0.
 
@@ -479,3 +479,45 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run the app (`python3.14 run.py`), navigate to Diff, and check each item manually.
 Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off by the user.
+
+- [ ] Launch the app, go to the Worktree Management panel — every non-main worktree row has a "✏ Rename" button
+- [ ] Click "✏ Rename" on a worktree row — an inline panel appears below that row showing the current folder name in an editable field
+- [ ] Type a new folder name and click "Rename" — the panel closes, the row updates with the new folder name, and no error is shown
+- [ ] Open a terminal and confirm the folder was physically renamed on disk (old path gone, new path exists)
+- [ ] Run `git worktree list` in the repo — the new path is registered and the old path is absent
+- [ ] Reopen the app and confirm the renamed worktree still appears with the correct path
+- [ ] Confirm diff prefs that referenced the old worktree path now reference the new path (open Diff panel, select the renamed worktree — no missing-pref error)
+- [ ] Click "Cancel" in the rename panel — the panel closes without making any changes
+- [ ] Confirm the main worktree row does NOT have a "✏ Rename" button
+- [ ] Confirm delete and other worktree row actions still work after a rename (regression check)
+- [ ] Confirm the Diff panel still works correctly for all worktrees (regression check)
+
+**How to confirm:** Run the app (`python3.14 run.py`), navigate to Worktree Management, and check each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. Do not proceed past Iteration 3 until every item below is checked off by the user.
+
+- [ ] Launch the app and open the "New Workspace Project" or "Edit Project" dialog — an "[+ Add repo…]" button appears next to the Repo dropdown
+- [ ] Click "[+ Add repo…]" — an inline form slides in below the repo row with "Repo path" and "Worktree storage" fields
+- [ ] Confirm the "[+ Add repo…]" button is visually disabled/greyed out while the panel is open
+- [ ] Fill in a valid repo path and storage path, click "Add Repo" — the panel closes, the repo dropdown refreshes, and the new repo is selected automatically
+- [ ] Open a terminal and confirm the new repo is registered in config.json
+- [ ] Click "[+ Add repo…]" again and immediately click "Cancel" — the panel closes, the repo dropdown is unchanged
+- [ ] Fill in an empty repo path and click "Add Repo" — an inline error message appears (no crash, panel stays open)
+- [ ] Fill in a non-existent repo path and click "Add Repo" — an inline error message appears (no crash, panel stays open)
+- [ ] Confirm the worktree list refreshes after the new repo is selected and shows "(no worktrees)" or the actual worktrees
+- [ ] Confirm all existing dialog features still work: Add worktree, dirty markers, entries, Create + Save (regression check)
+- [ ] Confirm the Diff panel and Worktree Management panel still work correctly (regression check)
+
+**How to confirm:** Run the app (`python3.14 run.py`), open a workspace project dialog, and check each item manually.
+Reply "Iteration 3 confirmed" (or describe any failures).

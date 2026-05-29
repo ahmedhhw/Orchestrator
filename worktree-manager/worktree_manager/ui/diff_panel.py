@@ -168,14 +168,26 @@ class DiffPanel(QWidget):
             suggested_newer=suggested_newer,
             suggested_older=suggested_older,
         )
+        default_newer = self._vm.default_newer_ref(worktree_path)
+        default_older = self._vm.default_older_ref(worktree_path)
         pref = self._store.get_diff_pref(self._vm.repo_path)
-        if pref:
-            self._point_selector.pre_select(from_ref=pref.get("from_ref"), to_ref=pref.get("to_ref"))
-        else:
-            default_newer = self._vm.default_newer_ref(worktree_path)
-            default_older = self._vm.default_older_ref(worktree_path)
-            self._point_selector.pre_select(from_ref=default_older, to_ref=default_newer)
+        pref_from = pref.get("from_ref") if pref else None
+        pref_to = pref.get("to_ref") if pref else None
+        # Prefer a branch over a raw commit SHA: if the saved older ref looks
+        # like a commit SHA (short hex, no slashes), fall back to the inferred default.
+        from_ref = (
+            pref_from
+            if isinstance(pref_from, str) and not self._looks_like_sha(pref_from)
+            else default_older
+        )
+        to_ref = pref_to if isinstance(pref_to, str) and pref_to else default_newer
+        self._point_selector.pre_select(from_ref=from_ref, to_ref=to_ref)
         self._show_point_selector()
+
+    @staticmethod
+    def _looks_like_sha(ref: str) -> bool:
+        import re
+        return bool(re.fullmatch(r"[0-9a-f]{6,40}", ref))
 
     def _show_point_selector(self) -> None:
         self._summary_bar.hide()
@@ -187,7 +199,6 @@ class DiffPanel(QWidget):
         if worktree_path is not None:
             self._set_worktree_combo(worktree_path)
             self._load_worktree(worktree_path)
-        self._point_selector.pre_select(from_ref=None, to_ref=None)
 
     def show_diff(self, repo_path: str, to_ref: str | None,
                   from_ref: str | None = None, worktree_path: str | None = None) -> None:
@@ -196,7 +207,12 @@ class DiffPanel(QWidget):
         if worktree_path is not None:
             self._set_worktree_combo(worktree_path)
             self._load_worktree(worktree_path)
-        self._point_selector.pre_select(from_ref=from_ref, to_ref=to_ref)
+        # Only override what the caller explicitly provided; leave None slots
+        # as-is so _load_worktree's auto-selections (defaults) are preserved.
+        if to_ref is not None:
+            self._point_selector._select_by_ref(self._point_selector._newer_list, to_ref)
+        if from_ref is not None:
+            self._point_selector._select_by_ref(self._point_selector._older_list, from_ref)
 
     def _set_repo_combo(self, repo_path: str) -> None:
         idx = self._repo_combo.findData(repo_path)

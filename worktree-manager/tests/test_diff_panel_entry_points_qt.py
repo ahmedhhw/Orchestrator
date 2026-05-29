@@ -99,11 +99,13 @@ def test_show_for_repo_lands_on_point_selector(qtbot):
     assert panel._right_area.currentWidget() is panel._point_selector
 
 
-def test_show_for_repo_clears_any_preselection(qtbot):
+def test_show_for_repo_auto_selects_newer_point(qtbot):
+    from PySide6.QtCore import Qt
     panel = _make_panel(qtbot)
     panel.show_for_repo("/repos/myapp")
-    assert panel._point_selector._from_list.currentItem() is None
-    assert panel._point_selector._to_list.currentItem() is None
+    newer_item = panel._point_selector._to_list.currentItem()
+    assert newer_item is not None
+    assert newer_item.data(Qt.UserRole) == "working_tree_unstaged"
 
 
 # ── DiffPanel.show_diff ───────────────────────────────────────────────────────

@@ -18,6 +18,19 @@ class WorktreeMgmtViewModel:
     def selected_repo(self) -> str | None:
         return self._selected_repo
 
+    def rename_worktree(self, repo_path: str, old_path: str, new_folder_name: str) -> str:
+        import os
+        parent = os.path.dirname(old_path)
+        new_path = os.path.join(parent, new_folder_name)
+        self._git.rename_worktree(repo_path, old_path, new_path)
+        self._store.rename_worktree_path(old_path, new_path)
+        return new_path
+
+    def delete_repo(self, repo_path: str) -> None:
+        self._store.delete_repo(repo_path)
+        if self._selected_repo == repo_path:
+            self._selected_repo = None
+
     def per_repo_vm(self, repo_path: str) -> MainWindowViewModel:
         return MainWindowViewModel(
             repo_path=repo_path,

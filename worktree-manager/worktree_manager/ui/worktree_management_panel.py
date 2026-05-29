@@ -55,11 +55,29 @@ class WorktreeManagementPanel(QWidget):
         add_btn.clicked.connect(self._on_add_repo)
         toolbar.addWidget(add_btn)
 
-        refresh_btn = QPushButton("↻ Refresh")
-        refresh_btn.clicked.connect(self._handle_refresh)
-        toolbar.addWidget(refresh_btn)
+        self._remove_repo_btn = QPushButton("✕ Remove Repo")
+        self._remove_repo_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        self._remove_repo_btn.clicked.connect(self._prompt_remove_repo)
+        toolbar.addWidget(self._remove_repo_btn)
 
         outer.addLayout(toolbar)
+
+        # ── Inline remove-repo confirmation row ───────────────────────────────
+        self._remove_repo_confirm_row = QWidget()
+        confirm_layout = QHBoxLayout(self._remove_repo_confirm_row)
+        confirm_layout.setContentsMargins(0, 0, 0, 0)
+        self._remove_repo_warn_lbl = QLabel("")
+        self._remove_repo_warn_lbl.setStyleSheet("color: #e67e22;")
+        confirm_layout.addWidget(self._remove_repo_warn_lbl, 1)
+        cancel_rm_btn = QPushButton("Cancel")
+        cancel_rm_btn.clicked.connect(self._cancel_remove_repo)
+        confirm_layout.addWidget(cancel_rm_btn)
+        confirm_rm_btn = QPushButton("Confirm Remove")
+        confirm_rm_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        confirm_rm_btn.clicked.connect(self._confirm_remove_repo)
+        confirm_layout.addWidget(confirm_rm_btn)
+        self._remove_repo_confirm_row.setVisible(False)
+        outer.addWidget(self._remove_repo_confirm_row)
 
         # ── repo view area ────────────────────────────────────────────────────
         self._view_area = QVBoxLayout()
@@ -82,6 +100,9 @@ class WorktreeManagementPanel(QWidget):
             self._repo_combo.addItem(Path(path).name, userData=path)
         self._repo_combo.blockSignals(False)
 
+        has_repos = self._repo_combo.count() > 0
+        self._remove_repo_btn.setEnabled(has_repos)
+
         selected = self._vm.selected_repo()
         if selected:
             idx = self._repo_combo.findData(selected)
@@ -90,7 +111,7 @@ class WorktreeManagementPanel(QWidget):
                 self._show_repo_view(selected)
                 return
 
-        if self._repo_combo.count() > 0:
+        if has_repos:
             self._show_repo_view(self._repo_combo.itemData(0))
         else:
             self._show_empty()
@@ -122,6 +143,9 @@ class WorktreeManagementPanel(QWidget):
             on_nickname=self._on_nickname,
             on_diff_from_working_tree=self._on_diff_from_working_tree,
             on_diff_compare_branches=self._on_diff_compare_branches,
+            on_rename=lambda old_path, new_name: self._vm.rename_worktree(
+                repo_path, old_path, new_name
+            ),
         )
         self._view_area.addWidget(view)
         self._repo_view = view
@@ -155,3 +179,24 @@ class WorktreeManagementPanel(QWidget):
         self._populate_repos()
         if self._repo_view is not None and hasattr(self._repo_view, "refresh"):
             self._repo_view.refresh()
+
+    def _prompt_remove_repo(self) -> None:
+        repo_path = self._repo_combo.currentData()
+        if not repo_path:
+            return
+        name = Path(repo_path).name
+        self._remove_repo_warn_lbl.setText(f'Remove "{name}" from config?')
+        self._remove_repo_confirm_row.setVisible(True)
+        self._remove_repo_btn.setEnabled(False)
+
+    def _cancel_remove_repo(self) -> None:
+        self._remove_repo_confirm_row.setVisible(False)
+        self._remove_repo_btn.setEnabled(True)
+
+    def _confirm_remove_repo(self) -> None:
+        repo_path = self._repo_combo.currentData()
+        if repo_path:
+            self._vm.delete_repo(repo_path)
+        self._remove_repo_confirm_row.setVisible(False)
+        self._remove_repo_btn.setEnabled(True)
+        self._populate_repos()

@@ -313,6 +313,7 @@ class WorkspaceProjectsPanel(QWidget):
             parent=self, vm=self._vm,
             repos=self._vm._store.all_repos(),
             on_create=self._handle_create,
+            config_store=self._vm._store,
         )
         dlg.exec()
 
@@ -322,6 +323,7 @@ class WorkspaceProjectsPanel(QWidget):
             repos=self._vm._store.all_repos(),
             on_edit=self._handle_edit,
             existing_project=project,
+            config_store=self._vm._store,
         )
         dlg.exec()
 

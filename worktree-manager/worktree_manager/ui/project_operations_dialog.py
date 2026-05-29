@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
+    QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
@@ -11,7 +11,7 @@ from worktree_manager.models import WorkspaceEntry
 
 class ProjectOperationsDialog(QDialog):
     def __init__(self, parent, vm, repos: dict, on_create=None, on_edit=None,
-                 existing_project=None):
+                 existing_project=None, config_store=None):
         super().__init__(parent)
         self._vm = vm
         self._repos = repos
@@ -19,6 +19,7 @@ class ProjectOperationsDialog(QDialog):
         self._on_edit = on_edit
         self._existing_project = existing_project
         self._editing = existing_project is not None
+        self._config_store = config_store
         self._entries: list[str] = []
         self._worktree_path_map: dict[str, str] = {}
         # maps path -> WorktreeStatus for dirty detection
@@ -61,7 +62,37 @@ class ProjectOperationsDialog(QDialog):
         self._repo_combo.addItems(list(self._repo_label_map.keys()) or ["(no repos)"])
         self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
         picker.addWidget(self._repo_combo, 1)
+        self._add_repo_btn = QPushButton("+ Add repo…")
+        self._add_repo_btn.clicked.connect(self._toggle_add_repo_panel)
+        picker.addWidget(self._add_repo_btn)
+        self._remove_repo_btn = QPushButton("✕ Remove")
+        self._remove_repo_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        self._remove_repo_btn.clicked.connect(self._prompt_remove_repo)
+        self._remove_repo_btn.setEnabled(bool(self._repo_label_map))
+        picker.addWidget(self._remove_repo_btn)
         outer.addLayout(picker)
+
+        # ── Inline remove-repo confirmation row ───────────────────────────────
+        self._remove_repo_confirm_row = QWidget()
+        confirm_layout = QHBoxLayout(self._remove_repo_confirm_row)
+        confirm_layout.setContentsMargins(0, 0, 0, 0)
+        self._remove_repo_warn_lbl = QLabel("")
+        self._remove_repo_warn_lbl.setStyleSheet("color: #e67e22;")
+        confirm_layout.addWidget(self._remove_repo_warn_lbl, 1)
+        cancel_rm_btn = QPushButton("Cancel")
+        cancel_rm_btn.clicked.connect(self._cancel_remove_repo)
+        confirm_layout.addWidget(cancel_rm_btn)
+        confirm_rm_btn = QPushButton("Confirm Remove")
+        confirm_rm_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        confirm_rm_btn.clicked.connect(self._confirm_remove_repo)
+        confirm_layout.addWidget(confirm_rm_btn)
+        self._remove_repo_confirm_row.setVisible(False)
+        outer.addWidget(self._remove_repo_confirm_row)
+
+        # ── Inline add-repo panel (opens below repo picker row) ───────────────
+        self._add_repo_panel = self._build_add_repo_panel()
+        self._add_repo_panel.setVisible(False)
+        outer.addWidget(self._add_repo_panel)
 
         # ── "Worktrees in <repo>:"  [+ Create new worktree ▾] header row ─────
         wt_header_row = QHBoxLayout()
@@ -203,6 +234,182 @@ class ProjectOperationsDialog(QDialog):
         layout.addLayout(btn_row)
 
         return frame
+
+    def _build_add_repo_panel(self) -> QFrame:
+        frame = QFrame()
+        frame.setFrameShape(QFrame.NoFrame)
+        frame.setStyleSheet(
+            "QFrame#addRepoPanel { border-left: 3px solid #27ae60; border-top: none;"
+            " border-right: none; border-bottom: none; background: transparent; }"
+        )
+        frame.setObjectName("addRepoPanel")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(12, 6, 0, 6)
+        layout.setSpacing(6)
+
+        repo_row = QHBoxLayout()
+        repo_row.addWidget(QLabel("Repo path:"))
+        self._add_repo_path_le = QLineEdit()
+        self._add_repo_path_le.setPlaceholderText("/path/to/repo")
+        self._add_repo_path_le.textChanged.connect(self._on_add_repo_path_changed)
+        repo_row.addWidget(self._add_repo_path_le, 1)
+        browse_repo_btn = QPushButton("Browse")
+        browse_repo_btn.setFixedWidth(70)
+        browse_repo_btn.clicked.connect(self._browse_add_repo_path)
+        repo_row.addWidget(browse_repo_btn)
+        layout.addLayout(repo_row)
+
+        storage_row = QHBoxLayout()
+        storage_row.addWidget(QLabel("Worktree storage:"))
+        self._add_repo_storage_le = QLineEdit()
+        self._add_repo_storage_le.setPlaceholderText("/path/to/repo-worktrees")
+        storage_row.addWidget(self._add_repo_storage_le, 1)
+        browse_storage_btn = QPushButton("Browse")
+        browse_storage_btn.setFixedWidth(70)
+        browse_storage_btn.clicked.connect(self._browse_add_repo_storage)
+        storage_row.addWidget(browse_storage_btn)
+        layout.addLayout(storage_row)
+
+        self._add_repo_error = QLabel("")
+        self._add_repo_error.setStyleSheet("color: #e74c3c;")
+        self._add_repo_error.setWordWrap(True)
+        layout.addWidget(self._add_repo_error)
+
+        btn_row = QHBoxLayout()
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self._cancel_add_repo)
+        btn_row.addWidget(cancel)
+        btn_row.addStretch(1)
+        confirm = QPushButton("Add Repo")
+        confirm.clicked.connect(self._submit_add_repo)
+        btn_row.addWidget(confirm)
+        layout.addLayout(btn_row)
+
+        return frame
+
+    def _on_add_repo_path_changed(self, text: str) -> None:
+        p = Path(text.strip())
+        if p.name and not self._add_repo_storage_le.text():
+            self._add_repo_storage_le.setText(str(p.parent / (p.name + "-worktrees")))
+
+    def _browse_add_repo_path(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Select repo folder")
+        if path:
+            self._add_repo_path_le.setText(path)
+
+    def _browse_add_repo_storage(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Select worktree storage folder")
+        if path:
+            self._add_repo_storage_le.setText(path)
+
+    def _toggle_add_repo_panel(self) -> None:
+        self._add_repo_panel.setVisible(True)
+        self._add_repo_btn.setEnabled(False)
+        self._add_repo_error.setText("")
+        self._add_repo_path_le.setText("")
+        self._add_repo_storage_le.setText("")
+
+    def _cancel_add_repo(self) -> None:
+        self._add_repo_panel.setVisible(False)
+        self._add_repo_btn.setEnabled(True)
+        self._add_repo_error.setText("")
+
+    def _prompt_remove_repo(self) -> None:
+        label = self._repo_combo.currentText()
+        self._remove_repo_warn_lbl.setText(f'Remove "{label}" from config?')
+        self._remove_repo_confirm_row.setVisible(True)
+        self._remove_repo_btn.setEnabled(False)
+        self._add_repo_btn.setEnabled(False)
+
+    def _cancel_remove_repo(self) -> None:
+        self._remove_repo_confirm_row.setVisible(False)
+        self._remove_repo_btn.setEnabled(bool(self._repo_label_map))
+        self._add_repo_btn.setEnabled(True)
+
+    def _confirm_remove_repo(self) -> None:
+        label = self._repo_combo.currentText()
+        repo_path = self._repo_label_map.get(label, "")
+        if repo_path:
+            self._config_store.delete_repo(repo_path)
+        self._remove_repo_confirm_row.setVisible(False)
+
+        new_repos = self._config_store.all_repos()
+        self._repo_label_map = {Path(p).name: p for p in new_repos.keys()}
+        self._repo_combo.blockSignals(True)
+        self._repo_combo.clear()
+        if self._repo_label_map:
+            self._repo_combo.addItems(list(self._repo_label_map.keys()))
+        else:
+            self._repo_combo.addItem("(no repos)")
+        self._repo_combo.blockSignals(False)
+
+        has_repos = bool(self._repo_label_map)
+        self._remove_repo_btn.setEnabled(has_repos)
+        self._add_repo_btn.setEnabled(True)
+
+        current_label = self._repo_combo.currentText()
+        current_path = self._repo_label_map.get(current_label, "")
+        if current_path:
+            self._refresh_worktrees(current_path)
+        else:
+            self._render_worktree_rows([])
+
+    def _submit_add_repo(self) -> None:
+        self._add_repo_error.setText("")
+        repo_path = self._add_repo_path_le.text().strip()
+        storage_path = self._add_repo_storage_le.text().strip()
+
+        if not repo_path:
+            self._add_repo_error.setText("Error: Repo path is required.")
+            return
+
+        if not Path(repo_path).exists():
+            self._add_repo_error.setText("Error: Repo path does not exist.")
+            return
+
+        if not (Path(repo_path) / ".git").exists():
+            self._add_repo_error.setText("Error: Not a valid git repository (no .git found).")
+            return
+
+        existing_repos = self._config_store.all_repos()
+        if repo_path in existing_repos:
+            self._add_repo_error.setText("Error: Repo is already added.")
+            return
+
+        if not storage_path:
+            storage_path = str(Path(repo_path).parent / (Path(repo_path).name + "-worktrees"))
+
+        from worktree_manager.models import RepoConfig
+        from datetime import datetime, timezone
+        cfg = RepoConfig(
+            repo_path=repo_path,
+            worktree_storage=storage_path,
+            stale_days=30,
+            last_editor="cursor",
+            last_editor_mode="reuse",
+            last_opened=datetime.now(timezone.utc).isoformat(),
+        )
+        self._config_store.save_repo(cfg)
+
+        # Rebuild repo label map from store and refresh combo
+        new_repos = self._config_store.all_repos()
+        self._repo_label_map = {Path(p).name: p for p in new_repos.keys()}
+        self._repo_combo.blockSignals(True)
+        self._repo_combo.clear()
+        self._repo_combo.addItems(list(self._repo_label_map.keys()))
+        new_label = Path(repo_path).name
+        if new_label in self._repo_label_map:
+            self._repo_combo.setCurrentText(new_label)
+        self._repo_combo.blockSignals(False)
+
+        self._add_repo_panel.setVisible(False)
+        self._add_repo_btn.setEnabled(True)
+        self._remove_repo_btn.setEnabled(bool(self._repo_label_map))
+
+        current_label = self._repo_combo.currentText()
+        current_path = self._repo_label_map.get(current_label, "")
+        if current_path:
+            self._refresh_worktrees(current_path)
 
     def _update_create_wt_mode(self):
         is_new = self._new_branch_radio.isChecked()

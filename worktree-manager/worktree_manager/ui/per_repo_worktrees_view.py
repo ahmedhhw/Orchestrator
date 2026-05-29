@@ -3,7 +3,7 @@ import time
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
+    QComboBox, QHBoxLayout, QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -38,6 +38,7 @@ class PerRepoWorktreesView(QWidget):
         on_nickname=None,
         on_diff_from_working_tree=None,
         on_diff_compare_branches=None,
+        on_rename=None,
     ):
         super().__init__(parent)
         self._vm = vm
@@ -49,7 +50,9 @@ class PerRepoWorktreesView(QWidget):
         self._on_nickname = on_nickname
         self._on_diff_from_working_tree = on_diff_from_working_tree
         self._on_diff_compare_branches = on_diff_compare_branches
+        self._on_rename = on_rename
         self._worktree_rows: list[QWidget] = []
+        self._active_rename_panel: QWidget | None = None
         self._toast_timer: QTimer | None = None
         self._loading: bool = False
         self._refresh_job: BackgroundJob | None = None
@@ -220,6 +223,14 @@ class PerRepoWorktreesView(QWidget):
         layout.addWidget(combo)
 
         if not wt.is_main:
+            rename_btn = QPushButton("🖊")
+            rename_btn.setFixedWidth(28)
+            rename_btn.setToolTip("Rename worktree folder")
+            rename_btn.clicked.connect(
+                lambda _checked=False, w=wt, rb=rename_btn: self._show_rename_panel(w, rb)
+            )
+            layout.addWidget(rename_btn)
+
             del_btn = QPushButton("✕")
             del_btn.setFixedWidth(28)
             del_btn.setStyleSheet(
@@ -321,3 +332,51 @@ class PerRepoWorktreesView(QWidget):
             has_uncommitted=self._vm.has_uncommitted_changes(wt.path),
         )
         dlg.exec()
+
+    def _show_rename_panel(self, wt: WorktreeModel, rename_btn: QPushButton) -> None:
+        if self._active_rename_panel is not None:
+            self._active_rename_panel.setVisible(False)
+            self._active_rename_panel.deleteLater()
+            self._active_rename_panel = None
+
+        current_folder = os.path.basename(wt.path)
+        panel = QWidget()
+        panel_layout = QHBoxLayout(panel)
+        panel_layout.setContentsMargins(24, 2, 4, 2)
+
+        panel_layout.addWidget(QLabel("New folder name:"))
+        line_edit = QLineEdit(current_folder)
+        line_edit.selectAll()
+        panel_layout.addWidget(line_edit, 1)
+
+        cancel_btn = QPushButton("Cancel")
+        confirm_btn = QPushButton("Rename")
+
+        def _cancel():
+            panel.setVisible(False)
+            panel.deleteLater()
+            self._active_rename_panel = None
+
+        def _confirm():
+            new_name = line_edit.text().strip()
+            if not new_name or new_name == current_folder:
+                _cancel()
+                return
+            if self._on_rename:
+                try:
+                    self._on_rename(wt.path, new_name)
+                except Exception as e:
+                    QMessageBox.critical(self, "Rename failed", str(e))
+                    return
+            _cancel()
+            self.refresh()
+
+        cancel_btn.clicked.connect(_cancel)
+        confirm_btn.clicked.connect(_confirm)
+        panel_layout.addWidget(cancel_btn)
+        panel_layout.addWidget(confirm_btn)
+
+        row_widget = rename_btn.parentWidget()
+        row_index = self._list_layout.indexOf(row_widget)
+        self._list_layout.insertWidget(row_index + 1, panel)
+        self._active_rename_panel = panel

@@ -152,6 +152,20 @@ class ConfigStore:
         }
         self._save_raw(data)
 
+    def rename_worktree_path(self, old_path: str, new_path: str) -> None:
+        data = self._load_raw()
+        for project in data.get("projects", {}).values():
+            for entry in project.get("entries", []):
+                if entry.get("worktree_path") == old_path:
+                    entry["worktree_path"] = new_path
+        for diff_entry in data.get("ui", {}).get("diff", {}).values():
+            if diff_entry.get("worktree_path") == old_path:
+                diff_entry["worktree_path"] = new_path
+        diff_sel = data.get("ui", {}).get("diff_selection", {})
+        if diff_sel.get("worktree_path") == old_path:
+            diff_sel["worktree_path"] = new_path
+        self._save_raw(data)
+
     def push_mru(self, action_name: str, args: dict, cap: int = 10) -> None:
         entry = {"action": action_name, "args": dict(args)}
         mru: list = self.get_ui_pref("mru", [])
