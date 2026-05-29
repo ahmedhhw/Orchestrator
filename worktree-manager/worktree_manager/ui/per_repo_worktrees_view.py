@@ -102,6 +102,12 @@ class PerRepoWorktreesView(QWidget):
         self.refresh()
 
     def refresh(self):
+        if self._refresh_job is not None:
+            self._refresh_job.progress.disconnect()
+            self._refresh_job.finished.disconnect()
+            self._refresh_job.failed.disconnect()
+            self._refresh_job = None
+
         while self._list_layout.count():
             item = self._list_layout.takeAt(0)
             w = item.widget()

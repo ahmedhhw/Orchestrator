@@ -24,14 +24,13 @@ class _BoolVar:
 
 class DeleteDialog(QDialog):
     def __init__(self, parent, wt: WorktreeModel, on_delete,
-                 live_window=None, is_protected: bool = False,
+                 is_protected: bool = False,
                  has_uncommitted: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Delete Worktree")
         self.setModal(True)
         self._wt = wt
         self._on_delete = on_delete
-        self._live_window = live_window
         self._is_protected = is_protected
         self._has_uncommitted = has_uncommitted
         self._also_branch = _BoolVar(False if is_protected else True)
@@ -58,16 +57,6 @@ class DeleteDialog(QDialog):
             warn.setAlignment(Qt.AlignCenter)
             outer.addWidget(warn)
 
-        if self._live_window is not None:
-            editor_name = self._live_window.editor.title()
-            live_warn = QLabel(
-                f'⚠ "{self._wt.branch}" is currently open in {editor_name}.\n'
-                "The editor window will be closed automatically."
-            )
-            live_warn.setStyleSheet("color: orange;")
-            live_warn.setAlignment(Qt.AlignCenter)
-            outer.addWidget(live_warn)
-
         cb_text = (
             "Also delete branch  (protected)" if self._is_protected
             else "Also delete branch"
@@ -85,7 +74,7 @@ class DeleteDialog(QDialog):
         cancel.clicked.connect(self.reject)
         btns.addWidget(cancel)
         btns.addStretch(1)
-        confirm_label = "Delete & Close" if self._live_window is not None else "Delete"
+        confirm_label = "Delete"
         delete = QPushButton(confirm_label)
         delete.setStyleSheet("background-color: #c0392b; color: white;")
         delete.clicked.connect(self._delete)

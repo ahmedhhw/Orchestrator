@@ -132,11 +132,11 @@ def test_clicking_second_file_updates_hunk_view(qtbot):
     assert any("@@ -50,4 +50,5 @@" in t for t in texts)
 
 
-# ── open file button disabled in this iteration ────────────────────────────────
+# ── open file button state depends on live mode ───────────────────────────────
 
-def test_open_file_button_disabled_after_file_selected(qtbot):
+def test_open_file_button_enabled_when_to_is_working_tree(qtbot):
     panel = _make_panel(qtbot)
-    _navigate_to_file_list(panel, qtbot)
+    _navigate_to_file_list(panel, qtbot)  # TO = working_tree_unstaged
     panel._file_list._list_widget.setCurrentRow(0)
     btn = next(b for b in panel._hunk_view.findChildren(QPushButton) if "Open" in b.text())
-    assert not btn.isEnabled()
+    assert btn.isEnabled()

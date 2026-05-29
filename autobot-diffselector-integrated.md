@@ -599,3 +599,26 @@ Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. Do not proceed to Iteration 4 until every item below is checked off by the user.
+
+- [ ] Launch the app, navigate to the Diff tab, pick a repo, select **FROM = a branch/commit** and **TO = "Working tree (unstaged)"**, click Compare — the file list appears with hunk checkboxes visible for each hunk
+- [ ] Each hunk has a checkbox; the `[☑ All]` and `[☐ None]` shortcut buttons are visible below the hunk list
+- [ ] Check one hunk, click `[ Restore 1 hunk → FROM ]` — the file is patched on disk (the change disappears from a subsequent diff); a toast appears at the bottom: "✓ Restored 1 hunk in <file>  [ Undo ]"
+- [ ] The toast auto-dismisses after ~8 seconds without interaction
+- [ ] Click `[ Undo ]` on the toast before it dismisses — the hunk reappears in the diff (the reverse is reversed); the toast disappears immediately
+- [ ] With TO = "Working tree (unstaged)", the `[↗ Open File]` button in the file header is **enabled** (not grayed out)
+- [ ] Click `[↗ Open File]` — the file opens in the configured editor (Cursor or VS Code)
+- [ ] Open Settings — a "Default editor" row is present with a dropdown showing "Cursor" and "VS Code"
+- [ ] Change Default editor to "VS Code", save, then click `[↗ Open File]` — the file opens in VS Code
+- [ ] **Read-only mode:** pick FROM = branch, TO = branch — no checkboxes, no Restore button, no Open File button visible
+- [ ] **Regression:** pick FROM/TO as commits → Compare → file list → click file → hunks shown read-only (no checkboxes, no Restore) — same as Iteration 2
+- [ ] **Regression:** "← Change" button still returns to the point selector
+- [ ] **Regression:** Worktrees context menu "Diff from working tree…" still opens Diff tab with TO pre-set
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 3 confirmed" (or describe any failures) before I write the plan for Iteration 4.

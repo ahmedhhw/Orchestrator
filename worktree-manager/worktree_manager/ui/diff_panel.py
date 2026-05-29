@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from worktree_manager.diff_vm import DiffViewModel
+from worktree_manager.editor_service import EditorService
 from worktree_manager.ui.diff_point_selector import DiffPointSelector
 from worktree_manager.ui.diff_file_list import DiffFileList
 from worktree_manager.ui.diff_hunk_view import DiffHunkView
@@ -19,6 +20,8 @@ class DiffPanel(QWidget):
         self._git = git_service
         self._store = config_store
         self._vm = DiffViewModel(git_service=git_service, config_store=config_store)
+        self._editor_service = EditorService(config_store=config_store)
+        self._current_file_path: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -72,6 +75,8 @@ class DiffPanel(QWidget):
 
         self._point_selector.on_compare(self._on_compare)
         self._file_list.on_file_selected(self._on_file_selected)
+        self._hunk_view.on_restore(self._on_restore)
+        self._hunk_view.on_open_file(self._on_open_file)
         self._populate_repos()
         self._repo_combo.currentIndexChanged.connect(self._on_repo_changed)
         self._worktree_combo.currentIndexChanged.connect(self._on_worktree_changed)
@@ -168,8 +173,40 @@ class DiffPanel(QWidget):
         self._right_area.setCurrentWidget(self._diff_splitter)
 
     def _on_file_selected(self, file_path: str) -> None:
+        self._current_file_path = file_path
         try:
             hunks = self._vm.get_diff_hunks(file_path)
         except Exception:
             hunks = []
         self._hunk_view.set_hunks(file_path, hunks, live_mode=self._vm.target_is_working_tree)
+
+    def _on_restore(self, hunk_indices: list) -> None:
+        if self._current_file_path is None:
+            return
+        try:
+            forward_patch = self._vm.restore_hunks(self._current_file_path, hunk_indices)
+        except Exception:
+            return
+        count = len(hunk_indices)
+        label = "hunk" if count == 1 else "hunks"
+        self._hunk_view.show_toast(
+            f"✓ Restored {count} {label} in {self._current_file_path}",
+            undo_cb=lambda: self._on_undo_restore(forward_patch),
+        )
+        self._file_list.set_files(self._vm.diff_files)
+        self._on_file_selected(self._current_file_path)
+
+    def _on_undo_restore(self, forward_patch: str) -> None:
+        if self._current_file_path is None:
+            return
+        try:
+            self._vm.undo_restore(self._current_file_path, forward_patch)
+        except Exception:
+            return
+        self._file_list.set_files(self._vm.diff_files)
+        self._on_file_selected(self._current_file_path)
+
+    def _on_open_file(self) -> None:
+        if self._current_file_path is None:
+            return
+        self._vm.open_file(self._current_file_path, self._editor_service)

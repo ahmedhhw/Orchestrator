@@ -2,15 +2,6 @@ from dataclasses import dataclass, field
 
 
 @dataclass
-class WindowRecord:
-    repo_path: str
-    worktree_path: str
-    editor: str
-    pid: int
-    proc: object = field(default=None, repr=False, compare=False)
-
-
-@dataclass
 class WorktreeModel:
     path: str
     branch: str

@@ -33,6 +33,12 @@ class GitService:
         )
         return result.stdout
 
+    def _run_input(self, cmd: list, cwd: str, input: str = None, check: bool = True) -> str:
+        result = subprocess.run(
+            cmd, cwd=cwd, input=input, capture_output=True, text=True, check=check
+        )
+        return result.stdout
+
     def is_valid_repo(self, path: str) -> bool:
         return os.path.isdir(os.path.join(path, ".git"))
 
@@ -360,3 +366,32 @@ class GitService:
         if current_hunk is not None:
             hunks.append(current_hunk)
         return hunks
+
+    def apply_reverse_patch(self, repo_path: str, file_path: str, hunks: list) -> str:
+        patch_text = self._build_patch(file_path, hunks)
+        self._run_input(
+            ["git", "apply", "--reverse"],
+            cwd=repo_path,
+            input=patch_text,
+        )
+        return patch_text
+
+    def apply_patch(self, repo_path: str, patch_text: str) -> None:
+        self._run_input(
+            ["git", "apply"],
+            cwd=repo_path,
+            input=patch_text,
+        )
+
+    def checkout_file(self, repo_path: str, file_path: str, ref: str) -> None:
+        self._run(["git", "checkout", ref, "--", file_path], cwd=repo_path)
+
+    def _build_patch(self, file_path: str, hunks: list) -> str:
+        lines = [
+            f"--- a/{file_path}",
+            f"+++ b/{file_path}",
+        ]
+        for hunk in hunks:
+            lines.append(hunk.header)
+            lines.extend(hunk.lines)
+        return "\n".join(lines) + "\n"

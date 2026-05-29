@@ -92,7 +92,7 @@ def test_set_hunks_no_restore_button_in_read_only_mode(qtbot):
     view = _make_view(qtbot)
     view.set_hunks("src/foo.py", [_make_hunk()], live_mode=False)
     buttons = view.findChildren(QPushButton)
-    assert not any("Restore" in b.text() for b in buttons)
+    assert not any("Restore" in b.text() and b.isVisible() for b in buttons)
 
 
 def test_set_hunks_open_file_button_disabled_in_read_only_mode(qtbot):

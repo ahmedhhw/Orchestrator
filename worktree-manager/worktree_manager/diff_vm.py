@@ -48,3 +48,29 @@ class DiffViewModel:
             raise RuntimeError("FROM/TO refs not set")
         cwd = self.worktree_path or self.repo_path
         return self._git.diff_hunks(cwd, self.base_ref, self.target_ref, path)
+
+    def restore_hunks(self, path: str, hunk_indices: list) -> str:
+        if self.base_ref is None or self.target_ref is None:
+            raise RuntimeError("FROM/TO refs not set")
+        cwd = self.worktree_path or self.repo_path
+        all_hunks = self._git.diff_hunks(cwd, self.base_ref, self.target_ref, path)
+        selected = [h for h in all_hunks if h.index in hunk_indices]
+        forward_patch = self._git.apply_reverse_patch(cwd, path, selected)
+        self._refresh_diff_files()
+        return forward_patch
+
+    def undo_restore(self, path: str, forward_patch: str) -> None:
+        cwd = self.worktree_path or self.repo_path
+        self._git.apply_patch(cwd, forward_patch)
+        self._refresh_diff_files()
+
+    def open_file(self, path: str, editor_service) -> None:
+        import os
+        editor = self._store.get_ui_pref("editor", "cursor")
+        cwd = self.worktree_path or self.repo_path
+        abs_path = os.path.join(cwd, path)
+        editor_service.open_new(abs_path, editor)
+
+    def _refresh_diff_files(self) -> None:
+        cwd = self.worktree_path or self.repo_path
+        self.diff_files = self._git.diff_files(cwd, self.base_ref, self.target_ref)

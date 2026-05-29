@@ -54,6 +54,18 @@ class SettingsDialog(QDialog):
         row3.addStretch(1)
         outer.addLayout(row3)
 
+        row4 = QHBoxLayout()
+        row4.addWidget(QLabel("Default editor:"))
+        self._editor_combo = QComboBox()
+        self._editor_combo.addItem("Cursor", userData="cursor")
+        self._editor_combo.addItem("VS Code", userData="vscode")
+        current_editor = store.get_ui_pref("editor", "cursor") if store else "cursor"
+        editor_idx = self._editor_combo.findData(current_editor)
+        self._editor_combo.setCurrentIndex(editor_idx if editor_idx >= 0 else 0)
+        row4.addWidget(self._editor_combo)
+        row4.addStretch(1)
+        outer.addLayout(row4)
+
         btns = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -76,4 +88,5 @@ class SettingsDialog(QDialog):
         )
         if self._store:
             self._store.set_ui_pref("shell", self._shell_combo.currentText())
+            self._store.set_ui_pref("editor", self._editor_combo.currentData())
         self.accept()

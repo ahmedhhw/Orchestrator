@@ -98,14 +98,3 @@ def test_delete_dialog_uncommitted_blocks_delete_with_messagebox(qtbot):
     mock_err.assert_called_once()
     assert calls == []
 
-
-def test_delete_dialog_live_window_shows_editor_warning_and_changes_button(qtbot):
-    live = MagicMock()
-    live.editor = "cursor"
-    d = DeleteDialog(parent=None, wt=_make_wt(),
-                     on_delete=lambda *a: None, live_window=live)
-    qtbot.addWidget(d)
-    texts = " ".join(l.text() for l in d.findChildren(QLabel))
-    assert "Cursor" in texts
-    btn_texts = [b.text() for b in d.findChildren(QPushButton)]
-    assert "Delete & Close" in btn_texts
