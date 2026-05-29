@@ -93,6 +93,7 @@ class App(QMainWindow):
             on_workspace_projects=self._show_workspace_projects,
             on_branch_management=self._show_branch_management,
             on_worktree_management=self._show_worktree_management,
+            on_diff=self._show_diff,
             on_settings=self._handle_settings,
             on_refresh=self._refresh,
         )
@@ -745,6 +746,18 @@ class App(QMainWindow):
         panel.show()
         if first_visit:
             panel.show_sync()
+
+    def _show_diff(self):
+        if "diff" not in self._panel_cache:
+            from worktree_manager.ui.diff_panel import DiffPanel
+            self._panel_cache["diff"] = DiffPanel(
+                git_service=self._git,
+                config_store=self._store,
+            )
+        panel = self._panel_cache["diff"]
+        self._set_panel(panel)
+        self._sidebar.set_active_tab("diff")
+        panel.show()
 
     def _handle_settings(self):
         repo_path = self._active_repo_path or next(iter(self._store.all_repos()), None)

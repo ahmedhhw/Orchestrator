@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 _TAB_DEFS = [
     ("workspace_projects", "📁  Projects"),
     ("cmd_center",         "⊞  Commands"),
+    ("diff",               "⇄  Diff"),
     ("worktree_management","🌳  Worktrees"),
     ("branch_management",  "🌿  Branches"),
 ]
@@ -68,6 +69,7 @@ class Sidebar(QWidget):
         on_branch_management,
         on_worktree_management,
         on_settings,
+        on_diff=None,
         on_refresh=None,
         parent=None,
     ):
@@ -78,6 +80,7 @@ class Sidebar(QWidget):
             "workspace_projects": on_workspace_projects,
             "branch_management": on_branch_management,
             "worktree_management": on_worktree_management,
+            "diff": on_diff or (lambda: None),
         }
         self._on_settings = on_settings
         self._on_refresh = on_refresh

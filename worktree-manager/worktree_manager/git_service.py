@@ -242,3 +242,78 @@ class GitService:
             if "non-fast-forward" in stderr or "rejected" in stderr:
                 return UpdateOutcome(status="non_ff", error=raw_stderr)
             return UpdateOutcome(status="error", error=raw_stderr)
+
+    # ── diff methods ──────────────────────────────────────────────────────────
+
+    def list_points(self, repo_path: str):
+        from worktree_manager.diff_models import HistoryPoint
+        points = [
+            HistoryPoint(kind="working_tree_unstaged", label="Working tree (unstaged)"),
+            HistoryPoint(kind="working_tree_staged",   label="Working tree (staged)"),
+        ]
+        branch_out = self._run(
+            ["git", "log", "--branches", "--no-walk", "--format=%D\t%h\t%s"],
+            cwd=repo_path,
+        )
+        for line in branch_out.splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) < 3:
+                continue
+            ref_names, sha, msg = parts
+            for ref in ref_names.split(", "):
+                ref = ref.strip()
+                if ref.startswith("HEAD -> "):
+                    ref = ref[len("HEAD -> "):]
+                if ref and not ref.startswith("HEAD") and not ref.startswith("origin/") and not ref.startswith("tag:"):
+                    points.append(HistoryPoint(kind="branch", label=ref, short_sha=sha, message=msg))
+                    break
+        commit_out = self._run(
+            ["git", "log", "--format=%h\t%s", "-20"],
+            cwd=repo_path,
+        )
+        for line in commit_out.splitlines():
+            parts = line.split("\t", 1)
+            if len(parts) == 2:
+                sha, msg = parts
+                points.append(HistoryPoint(kind="commit", label=sha, short_sha=sha, message=msg))
+        return points
+
+    def resolve_point(self, repo_path: str, point) -> str:
+        from worktree_manager.diff_models import HistoryPoint
+        if point.kind in ("working_tree_unstaged", "working_tree_staged"):
+            return point.kind
+        return point.short_sha or point.label
+
+    def diff_files(self, repo_path: str, base_ref: str, target_ref: str):
+        from worktree_manager.diff_models import DiffFile
+        _WT_UNSTAGED = "working_tree_unstaged"
+        _WT_STAGED   = "working_tree_staged"
+        # Normalise: if base is a working-tree sentinel, swap so working-tree is always target
+        if base_ref in (_WT_UNSTAGED, _WT_STAGED):
+            base_ref, target_ref = target_ref, base_ref
+        if target_ref == _WT_UNSTAGED:
+            cmd = ["git", "diff", "--name-status", base_ref]
+        elif target_ref == _WT_STAGED:
+            cmd = ["git", "diff", "--name-status", "--cached", base_ref]
+        else:
+            cmd = ["git", "diff", "--name-status", base_ref, target_ref]
+        out = self._run(cmd, cwd=repo_path)
+        files = []
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            raw_status = parts[0]
+            status_char = raw_status[0]
+            if status_char == "R" and len(parts) >= 3:
+                files.append(DiffFile(path=parts[2], status="R", old_path=parts[1]))
+            elif len(parts) >= 2:
+                files.append(DiffFile(path=parts[1], status=status_char))
+        if target_ref == _WT_UNSTAGED:
+            untracked_out = self._run(
+                ["git", "ls-files", "--others", "--exclude-standard"], cwd=repo_path
+            )
+            for path in untracked_out.splitlines():
+                if path.strip():
+                    files.append(DiffFile(path=path.strip(), status="?"))
+        return files
