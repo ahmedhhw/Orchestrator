@@ -43,7 +43,7 @@ def _make_panel(qtbot, repos=None, candidates_by_repo=None):
     mock_vm = MagicMock()
     mock_vm.list_repos.return_value = list(repos.keys())
 
-    def _load(repo_path):
+    def _load(repo_path, on_progress=None):
         if repo_path is None:
             result = []
             for cs in candidates_by_repo.values():
@@ -56,6 +56,7 @@ def _make_panel(qtbot, repos=None, candidates_by_repo=None):
     panel = BranchManagementPanel(vm=mock_vm)
     qtbot.addWidget(panel)
     panel.show_cleanup(repo_path=None)
+    qtbot.waitUntil(lambda: not panel._cleanup_loading, timeout=2000)
     return panel, mock_vm
 
 
@@ -279,7 +280,7 @@ def test_delete_in_all_repos_mode_passes_none(qtbot):
     mock_vm = MagicMock()
     mock_vm.list_repos.return_value = list(repos.keys())
 
-    def _load(repo_path):
+    def _load(repo_path, on_progress=None):
         if repo_path is None:
             result = []
             for cs in candidates.values():
@@ -292,6 +293,7 @@ def test_delete_in_all_repos_mode_passes_none(qtbot):
     panel = BranchManagementPanel(vm=mock_vm)
     qtbot.addWidget(panel)
     panel.show_cleanup(repo_path=None)  # "all repos" selected
+    qtbot.waitUntil(lambda: not panel._cleanup_loading, timeout=2000)
 
     delete_btn = next(
         (b for b in panel.findChildren(QPushButton) if b.text() == "Delete"), None
@@ -317,6 +319,7 @@ def test_delete_triggers_list_refresh(qtbot):
         (b for b in panel.findChildren(QPushButton) if b.text() == "Delete"), None
     )
     delete_btn.click()
+    qtbot.waitUntil(lambda: not panel._cleanup_loading, timeout=2000)
 
     assert mock_vm.load_cleanup_candidates.call_count > initial_load_count
 
@@ -331,8 +334,13 @@ def test_show_cleanup_triggers_load_for_given_repo(qtbot):
     panel = BranchManagementPanel(vm=mock_vm)
     qtbot.addWidget(panel)
     panel.show_cleanup(repo_path="/repo/a")
+    qtbot.waitUntil(lambda: not panel._cleanup_loading, timeout=2000)
 
-    mock_vm.load_cleanup_candidates.assert_called_with("/repo/a")
+    # BackgroundJob calls the vm with positional repo_path arg
+    call_args = mock_vm.load_cleanup_candidates.call_args
+    assert call_args is not None
+    repo_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("repo_path")
+    assert repo_arg == "/repo/a"
 
 
 def test_show_cleanup_switches_to_cleanup_section(qtbot):

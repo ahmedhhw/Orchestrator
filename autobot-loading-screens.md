@@ -361,3 +361,32 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
 
+## Iteration 2 — Cleanup Panel
+
+### Phase 2.1 — on_progress for load_cleanup_candidates
+**What it covers:** VM method now accepts `on_progress(current, total, label)` and forwards it through to each repo's `all_cleanup_candidates` call.
+
+**Files touched:**
+- [worktree_manager/branch_mgmt_vm.py](worktree-manager/worktree_manager/branch_mgmt_vm.py) — `load_cleanup_candidates(repo_path, on_progress=None)` propagates progress per repo
+
+### Phase 2.2 — Async Cleanup panel loading
+**What it covers:** Switching to the Cleanup tab (or changing the repo dropdown, or after delete) shows an animated determinate progress bar instead of freezing. Delete / Select All / Cancel buttons are disabled during load.
+
+**Files touched:**
+- [worktree_manager/ui/branch_management_panel.py](worktree-manager/worktree_manager/ui/branch_management_panel.py) — added `_cleanup_loading`, `_cleanup_job`, `_cleanup_action_btns`; `_load_and_render` now uses `BackgroundJob`; added `_on_cleanup_loaded`, `_on_cleanup_failed`, `_clear_cleanup_list`, `_set_cleanup_action_buttons_enabled`
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off by the user.
+
+- [ ] Open the app, navigate to Branch Management → "Cleanup" tab — confirm an animated progress bar appears while candidates load (no freeze).
+- [ ] After load completes, confirm the progress bar disappears and the candidate list renders correctly (Merged / Stale / Healthy sections, checkboxes).
+- [ ] Confirm the "Delete", "Select All", and "Cancel" buttons are visibly greyed out during loading, and re-enable once the list appears.
+- [ ] Change the repo dropdown to a different repo — confirm the progress bar reappears for the fresh load and the list updates.
+- [ ] Click Delete with some candidates checked — confirm the list reloads (with progress bar) after deletion.
+- [ ] Regression: Switch to "Sync from origin" tab and confirm it still loads with its own progress bar (Iteration 0/1 behaviour intact).
+- [ ] Regression: Fetch all, Sync all, and per-row Sync still work as before (Iteration 1 behaviour intact).
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
+

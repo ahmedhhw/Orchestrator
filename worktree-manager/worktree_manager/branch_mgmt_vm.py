@@ -53,17 +53,33 @@ class BranchMgmtViewModel:
         vm.load_worktrees()
         return vm
 
-    def load_cleanup_candidates(self, repo_path: str | None) -> list:
+    def load_cleanup_candidates(self, repo_path: str | None, on_progress=None) -> list:
         """Return cleanup candidates for one repo (repo_path) or all repos (None)."""
         self._candidate_repo = {}
         if repo_path is not None:
-            candidates = self._repo_vm(repo_path).all_cleanup_candidates()
+            candidates = self._repo_vm(repo_path).all_cleanup_candidates(
+                on_progress=on_progress
+            )
             for c in candidates:
                 self._candidate_repo[c.branch] = repo_path
             return candidates
+        repos = self.list_repos()
+        total_repos = len(repos)
         all_candidates = []
-        for path in self.list_repos():
-            candidates = self._repo_vm(path).all_cleanup_candidates()
+        done = 0
+        for path in repos:
+            def _sub_progress(cur, tot, lbl, _path=path):
+                if on_progress:
+                    # map sub-repo progress into overall fraction
+                    overall = done + cur
+                    overall_total = done + tot + (total_repos - done // max(tot, 1) - 1) * tot
+                    on_progress(overall, max(overall_total, 1), lbl)
+            candidates = self._repo_vm(path).all_cleanup_candidates(
+                on_progress=_sub_progress if on_progress else None
+            )
+            done += 1
+            if on_progress:
+                on_progress(done, total_repos, path)
             for c in candidates:
                 self._candidate_repo[c.branch] = path
             all_candidates.extend(candidates)

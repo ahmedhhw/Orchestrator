@@ -29,6 +29,10 @@ class BranchManagementPanel(QWidget):
         self._admin_mode = False
         self._admin_banner: QWidget | None = None
         self._current_repo_path: str | None = None  # None = "all repos"
+        self._cleanup_loading: bool = False
+        self._cleanup_job: BackgroundJob | None = None
+        self._cleanup_action_btns: list = []   # [delete_btn, select_btn, cancel_btn]
+        self._cleanup_list_layout: QVBoxLayout | None = None
 
         # sync UI state
         self._sync_rows: list = []
@@ -530,9 +534,11 @@ class BranchManagementPanel(QWidget):
         btn_row.addWidget(delete_btn)
         layout.addLayout(btn_row)
 
+        self._cleanup_action_btns = [delete_btn, self._global_btn, cancel_btn]
+
         self._content_area.addWidget(container)
 
-        # load and render candidates
+        # load and render candidates (async)
         selected_path = self._repo_combo.currentData()
         self._load_and_render(selected_path)
 
@@ -540,8 +546,13 @@ class BranchManagementPanel(QWidget):
         selected = self._repo_combo.currentData()
         self._load_and_render(selected)
 
-    def _load_and_render(self, repo_path):
-        # clear old list
+    def _set_cleanup_action_buttons_enabled(self, enabled: bool) -> None:
+        for btn in self._cleanup_action_btns:
+            btn.setEnabled(enabled)
+
+    def _clear_cleanup_list(self) -> None:
+        if not hasattr(self, "_list_layout") or self._list_layout is None:
+            return
         while self._list_layout.count():
             item = self._list_layout.takeAt(0)
             w = item.widget()
@@ -552,7 +563,29 @@ class BranchManagementPanel(QWidget):
         self._subgroup_btns = {}
         self._stale_btn = None
 
-        candidates = self._vm.load_cleanup_candidates(repo_path)
+    def _load_and_render(self, repo_path):
+        self._cleanup_loading = True
+        self._set_cleanup_action_buttons_enabled(False)
+        self._clear_cleanup_list()
+
+        loader = InlineProgress()
+        loader.start_determinate("Loading candidates…", total=1)
+        self._list_layout.addWidget(loader)
+
+        job = BackgroundJob(self)
+        self._cleanup_job = job
+        job.progress.connect(
+            lambda cur, tot, lbl: loader.update(cur, lbl) if self._cleanup_loading else None
+        )
+        job.finished.connect(lambda candidates: self._on_cleanup_loaded(candidates))
+        job.failed.connect(lambda exc: self._on_cleanup_failed(exc))
+        job.start(self._vm.load_cleanup_candidates, repo_path)
+
+    def _on_cleanup_loaded(self, candidates: list) -> None:
+        self._cleanup_loading = False
+        self._set_cleanup_action_buttons_enabled(True)
+        self._clear_cleanup_list()
+
         grouped = _group_candidates(candidates)
         self._render_merged(grouped["merged"])
         self._render_stale(grouped["stale"])
@@ -561,6 +594,24 @@ class BranchManagementPanel(QWidget):
         self._render_unoperable(grouped["unoperable"])
         self._list_layout.addStretch(1)
         self._refresh_button_labels()
+
+    def _on_cleanup_failed(self, exc: Exception) -> None:
+        self._cleanup_loading = False
+        self._set_cleanup_action_buttons_enabled(True)
+        self._clear_cleanup_list()
+
+        err_lbl = QLabel(f"⚠ Couldn't load candidates.\n{exc}")
+        err_lbl.setAlignment(Qt.AlignCenter)
+        err_lbl.setStyleSheet("color: #c0392b;")
+        self._list_layout.addWidget(err_lbl)
+
+        retry_btn = QPushButton("Retry")
+        retry_btn.setFixedWidth(80)
+        retry_btn.clicked.connect(
+            lambda: self._load_and_render(self._repo_combo.currentData()
+                                          if hasattr(self, "_repo_combo") else None)
+        )
+        self._list_layout.addWidget(retry_btn, 0, Qt.AlignCenter)
 
     # ── rendering helpers (mirrors CleanupWizard) ──────────────────────────
 
