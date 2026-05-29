@@ -62,7 +62,13 @@ class DiffPanel(QWidget):
 
         # Diff view: splitter with file list on left, hunk view on right
         self._diff_splitter = QSplitter(Qt.Horizontal)
+        self._diff_splitter.setHandleWidth(6)
+        self._diff_splitter.setStyleSheet(
+            "QSplitter::handle { background-color: #d0d0d0; }"
+            "QSplitter::handle:hover { background-color: #aaa; }"
+        )
         self._file_list = DiffFileList()
+        self._file_list_strip = None
         self._hunk_view = DiffHunkView()
         self._diff_splitter.addWidget(self._file_list)
         self._diff_splitter.addWidget(self._hunk_view)
@@ -74,6 +80,7 @@ class DiffPanel(QWidget):
         layout.addWidget(self._right_area, 1)
 
         self._point_selector.on_compare(self._on_compare)
+        self._file_list.on_hide(self._collapse_file_list)
         self._file_list.on_file_selected(self._on_file_selected)
         self._file_list.on_focus_right(self._focus_hunk_view)
         self._file_list.on_open_file(self._on_open_file)
@@ -83,6 +90,18 @@ class DiffPanel(QWidget):
         self._populate_repos()
         self._repo_combo.currentIndexChanged.connect(self._on_repo_changed)
         self._worktree_combo.currentIndexChanged.connect(self._on_worktree_changed)
+
+    def _collapse_file_list(self) -> None:
+        from worktree_manager.ui.file_list_strip import FileListStrip
+        self._file_list.hide()
+        self._file_list_strip = FileListStrip(on_restore=self._restore_file_list)
+        self._diff_splitter.insertWidget(0, self._file_list_strip)
+
+    def _restore_file_list(self) -> None:
+        if self._file_list_strip is not None:
+            self._file_list_strip.deleteLater()
+            self._file_list_strip = None
+        self._file_list.show()
 
     def _populate_repos(self) -> None:
         self._repo_combo.blockSignals(True)
