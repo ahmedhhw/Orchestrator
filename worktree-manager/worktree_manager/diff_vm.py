@@ -24,6 +24,46 @@ class DiffViewModel:
         self.diff_files = []
         self.available_points = self._git.list_points(worktree_path)
 
+    def default_newer_ref(self, worktree_path: str) -> str:
+        return "working_tree_unstaged"
+
+    def default_older_ref(self, worktree_path: str) -> str | None:
+        result = self._git.infer_branch_suggestions(
+            self.repo_path or worktree_path, self._git.checked_out_branch(worktree_path)
+        )
+        try:
+            parent, _ = result
+        except (TypeError, ValueError):
+            return None
+        return parent
+
+    def suggested_newer_refs(self, worktree_path: str) -> list[str]:
+        return ["working_tree_unstaged", "working_tree_staged"]
+
+    def suggested_older_refs(self, worktree_path: str, all_points: list) -> list[str]:
+        branch = self._git.checked_out_branch(worktree_path)
+        result = self._git.infer_branch_suggestions(
+            self.repo_path or worktree_path, branch
+        )
+        try:
+            parent, feature_or_main = result
+        except (TypeError, ValueError):
+            return []
+        pref = self._store.get_diff_pref(self.repo_path)
+        last_used = pref.get("from_ref") if pref else None
+
+        seen: set[str] = set()
+        result: list[str] = []
+
+        for ref in [parent, feature_or_main, last_used]:
+            if ref and ref not in seen:
+                seen.add(ref)
+                result.append(ref)
+            if len(result) == 3:
+                break
+
+        return result
+
     def set_points(self, base_ref: str, target_ref: str) -> None:
         self.base_ref = base_ref
         self.target_ref = target_ref

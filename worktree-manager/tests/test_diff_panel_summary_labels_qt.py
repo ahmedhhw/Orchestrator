@@ -35,8 +35,8 @@ def _make_store():
 def _trigger_compare(qtbot, panel):
     from worktree_manager.ui.diff_point_selector import DiffPointSelector
     sel = panel._right_area.currentWidget()
-    sel._newer_list.setCurrentRow(0)   # working_tree_unstaged
-    sel._older_list.setCurrentRow(1)   # main
+    sel._select_by_ref(sel._newer_list, "working_tree_unstaged")
+    sel._select_by_ref(sel._older_list, "main")
     btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
 

@@ -406,6 +406,53 @@ class GitService:
     def checkout_file(self, repo_path: str, file_path: str, ref: str) -> None:
         self._run(["git", "checkout", ref, "--", file_path], cwd=repo_path)
 
+    def infer_branch_suggestions(
+        self, repo_path: str, current_branch: str
+    ) -> tuple[str | None, str | None]:
+        """Return (parent_branch, nearest_feature_or_main) by walking --first-parent log.
+
+        Falls back to ("main", None) if nothing can be determined.
+        """
+        import subprocess
+        try:
+            out = self._run(
+                ["git", "log", "--first-parent", "--simplify-by-decoration",
+                 "--format=%D"],
+                cwd=repo_path,
+            )
+        except subprocess.CalledProcessError:
+            return ("main", None)
+
+        parent: str | None = None
+        feature_or_main: str | None = None
+
+        for raw_line in out.splitlines():
+            for token in raw_line.split(","):
+                ref = token.strip()
+                if ref.startswith("HEAD -> "):
+                    ref = ref[len("HEAD -> "):]
+                if (not ref
+                        or ref == "HEAD"
+                        or ref.startswith("origin/")
+                        or ref.startswith("tag:")
+                        or ref == current_branch):
+                    continue
+                if parent is None:
+                    parent = ref
+                if feature_or_main is None and (ref == "main" or ref.startswith("feature/")):
+                    feature_or_main = ref
+                if parent is not None and feature_or_main is not None:
+                    break
+            if parent is not None and feature_or_main is not None:
+                break
+
+        if parent is None:
+            return ("main", None)
+        # deduplicate: if feature_or_main is same as parent, suppress it
+        if feature_or_main == parent:
+            feature_or_main = None
+        return (parent, feature_or_main)
+
     def resolve_merge_base(self, repo_path: str, branch: str, onto: str) -> str:
         return self._run(["git", "merge-base", onto, branch], cwd=repo_path).strip()
 

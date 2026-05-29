@@ -460,3 +460,22 @@ f"OLDER: {base_ref}  →  NEWER: {target_ref}"
 
 **How to confirm:** Run the app (`python3.14 run.py`), navigate to Diff, and check each item manually.
 Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] Launch the app, navigate to Diff, select a worktree that has commits on a branch — the OLDER POINT list shows a "★ Suggested" section at the top with the inferred parent branch
+- [ ] Confirm a separator line appears between the Suggested section and the rest of the OLDER POINT list
+- [ ] Confirm the NEWER POINT list shows a "★ Suggested" section containing "Working tree (unstaged)" as the first item
+- [ ] Switch to a different worktree — the Suggested sections update to reflect that worktree's inferred parent
+- [ ] Select a worktree using the Diff button from the worktree management panel — "Working tree (unstaged)" is pre-selected in NEWER POINT and the inferred parent branch is pre-selected in OLDER POINT without any manual selection
+- [ ] Click "Compare →" immediately after opening from a worktree button — the comparison runs successfully without errors
+- [ ] Confirm the last-used pref (if any) still appears in the OLDER Suggested section when it differs from the inferred branches
+- [ ] Confirm search/filter still works in both lists (regression check)
+- [ ] Confirm the summary bar still reads "OLDER: <ref>  →  NEWER: <ref>" after comparing (regression check)
+
+**How to confirm:** Run the app (`python3.14 run.py`), navigate to Diff, and check each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.

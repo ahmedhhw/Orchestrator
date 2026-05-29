@@ -98,8 +98,8 @@ def test_pressing_compare_switches_to_diff_splitter(qtbot):
     from worktree_manager.ui.diff_point_selector import DiffPointSelector
     sel = panel._right_area.currentWidget()
     assert isinstance(sel, DiffPointSelector)
-    sel._from_list.setCurrentRow(1)  # main
-    sel._to_list.setCurrentRow(0)   # working_tree_unstaged
+    sel._select_by_ref(sel._older_list, "main")
+    sel._select_by_ref(sel._newer_list, "working_tree_unstaged")
     btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
     from PySide6.QtWidgets import QSplitter
@@ -112,8 +112,8 @@ def test_file_list_shows_diff_files_after_compare(qtbot):
     panel._repo_combo.setCurrentIndex(0)
     from worktree_manager.ui.diff_point_selector import DiffPointSelector
     sel = panel._right_area.currentWidget()
-    sel._from_list.setCurrentRow(1)
-    sel._to_list.setCurrentRow(0)
+    sel._select_by_ref(sel._older_list, "main")
+    sel._select_by_ref(sel._newer_list, "working_tree_unstaged")
     btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
     fl = panel._file_list
@@ -128,8 +128,8 @@ def test_change_button_returns_to_point_selector(qtbot):
     panel._repo_combo.setCurrentIndex(0)
     from worktree_manager.ui.diff_point_selector import DiffPointSelector
     sel = panel._right_area.currentWidget()
-    sel._from_list.setCurrentRow(1)
-    sel._to_list.setCurrentRow(0)
+    sel._select_by_ref(sel._older_list, "main")
+    sel._select_by_ref(sel._newer_list, "working_tree_unstaged")
     btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
     change_btn = next(b for b in panel.findChildren(QPushButton) if "Change" in b.text())

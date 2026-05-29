@@ -159,10 +159,22 @@ class DiffPanel(QWidget):
 
     def _load_worktree(self, worktree_path: str) -> None:
         self._vm.set_worktree(worktree_path)
-        self._point_selector.set_repo(worktree_path, self._vm.available_points, git_service=self._git)
+        suggested_newer = self._vm.suggested_newer_refs(worktree_path)
+        suggested_older = self._vm.suggested_older_refs(worktree_path, self._vm.available_points)
+        self._point_selector.set_repo(
+            worktree_path,
+            self._vm.available_points,
+            git_service=self._git,
+            suggested_newer=suggested_newer,
+            suggested_older=suggested_older,
+        )
         pref = self._store.get_diff_pref(self._vm.repo_path)
         if pref:
             self._point_selector.pre_select(from_ref=pref.get("from_ref"), to_ref=pref.get("to_ref"))
+        else:
+            default_newer = self._vm.default_newer_ref(worktree_path)
+            default_older = self._vm.default_older_ref(worktree_path)
+            self._point_selector.pre_select(from_ref=default_older, to_ref=default_newer)
         self._show_point_selector()
 
     def _show_point_selector(self) -> None:

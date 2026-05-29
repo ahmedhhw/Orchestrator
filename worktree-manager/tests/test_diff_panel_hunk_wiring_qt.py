@@ -58,8 +58,8 @@ def _navigate_to_file_list(panel, qtbot):
     panel._repo_combo.setCurrentIndex(0)
     from worktree_manager.ui.diff_point_selector import DiffPointSelector
     sel = panel._right_area.currentWidget()
-    sel._from_list.setCurrentRow(1)  # main
-    sel._to_list.setCurrentRow(0)   # working_tree_unstaged
+    sel._select_by_ref(sel._older_list, "main")
+    sel._select_by_ref(sel._newer_list, "working_tree_unstaged")
     btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
 

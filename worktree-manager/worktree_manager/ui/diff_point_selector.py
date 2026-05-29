@@ -65,12 +65,19 @@ class DiffPointSelector(QWidget):
     def _to_filter(self):
         return self._newer_filter
 
-    def set_repo(self, repo_path: str, points: list, git_service=None) -> None:
+    def set_repo(
+        self,
+        repo_path: str,
+        points: list,
+        git_service=None,
+        suggested_newer: list | None = None,
+        suggested_older: list | None = None,
+    ) -> None:
         self._repo_path = repo_path
         self._git_service = git_service
         self._points = points
-        self._populate_list(self._newer_list, points)
-        self._populate_list(self._older_list, points)
+        self._populate_list(self._newer_list, points, suggested_newer)
+        self._populate_list(self._older_list, points, suggested_older)
         self._newer_filter.clear()
         self._older_filter.clear()
         self._merge_base_note.hide()
@@ -101,8 +108,31 @@ class DiffPointSelector(QWidget):
     def on_compare(self, callback) -> None:
         self._compare_cb = callback
 
-    def _populate_list(self, lst: QListWidget, points: list) -> None:
+    def _populate_list(
+        self, lst: QListWidget, points: list, suggested_refs: list | None = None
+    ) -> None:
         lst.clear()
+        if suggested_refs:
+            header = QListWidgetItem("★ Suggested")
+            header.setFlags(header.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsEnabled)
+            lst.addItem(header)
+            ref_map = {
+                (pt.kind if pt.kind.startswith("working_tree") else pt.label): pt
+                for pt in points
+            }
+            for ref in suggested_refs:
+                pt = ref_map.get(ref)
+                if pt is None:
+                    item = QListWidgetItem(ref)
+                elif pt.short_sha:
+                    item = QListWidgetItem(f"{pt.label}  {pt.short_sha}  \"{pt.message}\"")
+                else:
+                    item = QListWidgetItem(pt.label)
+                item.setData(Qt.UserRole, ref)
+                lst.addItem(item)
+            sep = QListWidgetItem("─" * 30)
+            sep.setFlags(sep.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsEnabled)
+            lst.addItem(sep)
         for pt in points:
             if pt.short_sha:
                 text = f"{pt.label}  {pt.short_sha}  \"{pt.message}\""
@@ -142,6 +172,10 @@ class DiffPointSelector(QWidget):
         newer_item = self._newer_list.currentItem()
         if older_item is None or newer_item is None:
             return
+        older_ref = older_item.data(Qt.UserRole)
+        newer_ref = newer_item.data(Qt.UserRole)
+        if older_ref is None or newer_ref is None:
+            return
         if self._compare_cb:
             # preserve existing contract: callback(base_ref, target_ref) == (older, newer)
-            self._compare_cb(older_item.data(Qt.UserRole), newer_item.data(Qt.UserRole))
+            self._compare_cb(older_ref, newer_ref)
