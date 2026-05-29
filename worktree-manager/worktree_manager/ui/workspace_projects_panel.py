@@ -178,7 +178,7 @@ class WorkspaceProjectsPanel(QWidget):
         header.addWidget(edit_btn)
         del_btn = QPushButton("✕")
         del_btn.setFixedWidth(28)
-        del_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        del_btn.setStyleSheet("background-color: #c0392b; color: white; border: none;")
         del_btn.clicked.connect(lambda _=False, n=name: self.delete_project(n))
         self._attach_nickname_menu(del_btn, "delete_project", {"name": name})
         header.addWidget(del_btn)

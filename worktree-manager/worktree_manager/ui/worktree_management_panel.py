@@ -56,7 +56,6 @@ class WorktreeManagementPanel(QWidget):
         toolbar.addWidget(add_btn)
 
         self._remove_repo_btn = QPushButton("✕ Remove Repo")
-        self._remove_repo_btn.setStyleSheet("background-color: #c0392b; color: white;")
         self._remove_repo_btn.clicked.connect(self._prompt_remove_repo)
         toolbar.addWidget(self._remove_repo_btn)
 
@@ -73,7 +72,6 @@ class WorktreeManagementPanel(QWidget):
         cancel_rm_btn.clicked.connect(self._cancel_remove_repo)
         confirm_layout.addWidget(cancel_rm_btn)
         confirm_rm_btn = QPushButton("Confirm Remove")
-        confirm_rm_btn.setStyleSheet("background-color: #c0392b; color: white;")
         confirm_rm_btn.clicked.connect(self._confirm_remove_repo)
         confirm_layout.addWidget(confirm_rm_btn)
         self._remove_repo_confirm_row.setVisible(False)
