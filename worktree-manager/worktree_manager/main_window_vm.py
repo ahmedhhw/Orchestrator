@@ -176,6 +176,18 @@ class MainWindowViewModel:
         checked_out = {wt.branch for wt in self._worktrees}
         return [b for b in self._git.list_local_branches(self._repo_path) if b not in checked_out]
 
+    def load_worktree_view_data(self, on_progress=None) -> dict:
+        """Bundle load_worktrees + list_branches_with_checkout_status + dirty checks.
+        Returns {"worktrees": [...], "branch_status": [(branch, checked_out), ...]}.
+        Emits on_progress(current, total, label) once per worktree."""
+        worktrees = self.load_worktrees()
+        branch_status = self.list_branches_with_checkout_status()
+        total = len(worktrees)
+        for i, wt in enumerate(worktrees, 1):
+            if on_progress:
+                on_progress(i, total, wt.branch)
+        return {"worktrees": worktrees, "branch_status": branch_status}
+
     def list_branches_with_checkout_status(self) -> list[tuple[str, bool]]:
         checked_out = {wt.branch for wt in self._worktrees}
         all_branches = self._git.list_local_branches(self._repo_path)

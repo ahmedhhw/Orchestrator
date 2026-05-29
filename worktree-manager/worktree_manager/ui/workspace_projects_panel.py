@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.background_job import BackgroundJob
+from worktree_manager.ui.inline_progress import InlineProgress
 from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialog
 
 
@@ -25,6 +27,8 @@ class WorkspaceProjectsPanel(QWidget):
         self._editor: str = vm._store.get_ui_pref("projects_editor", "cursor")
         self._empty_visible: bool = True
         self._entry_rows: list[QWidget] = []
+        self._loading: bool = False
+        self._load_job: BackgroundJob | None = None
         self._build()
         self.refresh()
 
@@ -75,6 +79,7 @@ class WorkspaceProjectsPanel(QWidget):
             w = item.widget()
             if w is not None:
                 w.setParent(None)
+
         projects = self._vm.load_projects()
         if not projects:
             empty = QLabel("No projects yet.\nClick [+ New] to create one.")
@@ -83,11 +88,54 @@ class WorkspaceProjectsPanel(QWidget):
             self._scroll_layout.addWidget(empty)
             self._scroll_layout.addStretch(1)
             self._empty_visible = True
+            self._loading = False
             return
+
         self._empty_visible = False
+        total_entries = sum(len(p.entries) for p in projects)
+        self._loading = True
+
+        loader = InlineProgress()
+        loader.start_determinate("Loading project entries…", total=max(total_entries, 1))
+        self._scroll_layout.addWidget(loader)
+
+        job = BackgroundJob(self)
+        self._load_job = job
+        job.progress.connect(
+            lambda cur, tot, lbl: loader.update(cur, lbl) if self._loading else None
+        )
+        job.finished.connect(lambda entries: self._on_entries_loaded(projects, entries))
+        job.failed.connect(lambda exc: self._on_entries_failed(exc))
+        job.start(self._vm.load_project_entries, projects)
+
+    def _on_entries_loaded(self, projects: list, entries: list) -> None:
+        self._loading = False
+        while self._scroll_layout.count():
+            item = self._scroll_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+
+        entry_map = {e["worktree_path"]: e for e in entries}
         for project in projects:
-            self._add_project_row(project)
+            self._add_project_row(project, entry_map)
         self._scroll_layout.addStretch(1)
+
+    def _on_entries_failed(self, exc: Exception) -> None:
+        self._loading = False
+        while self._scroll_layout.count():
+            item = self._scroll_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+        err = QLabel(f"⚠ Couldn't load project entries.\n{exc}")
+        err.setAlignment(Qt.AlignCenter)
+        err.setStyleSheet("color: #c0392b;")
+        self._scroll_layout.addWidget(err)
+        retry = QPushButton("Retry")
+        retry.setFixedWidth(80)
+        retry.clicked.connect(self.refresh)
+        self._scroll_layout.addWidget(retry, 0, Qt.AlignCenter)
 
     def empty_state_visible(self) -> bool:
         return self._empty_visible
@@ -106,7 +154,7 @@ class WorkspaceProjectsPanel(QWidget):
         act.triggered.connect(lambda: self._on_nickname(action_name, args))
         menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
-    def _add_project_row(self, project):
+    def _add_project_row(self, project, entry_map: dict | None = None):
         name = project.name
         is_collapsed = name in self._collapsed
 
@@ -137,15 +185,20 @@ class WorkspaceProjectsPanel(QWidget):
 
         if not is_collapsed:
             for entry in project.entries:
-                self._add_entry_row(entry.worktree_path)
+                data = (entry_map or {}).get(entry.worktree_path)
+                self._add_entry_row(entry.worktree_path, data)
 
-    def _add_entry_row(self, worktree_path: str):
-        try:
-            current_branch = self._vm._git.checked_out_branch(worktree_path)
-            branches = self._vm.list_branches_for_worktree(worktree_path)
-        except Exception:
-            current_branch = "(unknown)"
-            branches = []
+    def _add_entry_row(self, worktree_path: str, precomputed: dict | None = None):
+        if precomputed is not None:
+            current_branch = precomputed["current_branch"]
+            branches = precomputed["branches"]
+        else:
+            try:
+                current_branch = self._vm._git.checked_out_branch(worktree_path)
+                branches = self._vm.list_branches_for_worktree(worktree_path)
+            except Exception:
+                current_branch = "(unknown)"
+                branches = []
         wt_name = os.path.basename(worktree_path) or worktree_path
         home = os.path.expanduser("~")
         short = "~" + worktree_path[len(home):] if worktree_path.startswith(home) else worktree_path

@@ -12,13 +12,13 @@ from worktree_manager.ui.per_repo_worktrees_view import PerRepoWorktreesView
 def _make_vm():
     now = int(time.time())
     vm = MagicMock(spec=MainWindowViewModel)
-    vm.load_worktrees.return_value = [
-        WorktreeModel("/repos/proj", "main", True, now, False, False),
-        WorktreeModel("/repos/proj-wt/fix-auth", "fix/auth", False, now - 3600, False, False),
-    ]
-    vm.list_branches_with_checkout_status.return_value = [
-        ("main", True), ("fix/auth", True), ("hotfix/2.1", False),
-    ]
+    vm.load_worktree_view_data.return_value = {
+        "worktrees": [
+            WorktreeModel("/repos/proj", "main", True, now, False, False),
+            WorktreeModel("/repos/proj-wt/fix-auth", "fix/auth", False, now - 3600, False, False),
+        ],
+        "branch_status": [("main", True), ("fix/auth", True), ("hotfix/2.1", False)],
+    }
     return vm
 
 
@@ -30,6 +30,7 @@ def _make_view(qtbot, vm=None, on_cleanup=None, on_new=None):
         on_new=on_new or (lambda: None),
     )
     qtbot.addWidget(view)
+    qtbot.waitUntil(lambda: not view._loading, timeout=3000)
     return view
 
 

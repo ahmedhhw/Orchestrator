@@ -9,7 +9,9 @@ from PySide6.QtWidgets import (
 
 from worktree_manager.main_window_vm import MainWindowViewModel
 from worktree_manager.models import WorktreeModel
+from worktree_manager.ui.background_job import BackgroundJob
 from worktree_manager.ui.delete_dialog import DeleteDialog
+from worktree_manager.ui.inline_progress import InlineProgress
 
 
 def _fmt_age(ts):
@@ -45,6 +47,8 @@ class PerRepoWorktreesView(QWidget):
         self._on_nickname = on_nickname
         self._worktree_rows: list[QWidget] = []
         self._toast_timer: QTimer | None = None
+        self._loading: bool = False
+        self._refresh_job: BackgroundJob | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 8)
@@ -100,11 +104,51 @@ class PerRepoWorktreesView(QWidget):
             if w is not None:
                 w.deleteLater()
         self._worktree_rows.clear()
+        self._loading = True
 
-        worktrees = self._vm.load_worktrees()
-        branch_status = self._vm.list_branches_with_checkout_status()
+        loader = InlineProgress()
+        loader.start_determinate("Loading worktrees…", total=1)
+        self._list_layout.addWidget(loader)
+
+        job = BackgroundJob(self)
+        self._refresh_job = job
+        job.progress.connect(
+            lambda cur, tot, lbl: loader.update(cur, lbl) if self._loading else None
+        )
+        job.finished.connect(lambda data: self._on_refresh_done(data))
+        job.failed.connect(lambda exc: self._on_refresh_failed(exc))
+        job.start(self._vm.load_worktree_view_data)
+
+    def _on_refresh_done(self, data: dict) -> None:
+        self._loading = False
+        while self._list_layout.count():
+            item = self._list_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._worktree_rows.clear()
+
+        worktrees = data["worktrees"]
+        branch_status = data["branch_status"]
         for wt in worktrees:
             self._add_row(wt, branch_status)
+        self._list_layout.addStretch(1)
+
+    def _on_refresh_failed(self, exc: Exception) -> None:
+        self._loading = False
+        while self._list_layout.count():
+            item = self._list_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        err = QLabel(f"⚠ Couldn't load worktrees.\n{exc}")
+        err.setAlignment(Qt.AlignCenter)
+        err.setStyleSheet("color: #c0392b;")
+        self._list_layout.addWidget(err)
+        retry = QPushButton("Retry")
+        retry.setFixedWidth(80)
+        retry.clicked.connect(self.refresh)
+        self._list_layout.addWidget(retry, 0, Qt.AlignCenter)
         self._list_layout.addStretch(1)
 
     def _add_row(self, wt: WorktreeModel, branch_status):

@@ -109,6 +109,32 @@ class WorkspaceProjectsViewModel:
         repo_root = self._git.repo_root(worktree_path)
         return self._git.list_local_branches(repo_root)
 
+    def load_project_entries(self, projects: list, on_progress=None) -> list[dict]:
+        """Batch all per-entry git calls across projects; returns list of dicts with
+        worktree_path, current_branch, branches keys."""
+        all_paths = [
+            entry.worktree_path
+            for project in projects
+            for entry in project.entries
+        ]
+        total = len(all_paths)
+        results = []
+        for i, path in enumerate(all_paths, 1):
+            try:
+                current_branch = self._git.checked_out_branch(path)
+                branches = self.list_branches_for_worktree(path)
+            except Exception:
+                current_branch = "(unknown)"
+                branches = []
+            results.append({
+                "worktree_path": path,
+                "current_branch": current_branch,
+                "branches": branches,
+            })
+            if on_progress:
+                on_progress(i, total, path)
+        return results
+
     def switch_branch_in_project(self, worktree_path: str, new_branch: str) -> None:
         if self._git.has_uncommitted_changes(worktree_path):
             raise ValueError("Worktree has uncommitted changes.")

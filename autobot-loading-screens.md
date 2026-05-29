@@ -390,3 +390,45 @@ Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.
 
+## Iteration 3 — Workspace Projects & Per-Repo Worktrees
+
+### Phase 3.1 — WorkspaceProjectsViewModel.load_project_entries
+**What it covers:** New VM method batches per-entry git calls so they can run off-thread with progress.
+
+**Files touched:**
+- [worktree_manager/workspace_projects_vm.py](worktree-manager/worktree_manager/workspace_projects_vm.py) — new `load_project_entries(projects, on_progress=None) -> list[EntryStatus]`
+
+### Phase 3.2 — Async WorkspaceProjectsPanel refresh
+**What it covers:** Opening the Workspace Projects panel shows a determinate progress bar while per-entry branch info is fetched; rows are rendered from the precomputed EntryStatus list on `finished`.
+
+**Files touched:**
+- [worktree_manager/ui/workspace_projects_panel.py](worktree-manager/worktree_manager/ui/workspace_projects_panel.py) — `refresh()` now uses `InlineProgress` + `BackgroundJob`; `_add_entry_row` rewritten to accept precomputed data
+
+### Phase 3.3 — MainWindowViewModel.load_worktree_view_data
+**What it covers:** New VM method bundles `load_worktrees`, `list_branches_with_checkout_status`, and per-worktree dirty checks into one call with progress.
+
+**Files touched:**
+- [worktree_manager/main_window_vm.py](worktree-manager/worktree_manager/main_window_vm.py) — new `load_worktree_view_data(on_progress=None) -> dict` with `worktrees`, `branch_status` keys
+
+### Phase 3.4 — Async PerRepoWorktreesView refresh
+**What it covers:** The per-repo worktrees view shows a determinate progress bar while refresh runs; branch switches and deletions still work as before.
+
+**Files touched:**
+- [worktree_manager/ui/per_repo_worktrees_view.py](worktree-manager/worktree_manager/ui/per_repo_worktrees_view.py) — `refresh()` now uses `InlineProgress` + `BackgroundJob` + `load_worktree_view_data`
+
+## ✋ Manual Testing Gate — Iteration 3
+
+> STOP. Do not proceed beyond Iteration 3 until every item below is checked off by the user.
+
+- [ ] Open the app and navigate to the Workspace Projects panel — confirm a determinate progress bar appears while project entries load (no freeze per-row), then the project list renders correctly with branch dropdowns.
+- [ ] Confirm the progress bar counter increments as each entry is scanned (e.g. "1 / 3", "2 / 3") and the bar fills left-to-right.
+- [ ] After load completes, confirm the branch dropdowns work: change a branch in a dropdown and confirm the worktree switches without error.
+- [ ] Add a new project (or collapse/expand one) — confirm the panel reloads with the progress bar again for the fresh scan.
+- [ ] Navigate to a repo in the main window and view its worktrees — confirm a determinate progress bar appears while the view refreshes (no freeze), then the worktree list renders.
+- [ ] Confirm the "✕" delete button and branch combos in the per-repo worktrees view still work after load (regression: branch switch, delete worktree).
+- [ ] Regression: Switch to Branch Management → "Sync from origin" and "Cleanup" tabs — confirm both still load with their own progress bars (Iterations 0–2 intact).
+- [ ] Regression: Fetch all, Sync all, per-row Sync still work (Iteration 1 intact).
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 3 confirmed" (or describe any failures).
+
