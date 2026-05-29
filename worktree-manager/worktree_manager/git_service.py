@@ -339,6 +339,26 @@ class GitService:
         else:
             cmd = ["git", "diff", base_ref, target_ref, "--", path]
         out = self._run(cmd, cwd=repo_path)
+
+        # Untracked files produce no diff output — synthesize an all-added hunk
+        if not out.strip() and target_ref == _WT_UNSTAGED:
+            abs_path = os.path.join(repo_path, path)
+            try:
+                with open(abs_path, encoding="utf-8", errors="replace") as fh:
+                    content_lines = fh.read().splitlines()
+            except OSError:
+                return []
+            if not content_lines:
+                return []
+            added = ["+" + ln for ln in content_lines]
+            hunk = DiffHunk(
+                index=0,
+                header=f"@@ -0,0 +1,{len(content_lines)} @@",
+                lines=added,
+                old_start=0, old_count=0,
+                new_start=1, new_count=len(content_lines),
+            )
+            return [hunk]
         hunks = []
         current_hunk = None
         hunk_re = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)")

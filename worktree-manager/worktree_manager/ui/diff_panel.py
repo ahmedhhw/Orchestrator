@@ -104,25 +104,34 @@ class DiffPanel(QWidget):
         self._file_list.show()
 
     def _populate_repos(self) -> None:
+        sel = self._store.get_diff_selection()
+        saved_repo = sel.get("repo_path") if sel else None
+        saved_wt = sel.get("worktree_path") if sel else None
+
         self._repo_combo.blockSignals(True)
         self._repo_combo.clear()
         for repo_path in self._store.all_repos():
             self._repo_combo.addItem(Path(repo_path).name, userData=repo_path)
+        if saved_repo:
+            idx = self._repo_combo.findData(saved_repo)
+            if idx >= 0:
+                self._repo_combo.setCurrentIndex(idx)
         self._repo_combo.blockSignals(False)
+
         if self._repo_combo.count() > 0:
-            self._load_repo(self._repo_combo.currentData())
+            self._load_repo(self._repo_combo.currentData(), preferred_worktree=saved_wt)
 
     def _on_repo_changed(self, index: int) -> None:
         repo_path = self._repo_combo.itemData(index)
         if repo_path:
             self._load_repo(repo_path)
+            self._store.set_diff_selection(repo_path, self._worktree_combo.currentData() or "")
 
-    def _load_repo(self, repo_path: str) -> None:
+    def _load_repo(self, repo_path: str, preferred_worktree: str | None = None) -> None:
         self._vm.set_repo(repo_path)
-        self._populate_worktrees(repo_path)
-        # _populate_worktrees triggers _on_worktree_changed which loads points
+        self._populate_worktrees(repo_path, preferred_worktree=preferred_worktree)
 
-    def _populate_worktrees(self, repo_path: str) -> None:
+    def _populate_worktrees(self, repo_path: str, preferred_worktree: str | None = None) -> None:
         self._worktree_combo.blockSignals(True)
         self._worktree_combo.clear()
         try:
@@ -132,6 +141,10 @@ class DiffPanel(QWidget):
         for wt in worktrees:
             label = "(main)" if wt.is_main else os.path.basename(wt.path)
             self._worktree_combo.addItem(label, userData=wt.path)
+        if preferred_worktree:
+            idx = self._worktree_combo.findData(preferred_worktree)
+            if idx >= 0:
+                self._worktree_combo.setCurrentIndex(idx)
         self._worktree_combo.blockSignals(False)
         if self._worktree_combo.count() > 0:
             self._load_worktree(self._worktree_combo.currentData())
@@ -142,6 +155,7 @@ class DiffPanel(QWidget):
         wt_path = self._worktree_combo.itemData(index)
         if wt_path:
             self._load_worktree(wt_path)
+            self._store.set_diff_selection(self._vm.repo_path, wt_path)
 
     def _load_worktree(self, worktree_path: str) -> None:
         self._vm.set_worktree(worktree_path)

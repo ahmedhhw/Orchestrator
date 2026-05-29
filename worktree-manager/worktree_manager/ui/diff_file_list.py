@@ -96,7 +96,10 @@ class DiffFileList(QWidget):
         self._files = files
         self._list_widget.clear()
         for f in files:
-            text = f"{f.path} [{f.status}]"
+            if f.status == "?":
+                text = f"{f.path} [U]"
+            else:
+                text = f"{f.path} [{f.status}]"
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, f.path)
             self._list_widget.addItem(item)

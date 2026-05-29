@@ -99,6 +99,18 @@ class ConfigStore:
         }
         self._save_raw(data)
 
+    def get_diff_selection(self) -> dict:
+        data = self._load_raw()
+        return data.get("ui", {}).get("diff_selection", {})
+
+    def set_diff_selection(self, repo_path: str, worktree_path: str) -> None:
+        data = self._load_raw()
+        data.setdefault("ui", {})["diff_selection"] = {
+            "repo_path": repo_path,
+            "worktree_path": worktree_path,
+        }
+        self._save_raw(data)
+
     def _project_from_dict(self, name: str, data: dict) -> WorkspaceProject:
         return WorkspaceProject(
             name=name,
