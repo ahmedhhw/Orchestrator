@@ -28,6 +28,10 @@ class DiffViewModel:
         self.base_ref = base_ref
         self.target_ref = target_ref
 
+    @property
+    def target_is_working_tree(self) -> bool:
+        return self.target_ref in ("working_tree_unstaged", "working_tree_staged")
+
     def load_diff_files(self) -> list:
         if self.repo_path is None:
             raise RuntimeError("No repo selected")
@@ -36,3 +40,11 @@ class DiffViewModel:
         cwd = self.worktree_path or self.repo_path
         self.diff_files = self._git.diff_files(cwd, self.base_ref, self.target_ref)
         return self.diff_files
+
+    def get_diff_hunks(self, path: str) -> list:
+        if self.repo_path is None:
+            raise RuntimeError("No repo selected")
+        if self.base_ref is None or self.target_ref is None:
+            raise RuntimeError("FROM/TO refs not set")
+        cwd = self.worktree_path or self.repo_path
+        return self._git.diff_hunks(cwd, self.base_ref, self.target_ref, path)

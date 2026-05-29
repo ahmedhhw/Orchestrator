@@ -15,3 +15,14 @@ class DiffFile:
     path: str
     status: Literal["M", "A", "D", "R", "?"]
     old_path: str = ""
+
+
+@dataclass
+class DiffHunk:
+    index: int
+    header: str
+    lines: list
+    old_start: int = 0
+    old_count: int = 0
+    new_start: int = 0
+    new_count: int = 0

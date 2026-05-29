@@ -580,3 +580,22 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed to Iteration 3 until every item below is checked off by the user.
+
+- [ ] Launch the app and navigate to the Diff tab; pick a repo, pick FROM/TO, click Compare — the file list appears (regression)
+- [ ] Click on any file in the file list — the right pane shows hunk headers (e.g. `@@ -10,7 +10,9 @@`) and diff lines, not a blank area
+- [ ] Removed lines are shown in red, added lines in green — visually distinct from context lines
+- [ ] Hunk headers are shown between hunks (e.g. `@@ -25,4 +27,4 @@`)
+- [ ] Click a second file in the list — the right pane updates to show that file's hunks
+- [ ] For a commit-to-commit diff (both FROM and TO are branches/commits): there are no checkboxes, no Restore button — read-only mode
+- [ ] The `[↗ Open File]` button is visible in the header area but appears disabled (grayed out) in this iteration
+- [ ] **Regression:** "← Change" button still returns to the point selector
+- [ ] **Regression:** Worktrees context menu entry points still work (Diff from working tree…, Compare branches…)
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) before I write the plan for Iteration 3.

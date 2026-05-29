@@ -92,7 +92,7 @@ def test_selecting_different_repo_resets_to_point_selector(qtbot):
 
 # ── compare flow ──────────────────────────────────────────────────────────────
 
-def test_pressing_compare_switches_to_file_list(qtbot):
+def test_pressing_compare_switches_to_diff_splitter(qtbot):
     panel = _make_panel(qtbot)
     panel._repo_combo.setCurrentIndex(0)
     from worktree_manager.ui.diff_point_selector import DiffPointSelector
@@ -102,8 +102,8 @@ def test_pressing_compare_switches_to_file_list(qtbot):
     sel._to_list.setCurrentRow(0)   # working_tree_unstaged
     btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
-    from worktree_manager.ui.diff_file_list import DiffFileList
-    assert isinstance(panel._right_area.currentWidget(), DiffFileList)
+    from PySide6.QtWidgets import QSplitter
+    assert isinstance(panel._right_area.currentWidget(), QSplitter)
 
 
 def test_file_list_shows_diff_files_after_compare(qtbot):
@@ -116,9 +116,7 @@ def test_file_list_shows_diff_files_after_compare(qtbot):
     sel._to_list.setCurrentRow(0)
     btn = next(b for b in sel.findChildren(QPushButton) if "Compare" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
-    from worktree_manager.ui.diff_file_list import DiffFileList
-    fl = panel._right_area.currentWidget()
-    assert isinstance(fl, DiffFileList)
+    fl = panel._file_list
     texts = [fl._list_widget.item(i).text() for i in range(fl._list_widget.count())]
     assert any("foo.py" in t for t in texts)
 

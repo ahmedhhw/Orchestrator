@@ -317,3 +317,46 @@ class GitService:
                 if path.strip():
                     files.append(DiffFile(path=path.strip(), status="?"))
         return files
+
+    def diff_hunks(self, repo_path: str, base_ref: str, target_ref: str, path: str):
+        import re
+        from worktree_manager.diff_models import DiffHunk
+        _WT_UNSTAGED = "working_tree_unstaged"
+        _WT_STAGED   = "working_tree_staged"
+        if target_ref == _WT_UNSTAGED:
+            cmd = ["git", "diff", base_ref, "--", path]
+        elif target_ref == _WT_STAGED:
+            cmd = ["git", "diff", "--cached", base_ref, "--", path]
+        elif base_ref in (_WT_UNSTAGED, _WT_STAGED):
+            # swap so working tree is always target
+            return self.diff_hunks(repo_path, target_ref, base_ref, path)
+        else:
+            cmd = ["git", "diff", base_ref, target_ref, "--", path]
+        out = self._run(cmd, cwd=repo_path)
+        hunks = []
+        current_hunk = None
+        hunk_re = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)")
+        for line in out.splitlines():
+            m = hunk_re.match(line)
+            if m:
+                if current_hunk is not None:
+                    hunks.append(current_hunk)
+                old_start = int(m.group(1))
+                old_count = int(m.group(2)) if m.group(2) is not None else 1
+                new_start = int(m.group(3))
+                new_count = int(m.group(4)) if m.group(4) is not None else 1
+                header = line
+                current_hunk = DiffHunk(
+                    index=len(hunks),
+                    header=header,
+                    lines=[],
+                    old_start=old_start,
+                    old_count=old_count,
+                    new_start=new_start,
+                    new_count=new_count,
+                )
+            elif current_hunk is not None and not line.startswith(("diff ", "index ", "--- ", "+++ ")):
+                current_hunk.lines.append(line)
+        if current_hunk is not None:
+            hunks.append(current_hunk)
+        return hunks
