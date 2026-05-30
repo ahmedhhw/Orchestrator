@@ -495,6 +495,10 @@ class ProjectOperationsDialog(QDialog):
     def _refresh_worktrees_from_cache(self) -> None:
         statuses = list(self._worktree_status_map.values())
         branches = getattr(self, "_all_branches_cache", ["main"])
+        self._new_base_combo.clear()
+        self._new_base_combo.addItems(branches)
+        self._existing_branch_combo.clear()
+        self._existing_branch_combo.addItems(branches or ["(none)"])
         self._render_worktree_rows(statuses, branches)
 
     def _render_worktree_rows(self, statuses: list, branches: list = None) -> None:
@@ -674,6 +678,9 @@ class ProjectOperationsDialog(QDialog):
             )
             self._worktree_status_map[worktree_path] = updated
             self._active_new_branch_panel = None
+            # Add the new branch to the cached list so all worktree dropdowns see it
+            if new_branch not in self._all_branches_cache:
+                self._all_branches_cache = sorted(self._all_branches_cache + [new_branch])
             # Refresh using the updated in-memory map so we don't need a round-trip
             self._refresh_worktrees_from_cache()
 
