@@ -33,12 +33,15 @@ def test_merge_base_note_hidden_by_default(qtbot):
     assert sel._merge_base_note.isHidden()
 
 
-def test_merge_base_note_shown_when_from_is_branch(qtbot):
+def test_merge_base_note_shown_when_from_is_branch_and_mode_is_branch_tip(qtbot):
     svc = MagicMock()
     svc.resolve_merge_base.return_value = "abc0001"
+    store = MagicMock()
+    store.get_branch_diff_mode.return_value = "branch_tip"
     sel = _make_selector(qtbot)
-    sel.set_repo("/repo", _make_points(), git_service=svc)
+    sel.set_repo("/repo", _make_points(), git_service=svc, config_store=store)
     _select_from_by_ref(sel, "feature/login")
+    sel._on_older_changed(sel._from_list.currentItem(), None)
     assert not sel._merge_base_note.isHidden()
     assert "abc0001" in sel._merge_base_note.text()
     assert "feature/login" in sel._merge_base_note.text()

@@ -166,6 +166,12 @@ class ConfigStore:
             diff_sel["worktree_path"] = new_path
         self._save_raw(data)
 
+    def get_branch_diff_mode(self) -> str:
+        return self.get_ui_pref("branch_diff_mode", "merge_base")
+
+    def set_branch_diff_mode(self, mode: str) -> None:
+        self.set_ui_pref("branch_diff_mode", mode)
+
     def push_mru(self, action_name: str, args: dict, cap: int = 10) -> None:
         entry = {"action": action_name, "args": dict(args)}
         mru: list = self.get_ui_pref("mru", [])

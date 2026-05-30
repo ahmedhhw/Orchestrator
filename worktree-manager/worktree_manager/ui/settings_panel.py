@@ -68,6 +68,18 @@ class SettingsDialog(QDialog):
         row4.addStretch(1)
         outer.addLayout(row4)
 
+        row5 = QHBoxLayout()
+        row5.addWidget(QLabel("Branch diff mode:"))
+        self._branch_diff_combo = FilterableComboBox()
+        self._branch_diff_combo.addItem("Merge base (default)", userData="merge_base")
+        self._branch_diff_combo.addItem("Branch tip", userData="branch_tip")
+        current_mode = store.get_branch_diff_mode() if store else "merge_base"
+        mode_idx = self._branch_diff_combo.findData(current_mode)
+        self._branch_diff_combo.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
+        row5.addWidget(self._branch_diff_combo)
+        row5.addStretch(1)
+        outer.addLayout(row5)
+
         btns = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -91,4 +103,5 @@ class SettingsDialog(QDialog):
         if self._store:
             self._store.set_ui_pref("shell", self._shell_combo.currentText())
             self._store.set_ui_pref("editor", self._editor_combo.currentData())
+            self._store.set_branch_diff_mode(self._branch_diff_combo.currentData())
         self.accept()
