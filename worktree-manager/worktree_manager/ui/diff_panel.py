@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QStackedWidget, QPushButton, QSplitter,
 )
+
+from worktree_manager.ui.filterable_combo import FilterableComboBox
 from PySide6.QtCore import Qt
 
 from worktree_manager.diff_vm import DiffViewModel
@@ -30,7 +32,7 @@ class DiffPanel(QWidget):
         # Repo dropdown row
         repo_row = QHBoxLayout()
         repo_row.addWidget(QLabel("Repo:"))
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         self._repo_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         repo_row.addWidget(self._repo_combo, 1)
         layout.addLayout(repo_row)
@@ -38,7 +40,7 @@ class DiffPanel(QWidget):
         # Worktree dropdown row
         wt_row = QHBoxLayout()
         wt_row.addWidget(QLabel("Worktree:"))
-        self._worktree_combo = QComboBox()
+        self._worktree_combo = FilterableComboBox()
         self._worktree_combo.setObjectName("worktree_combo")
         self._worktree_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         wt_row.addWidget(self._worktree_combo, 1)

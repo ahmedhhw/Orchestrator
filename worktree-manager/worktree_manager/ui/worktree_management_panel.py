@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 from worktree_manager.ui.per_repo_worktrees_view import PerRepoWorktreesView
 from worktree_manager.worktree_mgmt_vm import WorktreeMgmtViewModel
 
@@ -45,7 +47,7 @@ class WorktreeManagementPanel(QWidget):
         # ── toolbar row ───────────────────────────────────────────────────────
         toolbar = QHBoxLayout()
 
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         self._repo_combo.setObjectName("repo_combo")
         self._repo_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         toolbar.addWidget(QLabel("Repo:"))

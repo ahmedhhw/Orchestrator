@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 from worktree_manager.command_runner import RunHandle, RunStatus
 
 _STATUS_COLORS = {
@@ -233,7 +235,7 @@ class CommandPane(QWidget):
             self._label.customContextMenuRequested.connect(self._show_nickname_menu)
         header.addWidget(self._label)
 
-        self._wt_combo = QComboBox()
+        self._wt_combo = FilterableComboBox()
         self._wt_combo.setToolTip("Switch worktree")
         self._populate_wt_combo()
         self._wt_combo.currentIndexChanged.connect(self._on_wt_combo_changed)

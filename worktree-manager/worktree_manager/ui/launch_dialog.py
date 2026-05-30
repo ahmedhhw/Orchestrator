@@ -173,7 +173,7 @@ class LaunchDialog(QDialog):
 
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Worktree:"))
-        self._wt_combo = QComboBox()
+        self._wt_combo = FilterableComboBox()
         self._wt_combo.setMinimumWidth(200)
         self._wt_combo.currentIndexChanged.connect(self._on_wt_combo_changed)
         if self._locked_worktree_path:

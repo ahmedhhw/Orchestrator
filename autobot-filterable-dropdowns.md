@@ -300,3 +300,33 @@ Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan
 
 **How to confirm:** Run `python3.14 run.py` from `worktree-manager/`, perform each action above, and check off each item manually.
 Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. This is the final iteration. Confirm every item below before declaring the feature complete.
+
+**Diff panel:**
+- [ ] Open the **Diff** panel — confirm the **Repo** dropdown is editable (text cursor appears); type to filter and pick a repo by partial match.
+- [ ] Confirm the **Worktree** dropdown is also filterable; type to filter and pick a worktree — confirm the diff view loads for the selected worktree.
+
+**Worktree management panel:**
+- [ ] Open the **Worktree Management** panel — confirm the **Repo** dropdown is filterable; type to filter by partial repo name and pick a match — confirm the worktree list refreshes to that repo.
+
+**Branch management panel (cleanup section):**
+- [ ] Open **Branch Management → Cleanup** — confirm the **Repo** dropdown is filterable; type to filter and pick a specific repo — confirm the cleanup list scopes to that repo.
+
+**Command pane worktree switcher:**
+- [ ] Open a running command pane — confirm the **worktree** combo in the header is filterable; type to filter by partial worktree name and pick a match — confirm the command pane switches to that worktree.
+
+**Launch dialog worktree combo:**
+- [ ] Open the **Launch** dialog, select a repo — confirm the **Worktree** dropdown is filterable; type to filter and pick a worktree, then launch — confirm the command runs in the correct worktree.
+
+**Settings editor combo:**
+- [ ] Open **Settings** — confirm the **Default editor** dropdown is filterable; type `cur` and confirm only "Cursor" shows; pick it and save — confirm the editor preference persists after reopening Settings.
+- [ ] Confirm `currentData()` works: pick "VS Code", save, reopen Settings — confirm "VS Code" is selected (not just the display text, but the correct `vscode` key is saved).
+
+**Regression — Iterations 0 and 1:**
+- [ ] Spot-check one Iteration 1 dropdown (e.g. **Launch → Repo** or **Create Worktree → Base branch**) to confirm it still filters and reverts correctly.
+
+**How to confirm:** Run `python3.14 run.py` from `worktree-manager/`, perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures) to complete the feature.

@@ -58,7 +58,7 @@ class SettingsDialog(QDialog):
 
         row4 = QHBoxLayout()
         row4.addWidget(QLabel("Default editor:"))
-        self._editor_combo = QComboBox()
+        self._editor_combo = FilterableComboBox()
         self._editor_combo.addItem("Cursor", userData="cursor")
         self._editor_combo.addItem("VS Code", userData="vscode")
         current_editor = store.get_ui_pref("editor", "cursor") if store else "cursor"
