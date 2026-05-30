@@ -1,3 +1,4 @@
+import bisect
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -485,20 +486,19 @@ class ProjectOperationsDialog(QDialog):
 
         self._all_branches_cache = all_branches or ["main"]
 
-        self._new_base_combo.clear()
-        self._new_base_combo.addItems(self._all_branches_cache)
-        self._existing_branch_combo.clear()
-        self._existing_branch_combo.addItems(self._all_branches_cache or ["(none)"])
-
+        self._repopulate_branch_combos(self._all_branches_cache)
         self._render_worktree_rows(statuses, self._all_branches_cache)
 
-    def _refresh_worktrees_from_cache(self) -> None:
-        statuses = list(self._worktree_status_map.values())
-        branches = getattr(self, "_all_branches_cache", ["main"])
+    def _repopulate_branch_combos(self, branches: list) -> None:
         self._new_base_combo.clear()
         self._new_base_combo.addItems(branches)
         self._existing_branch_combo.clear()
         self._existing_branch_combo.addItems(branches or ["(none)"])
+
+    def _refresh_worktrees_from_cache(self) -> None:
+        statuses = list(self._worktree_status_map.values())
+        branches = getattr(self, "_all_branches_cache", ["main"])
+        self._repopulate_branch_combos(branches)
         self._render_worktree_rows(statuses, branches)
 
     def _render_worktree_rows(self, statuses: list, branches: list = None) -> None:
@@ -680,7 +680,7 @@ class ProjectOperationsDialog(QDialog):
             self._active_new_branch_panel = None
             # Add the new branch to the cached list so all worktree dropdowns see it
             if new_branch not in self._all_branches_cache:
-                self._all_branches_cache = sorted(self._all_branches_cache + [new_branch])
+                bisect.insort(self._all_branches_cache, new_branch)
             # Refresh using the updated in-memory map so we don't need a round-trip
             self._refresh_worktrees_from_cache()
 
