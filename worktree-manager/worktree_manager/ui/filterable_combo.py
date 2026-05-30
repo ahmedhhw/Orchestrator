@@ -64,6 +64,15 @@ class FilterableComboBox(QComboBox):
         if not self._in_edit:
             self._committed_index = index
 
+    def setCurrentText(self, text):
+        # On an editable QComboBox the base setCurrentText only writes the
+        # line-edit text and leaves currentIndex() stale. Selection-only means
+        # we instead select the matching item (and ignore non-matches, exactly
+        # like a non-editable combo), keeping currentIndex/_committed_index right.
+        idx = self.findText(text, Qt.MatchExactly)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+
     def addItems(self, texts):
         super().addItems(texts)
         self._sync_completer()

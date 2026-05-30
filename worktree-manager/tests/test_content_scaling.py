@@ -82,13 +82,16 @@ def test_worktree_name_label_is_not_fixed_width(qtbot):
         path="/repos/proj", branch="main", is_main=True,
         last_commit_ts=0, is_stale=False, is_merged=False,
     )
-    vm.load_worktrees.return_value = [wt]
-    vm.list_branches_with_checkout_status.return_value = [("main", False)]
+    vm.load_worktree_view_data.return_value = {
+        "worktrees": [wt],
+        "branch_status": [("main", False)],
+    }
 
     view = PerRepoWorktreesView(
         vm=vm, repo_name="proj", on_cleanup=lambda: None, on_new=lambda: None,
     )
     qtbot.addWidget(view)
+    qtbot.waitUntil(lambda: not view._loading, timeout=3000)
 
     assert view._worktree_rows, "expected at least one row"
     row = view._worktree_rows[0]
@@ -108,13 +111,16 @@ def test_worktree_branch_combo_is_not_fixed_width(qtbot):
         path="/repos/proj", branch="main", is_main=True,
         last_commit_ts=0, is_stale=False, is_merged=False,
     )
-    vm.load_worktrees.return_value = [wt]
-    vm.list_branches_with_checkout_status.return_value = [("main", False)]
+    vm.load_worktree_view_data.return_value = {
+        "worktrees": [wt],
+        "branch_status": [("main", False)],
+    }
 
     view = PerRepoWorktreesView(
         vm=vm, repo_name="proj", on_cleanup=lambda: None, on_new=lambda: None,
     )
     qtbot.addWidget(view)
+    qtbot.waitUntil(lambda: not view._loading, timeout=3000)
 
     row = view._worktree_rows[0]
     layout = row.layout()

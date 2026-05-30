@@ -261,3 +261,42 @@ keys) and already use `currentIndexChanged` — become searchable, with `findDat
 
 **How to confirm:** Run `python3.14 run.py` from `worktree-manager/`, perform each action above, and check off each item manually.
 Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+**Per-worktree branch switcher (main window):**
+- [ ] In the main window, click a worktree's **branch dropdown** — confirm a text cursor appears (it is now editable).
+- [ ] Type a partial branch name — confirm the popup filters to only matching branches.
+- [ ] Pick a match — confirm the worktree actually switches to that branch (no error, the new branch is shown).
+- [ ] Type junk (e.g. `zzzzzzz`) then click away — confirm the dropdown reverts to the current branch and **no branch switch is attempted**.
+- [ ] Select a branch already checked out in another worktree — confirm the "Cannot switch" error appears and the dropdown reverts to the original branch.
+
+**Per-repo worktrees view:**
+- [ ] Open the per-repo worktrees view and repeat the type-to-filter / pick / revert checks on a branch dropdown there.
+
+**Workspace projects panel:**
+- [ ] In the workspace projects panel, type to filter a project's branch dropdown and pick a match — confirm the selection commits without spurious side effects while typing.
+
+**Repo pickers (dialogs):**
+- [ ] Open the **Add Command** dialog — confirm its repo dropdown is filterable; type to filter and pick a repo.
+- [ ] Open the **Launch** dialog — type to filter the repo dropdown; confirm picking a repo loads that repo's worktrees, and that merely *typing* does not reload worktrees until a match is committed.
+- [ ] Open the **Project Operations** dialog — type to filter the repo dropdown and pick a repo; confirm typing alone does not trigger a worktree reload.
+
+**Project Operations branch/base combos:**
+- [ ] In the Project Operations dialog, type to filter a per-row **branch** dropdown and pick a match — confirm the branch switches and that typing alone does not switch branches.
+- [ ] Verify the **new-base** and **existing-branch** combos in that dialog are also filterable.
+
+**Settings shell picker:**
+- [ ] Open **Settings** — confirm the **Shell** dropdown is filterable; pick a shell and confirm the choice persists after closing/reopening Settings.
+
+**Create Worktree existing-branch combo:**
+- [ ] Open the **Create Worktree** dialog, switch to the existing-branch mode, and type to filter the **existing branch** dropdown; pick a match and confirm it commits.
+- [ ] Type junk in that existing-branch combo then click away — confirm it reverts to the prior valid selection.
+
+**Regression — Iteration 0:**
+- [ ] Re-confirm the **Create Worktree → Base branch** dropdown still filters, commits a picked match, reverts junk on blur, and creates a worktree on the correct branch.
+
+**How to confirm:** Run `python3.14 run.py` from `worktree-manager/`, perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.

@@ -104,3 +104,21 @@ def test_addItems_keeps_completer_in_sync(qtbot, combo):
 
 def test_insert_policy_prevents_free_text_entry(combo):
     assert combo.insertPolicy() == QComboBox.NoInsert
+
+
+def test_set_current_text_with_valid_item_changes_index(qtbot, combo):
+    combo.setCurrentIndex(0)
+    fired = []
+    combo.currentIndexChanged.connect(lambda i: fired.append(i))
+    combo.setCurrentText("main")
+    assert combo.currentIndex() == 3
+    assert fired == [3]
+
+
+def test_set_current_text_with_invalid_item_does_not_change_index(qtbot, combo):
+    combo.setCurrentIndex(0)
+    fired = []
+    combo.currentIndexChanged.connect(lambda i: fired.append(i))
+    combo.setCurrentText("nonexistent")
+    assert combo.currentIndex() == 0
+    assert fired == []

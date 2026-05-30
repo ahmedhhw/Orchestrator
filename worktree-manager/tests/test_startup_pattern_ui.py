@@ -35,8 +35,7 @@ def test_add_dialog_startup_pattern_field_is_empty_by_default(qtbot):
 def test_add_dialog_save_passes_startup_pattern_to_vm(qtbot):
     vm = _vm()
     d = _add_dlg(qtbot, vm=vm)
-    name_entry = next(e for e in d.findChildren(QLineEdit) if e is not d._pattern_entry)
-    name_entry.setText("dev")
+    d._name_entry.setText("dev")
     d.findChild(QPlainTextEdit).setPlainText("npm run dev")
     d._pattern_entry.setText("ready on")
     next(b for b in d.findChildren(QPushButton) if b.text() == "Save").click()
@@ -46,8 +45,7 @@ def test_add_dialog_save_passes_startup_pattern_to_vm(qtbot):
 def test_add_dialog_save_with_empty_pattern_passes_none(qtbot):
     vm = _vm()
     d = _add_dlg(qtbot, vm=vm)
-    name_entry = next(e for e in d.findChildren(QLineEdit) if e is not d._pattern_entry)
-    name_entry.setText("dev")
+    d._name_entry.setText("dev")
     d.findChild(QPlainTextEdit).setPlainText("npm run dev")
     next(b for b in d.findChildren(QPushButton) if b.text() == "Save").click()
     vm.save_command.assert_called_once_with("/repos/proj", "dev", "npm run dev", startup_pattern=None)

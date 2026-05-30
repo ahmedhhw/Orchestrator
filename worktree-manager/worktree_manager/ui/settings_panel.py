@@ -3,6 +3,8 @@ from PySide6.QtWidgets import (
     QPushButton, QSpinBox, QVBoxLayout,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 from worktree_manager.setup_settings_vm import SettingsViewModel
 
 
@@ -45,7 +47,7 @@ class SettingsDialog(QDialog):
 
         row3 = QHBoxLayout()
         row3.addWidget(QLabel("Shell:"))
-        self._shell_combo = QComboBox()
+        self._shell_combo = FilterableComboBox()
         self._shell_combo.addItems(["zsh", "bash"])
         current_shell = store.get_ui_pref("shell", "zsh") if store else "zsh"
         idx = self._shell_combo.findText(current_shell)

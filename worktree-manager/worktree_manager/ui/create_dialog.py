@@ -131,12 +131,14 @@ class CreateDialog(QDialog):
         ex_layout.setSpacing(4)
 
         ex_layout.addWidget(QLabel("Existing branch:"))
-        self._existing_combo = QComboBox()
+        self._existing_combo = FilterableComboBox()
         self._existing_combo.addItems(self._existing_branches or ["(none available)"])
         self._existing_var = _StringVar(
             self._existing_branches[0] if self._existing_branches else ""
         )
-        self._existing_combo.currentTextChanged.connect(self._existing_var.set)
+        self._existing_combo.currentIndexChanged.connect(
+            lambda _: self._existing_var.set(self._existing_combo.currentText())
+        )
         self._existing_var._on_change = self._existing_combo.setCurrentText
         ex_layout.addWidget(self._existing_combo)
 
