@@ -172,6 +172,12 @@ class ConfigStore:
     def set_branch_diff_mode(self, mode: str) -> None:
         self.set_ui_pref("branch_diff_mode", mode)
 
+    def get_experimental_features(self) -> bool:
+        return bool(self.get_ui_pref("experimental_features", False))
+
+    def set_experimental_features(self, enabled: bool) -> None:
+        self.set_ui_pref("experimental_features", enabled)
+
     def get_github_token(self) -> str | None:
         return self.get_ui_pref("github_token", None)
 

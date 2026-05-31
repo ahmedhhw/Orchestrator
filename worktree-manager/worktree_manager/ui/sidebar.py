@@ -98,7 +98,10 @@ class Sidebar(QWidget):
         outer.setContentsMargins(10, 16, 10, 16)
         outer.setSpacing(6)
 
+        experimental = store.get_experimental_features() if store else False
         for key, label in _TAB_DEFS:
+            if key == "github" and not experimental:
+                continue
             btn = QPushButton(label)
             btn.setStyleSheet(_INACTIVE_STYLE)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)

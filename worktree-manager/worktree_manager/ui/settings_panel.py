@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QHBoxLayout, QLabel,
+    QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel,
     QPushButton, QSpinBox, QVBoxLayout,
 )
 
@@ -80,6 +80,11 @@ class SettingsDialog(QDialog):
         row6.addStretch(1)
         outer.addLayout(row6)
 
+        self._experimental_check = QCheckBox("Enable experimental features")
+        current_experimental = store.get_experimental_features() if store else False
+        self._experimental_check.setChecked(current_experimental)
+        outer.addWidget(self._experimental_check)
+
         btns = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -100,4 +105,5 @@ class SettingsDialog(QDialog):
             self._store.set_ui_pref("editor", self._editor_combo.currentData())
             self._store.set_branch_diff_mode(self._branch_diff_combo.currentData())
             self._store.save_github_poll_interval(int(self._github_poll_spin.value()))
+            self._store.set_experimental_features(self._experimental_check.isChecked())
         self.accept()
