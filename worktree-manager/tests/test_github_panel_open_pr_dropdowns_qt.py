@@ -60,8 +60,9 @@ def test_repo_combo_shows_repos_from_vm(panel, vm, store):
     with patch.object(vm, "list_branches_for_repo", return_value=[]):
         panel._populate_open_pr_form()
     repo_items = [panel._repo_combo.itemText(i) for i in range(panel._repo_combo.count())]
-    assert "/repos/alpha" in repo_items
-    assert "/repos/beta" in repo_items
+    # Display names are basenames, not full paths
+    assert "alpha" in repo_items
+    assert "beta" in repo_items
 
 
 def test_repo_combo_empty_when_no_repos(panel, vm):

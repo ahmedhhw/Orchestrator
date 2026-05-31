@@ -257,6 +257,26 @@ class GitHubViewModel(QObject):
         """Return local repo paths known to the app."""
         return list(self._store.all_repos().keys())
 
+    def list_open_pr_repos_display(self) -> dict[str, str]:
+        """Return {display_name: full_path} for the repo dropdown.
+
+        Display name is the basename. If two repos share a basename, both get
+        their full path as the key so nothing is lost.
+        """
+        paths = list(self._store.all_repos().keys())
+        from pathlib import Path
+        basenames = [Path(p).name for p in paths]
+        # detect collisions
+        seen: dict[str, int] = {}
+        for name in basenames:
+            seen[name] = seen.get(name, 0) + 1
+        result: dict[str, str] = {}
+        for path in paths:
+            name = Path(path).name
+            key = path if seen[name] > 1 else name
+            result[key] = path
+        return result
+
     def list_remote_branches_for_repo(self, repo_path: str) -> list[str]:
         """Return remote branch names via git branch -r for the given repo path."""
         try:

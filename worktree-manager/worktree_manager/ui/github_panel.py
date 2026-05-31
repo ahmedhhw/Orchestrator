@@ -264,12 +264,7 @@ class GitHubPanel(QWidget):
         open_pr_layout = QVBoxLayout(open_pr_widget)
         open_pr_layout.setContentsMargins(12, 12, 12, 12)
 
-        self._open_pr_stack = QStackedWidget()
-
-        # Form page
-        form_page = QWidget()
-        form_layout = QVBoxLayout(form_page)
-        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout = open_pr_layout
 
         form_layout.addWidget(QLabel("Repo:"))
         self._repo_combo = FilterableComboBox()
@@ -314,21 +309,7 @@ class GitHubPanel(QWidget):
         self._open_pr_error_label.hide()
         form_layout.addWidget(self._open_pr_error_label)
         form_layout.addStretch(1)
-        self._open_pr_stack.addWidget(form_page)
 
-        # Existing PR page
-        existing_pr_widget = QWidget()
-        existing_layout = QVBoxLayout(existing_pr_widget)
-        self._existing_pr_label = QLabel()
-        self._existing_pr_label.setWordWrap(True)
-        existing_layout.addWidget(self._existing_pr_label)
-        view_in_my_prs_btn = QPushButton("View in My PRs")
-        view_in_my_prs_btn.clicked.connect(lambda: self._tabs.setCurrentIndex(0))
-        existing_layout.addWidget(view_in_my_prs_btn)
-        existing_layout.addStretch(1)
-        self._open_pr_stack.addWidget(existing_pr_widget)
-
-        open_pr_layout.addWidget(self._open_pr_stack)
         self._tabs.addTab(open_pr_widget, "Open PR")
 
         # ── connect VM signals ──────────────────────────────────────────────
@@ -339,6 +320,7 @@ class GitHubPanel(QWidget):
         vm.refresh_error.connect(self._on_refresh_error)
         vm.fetch_status_changed.connect(self._fetch_status_label.setText)
 
+        self._repo_display_map: dict[str, str] = {}
         self._apply_token_state()
         self._populate_open_pr_form()
         if vm.token_state == TokenState.CONFIGURED:
@@ -445,7 +427,6 @@ class GitHubPanel(QWidget):
             self._pr_list.addItem(item)
             self._pr_list.setItemWidget(item, row_widget)
 
-        self._check_open_pr_tab()
 
     def _ci_badge(self, pr: PullRequest) -> str:
         s = pr.ci_status()
@@ -593,18 +574,23 @@ class GitHubPanel(QWidget):
 
     # ── Open PR form ───────────────────────────────────────────────────────────
 
+    def _current_repo_path(self) -> str:
+        """Resolve the combo's current display name back to the full repo path."""
+        display = self._repo_combo.currentText()
+        return self._repo_display_map.get(display, display)
+
     def _populate_open_pr_form(self):
-        # Populate repo dropdown from local repos known to the app
-        repos = self._vm.list_open_pr_repos()
+        self._repo_display_map: dict[str, str] = self._vm.list_open_pr_repos_display()
         self._repo_combo.blockSignals(True)
         self._repo_combo.clear()
-        for r in repos:
-            self._repo_combo.addItem(r)
+        for display_name in self._repo_display_map:
+            self._repo_combo.addItem(display_name)
         self._repo_combo.blockSignals(False)
 
         # Load branches for the first repo (triggers title/base update)
-        if repos:
-            self._load_branches_for_repo(repos[0])
+        if self._repo_display_map:
+            first_path = next(iter(self._repo_display_map.values()))
+            self._load_branches_for_repo(first_path)
         else:
             self._head_branch_combo.clear()
             self._base_branch_combo.clear()
@@ -612,7 +598,6 @@ class GitHubPanel(QWidget):
 
         # Pre-fill description from PR template of the selected repo
         self._prefill_pr_template()
-        self._check_open_pr_tab()
 
     def _load_branches_for_repo(self, repo_path: str) -> None:
         remote_branches = self._vm.list_remote_branches_for_repo(repo_path)
@@ -630,9 +615,12 @@ class GitHubPanel(QWidget):
             w.setEnabled(has_remote)
 
         local_branches = self._vm.list_branches_for_repo(repo_path)
+        branches_with_prs = {p.head_branch for p in self._vm.prs}
+        available_branches = [b for b in local_branches if b not in branches_with_prs]
+
         self._head_branch_combo.blockSignals(True)
         self._head_branch_combo.clear()
-        for b in local_branches:
+        for b in available_branches:
             self._head_branch_combo.addItem(b)
         self._head_branch_combo.blockSignals(False)
 
@@ -640,14 +628,14 @@ class GitHubPanel(QWidget):
         for b in remote_branches:
             self._base_branch_combo.addItem(b)
 
-        initial_branch = local_branches[0] if local_branches else ""
+        initial_branch = available_branches[0] if available_branches else ""
         self._set_base_branch_for_head(initial_branch, remote_branches)
 
-        if local_branches:
-            self._update_title_from_branch(local_branches[0])
+        if available_branches:
+            self._update_title_from_branch(available_branches[0])
 
     def _on_repo_changed(self, index: int) -> None:
-        repo_path = self._repo_combo.currentText()
+        repo_path = self._current_repo_path()
         if repo_path:
             self._load_branches_for_repo(repo_path)
             self._prefill_pr_template()
@@ -660,14 +648,14 @@ class GitHubPanel(QWidget):
                 self._base_branch_combo.itemText(i)
                 for i in range(self._base_branch_combo.count())
             ]
-            repo_path = self._repo_combo.currentText()
+            repo_path = self._current_repo_path()
             self._set_base_branch_for_head(branch, remote_branches, repo_path=repo_path)
 
     def _set_base_branch_for_head(
         self, branch: str, remote_branches: list[str], repo_path: str | None = None
     ) -> None:
         if not repo_path:
-            repo_path = self._repo_combo.currentText()
+            repo_path = self._current_repo_path()
         parent = None
         if branch and repo_path:
             parent = self._vm.get_parent_branch_for_repo(repo_path, branch, remote_branches)
@@ -683,33 +671,19 @@ class GitHubPanel(QWidget):
         self._pr_title_edit.setText(title)
 
     def _prefill_pr_template(self) -> None:
-        repo_path = self._repo_combo.currentText()
+        repo_path = self._current_repo_path()
         if repo_path:
             template_path = Path(repo_path) / ".github" / "pull_request_template.md"
             if template_path.exists():
                 self._description_edit.setPlainText(template_path.read_text())
 
-        self._check_open_pr_tab()
-
-    def _check_open_pr_tab(self):
-        """Show existing-PR summary if current branch already has an open PR."""
-        current_branch = _current_git_branch("")
-        existing = next((p for p in self._vm.prs if p.head_branch == current_branch), None)
-        if existing:
-            badge = self._ci_badge(existing)
-            self._existing_pr_label.setText(
-                f"PR already open:\n#{existing.number}  {existing.title}  {badge}"
-            )
-            self._open_pr_stack.setCurrentIndex(1)
-        else:
-            self._open_pr_stack.setCurrentIndex(0)
 
     def _on_push_open_pr(self):
         title = self._pr_title_edit.text().strip()
         body = self._description_edit.toPlainText()
         base = self._base_branch_combo.currentText()
         draft = self._draft_checkbox.isChecked()
-        repo_path = self._repo_combo.currentText()
+        repo_path = self._current_repo_path()
         branch = self._head_branch_combo.currentText()
 
         self._open_pr_error_label.hide()
