@@ -26,7 +26,7 @@ def test_merge_notification_fires_when_enabled(qtbot, monkeypatch):
 
     shown = []
     with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
-        app._on_pr_event(1, "pr_merged", '✅ "My Work" merged')
+        app._on_pr_event(("myorg", "myrepo", 1), "pr_merged", '✅ "My Work" merged')
 
     assert len(shown) == 1
     assert "My Work" in shown[0][1]

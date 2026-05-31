@@ -46,22 +46,33 @@ def test_squash_checkbox_exists(panel):
     assert hasattr(panel, "_squash_checkbox")
 
 
-def test_merge_button_hidden_when_not_ready(panel, configured_vm, qtbot):
+def test_merge_button_visible_when_checks_failed_but_approved_and_mergeable(panel, configured_vm, qtbot):
     pr = _make_pr(
         checks=[CICheck("build", "completed", "failure")],
         reviews=[Review("alice", "APPROVED")],
         mergeable=True,
     )
     _show_detail(panel, configured_vm, pr)
+    assert panel._merge_btn.isVisible()
+    assert panel._squash_checkbox.isVisible()
+
+
+def test_merge_button_hidden_when_not_mergeable(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=False,
+    )
+    _show_detail(panel, configured_vm, pr)
     assert not panel._merge_btn.isVisible()
     assert not panel._squash_checkbox.isVisible()
 
 
-def test_merge_button_hidden_when_no_approval(panel, configured_vm, qtbot):
+def test_merge_button_hidden_when_mergeable_unknown(panel, configured_vm, qtbot):
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
-        reviews=[],
-        mergeable=True,
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=None,
     )
     _show_detail(panel, configured_vm, pr)
     assert not panel._merge_btn.isVisible()
@@ -122,3 +133,17 @@ def test_merge_button_calls_service_without_squash(panel, configured_vm, qtbot):
     args, kwargs = configured_vm._svc.merge_pr.call_args
     assert args[0].number == 1
     assert kwargs["squash"] is False
+
+
+def test_merge_btn_reconnect_does_not_warn(panel, configured_vm, recwarn):
+    """Showing a mergeable PR twice must not emit a RuntimeWarning for the merge button."""
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    _show_detail(panel, configured_vm, pr)
+
+    runtime_warnings = [w for w in recwarn.list if issubclass(w.category, RuntimeWarning)]
+    assert runtime_warnings == []

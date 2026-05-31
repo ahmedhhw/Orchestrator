@@ -967,7 +967,7 @@ class App(QMainWindow):
             "cmd_center_notifications_enabled", True
         ))
 
-    def _on_pr_event(self, pr_number: int, event_type: str, message: str) -> None:
+    def _on_pr_event(self, pr_key: tuple, event_type: str, message: str) -> None:
         if self._store.get_ui_pref("github_notifications_enabled", True):
             self._show_notification("Pull Requests", message)
             if not self.isActiveWindow():

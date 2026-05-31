@@ -39,8 +39,10 @@ class PullRequest:
     checks: list[CICheck] = field(default_factory=list)
     reviews: list[Review] = field(default_factory=list)
     comments: list[PRComment] = field(default_factory=list)
+    head_sha: str = field(default="")
     owner: str = field(default="")
     repo: str = field(default="")
+    mergeable_state: str = field(default="")
 
     def __post_init__(self):
         if (not self.owner or not self.repo) and self.html_url:
@@ -48,6 +50,10 @@ class PullRequest:
             if len(parts) >= 2:
                 self.owner = parts[0]
                 self.repo = parts[1]
+
+    @property
+    def pr_key(self) -> tuple[str, str, int]:
+        return (self.owner, self.repo, self.number)
 
     def ci_status(self) -> str:
         """Return 'running', 'failed', 'passed', or 'unknown'."""
@@ -60,11 +66,24 @@ class PullRequest:
             return "running"
         return "passed"
 
+    def mergeability(self) -> str:
+        """Return 'mergeable' | 'conflicts' | 'behind' | 'blocked' | 'checking'."""
+        if self.mergeable is None:
+            return "checking"
+        state = self.mergeable_state
+        if state == "dirty":
+            return "conflicts"
+        if state == "behind":
+            return "behind"
+        if state == "blocked":
+            return "blocked"
+        if state in ("unknown",):
+            return "checking"
+        if state in ("clean", "has_hooks", "unstable", ""):
+            return "mergeable" if self.mergeable else "checking"
+        return "mergeable" if self.mergeable else "conflicts"
+
     def is_ready_to_merge(self) -> bool:
-        if self.mergeable is not True:
-            return False
-        if not self.checks:
-            return False
-        if self.ci_status() != "passed":
-            return False
-        return any(r.state == "APPROVED" for r in self.reviews)
+        #DON'T CHANGE THIS METHOD, I want this to depend on only whether the PR is marked as mergeable by GitHub, 
+        #which is what the real UI does.
+        return self.mergeable

@@ -49,21 +49,21 @@ class TestIsReadyToMerge:
         )
         assert pr.is_ready_to_merge() is True
 
-    def test_not_ready_when_checks_running(self):
+    def test_ready_when_checks_running_but_mergeable_and_approved(self):
         pr = _pr(
             checks=[CICheck("build", "in_progress", None)],
             reviews=[Review("alice", "APPROVED")],
             mergeable=True,
         )
-        assert pr.is_ready_to_merge() is False
+        assert pr.is_ready_to_merge() is True
 
-    def test_not_ready_without_approval(self):
+    def test_ready_without_approval_when_mergeable(self):
         pr = _pr(
             checks=[CICheck("build", "completed", "success")],
             reviews=[],
             mergeable=True,
         )
-        assert pr.is_ready_to_merge() is False
+        assert pr.is_ready_to_merge() is True
 
     def test_not_ready_when_not_mergeable(self):
         pr = _pr(
@@ -72,6 +72,59 @@ class TestIsReadyToMerge:
             mergeable=False,
         )
         assert pr.is_ready_to_merge() is False
+
+
+class TestMergeability:
+    def test_clean_is_mergeable(self):
+        assert _pr(mergeable=True, mergeable_state="clean").mergeability() == "mergeable"
+
+    def test_unstable_is_mergeable(self):
+        assert _pr(mergeable=True, mergeable_state="unstable").mergeability() == "mergeable"
+
+    def test_dirty_is_conflicts(self):
+        assert _pr(mergeable=False, mergeable_state="dirty").mergeability() == "conflicts"
+
+    def test_behind_is_behind(self):
+        assert _pr(mergeable=False, mergeable_state="behind").mergeability() == "behind"
+
+    def test_blocked_is_blocked(self):
+        assert _pr(mergeable=False, mergeable_state="blocked").mergeability() == "blocked"
+
+    def test_unknown_state_with_none_is_checking(self):
+        assert _pr(mergeable=None, mergeable_state="unknown").mergeability() == "checking"
+
+    def test_empty_state_with_none_is_checking(self):
+        assert _pr(mergeable=None, mergeable_state="").mergeability() == "checking"
+
+    def test_mergeable_state_defaults_to_empty_string(self):
+        assert _pr().mergeable_state == ""
+
+    def test_is_ready_to_merge_unchanged_depends_only_on_mergeable(self):
+        assert _pr(mergeable=True, mergeable_state="dirty").is_ready_to_merge() is True
+        assert _pr(mergeable=False, mergeable_state="clean").is_ready_to_merge() is False
+
+
+class TestPRKey:
+    def test_pr_key_returns_owner_repo_number(self):
+        pr = PullRequest(
+            number=2, title="t", body="",
+            html_url="https://github.com/ahmedhhw/Orchestrator/pull/2",
+            head_branch="f", base_branch="main", state="open", draft=False, mergeable=True,
+        )
+        assert pr.pr_key == ("ahmedhhw", "Orchestrator", 2)
+
+    def test_pr_key_different_repos_same_number_are_distinct(self):
+        pr1 = PullRequest(
+            number=2, title="t", body="",
+            html_url="https://github.com/ahmedhhw/Orchestrator/pull/2",
+            head_branch="f", base_branch="main", state="open", draft=False, mergeable=True,
+        )
+        pr2 = PullRequest(
+            number=2, title="t", body="",
+            html_url="https://github.com/ahmedhhw/time-control-swift/pull/2",
+            head_branch="f", base_branch="main", state="open", draft=False, mergeable=True,
+        )
+        assert pr1.pr_key != pr2.pr_key
 
 
 class TestPRCommentSeen:

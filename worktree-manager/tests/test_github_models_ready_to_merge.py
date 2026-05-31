@@ -23,40 +23,40 @@ def test_ready_to_merge_when_all_checks_pass_and_approved():
     assert pr.is_ready_to_merge() is True
 
 
-def test_not_ready_when_checks_failed():
+def test_ready_when_checks_failed_but_mergeable_and_approved():
     pr = _make_pr(
         checks=[CICheck("build", "completed", "failure")],
         reviews=[Review("alice", "APPROVED")],
         mergeable=True,
     )
-    assert pr.is_ready_to_merge() is False
+    assert pr.is_ready_to_merge() is True
 
 
-def test_not_ready_when_checks_running():
+def test_ready_when_checks_running_but_mergeable_and_approved():
     pr = _make_pr(
         checks=[CICheck("build", "in_progress", None)],
         reviews=[Review("alice", "APPROVED")],
         mergeable=True,
     )
-    assert pr.is_ready_to_merge() is False
+    assert pr.is_ready_to_merge() is True
 
 
-def test_not_ready_when_no_approved_review():
+def test_ready_when_no_approved_review_but_mergeable():
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
         reviews=[Review("alice", "COMMENTED")],
         mergeable=True,
     )
-    assert pr.is_ready_to_merge() is False
+    assert pr.is_ready_to_merge() is True
 
 
-def test_not_ready_when_no_reviews_at_all():
+def test_ready_when_no_reviews_but_mergeable():
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
         reviews=[],
         mergeable=True,
     )
-    assert pr.is_ready_to_merge() is False
+    assert pr.is_ready_to_merge() is True
 
 
 def test_not_ready_when_not_mergeable():
@@ -74,13 +74,13 @@ def test_not_ready_when_mergeable_is_none():
         reviews=[Review("alice", "APPROVED")],
         mergeable=None,
     )
-    assert pr.is_ready_to_merge() is False
+    assert not pr.is_ready_to_merge()
 
 
-def test_not_ready_when_no_checks():
+def test_ready_when_no_checks_but_mergeable_and_approved():
     pr = _make_pr(
         checks=[],
         reviews=[Review("alice", "APPROVED")],
         mergeable=True,
     )
-    assert pr.is_ready_to_merge() is False
+    assert pr.is_ready_to_merge() is True

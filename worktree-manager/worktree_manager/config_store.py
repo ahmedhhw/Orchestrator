@@ -184,6 +184,12 @@ class ConfigStore:
     def save_github_poll_interval(self, seconds: int) -> None:
         self.set_ui_pref("github_poll_interval_seconds", seconds)
 
+    def get_github_total_fetch_interval(self) -> int:
+        return int(self.get_ui_pref("github_total_fetch_interval_seconds", 300))
+
+    def save_github_total_fetch_interval(self, seconds: int) -> None:
+        self.set_ui_pref("github_total_fetch_interval_seconds", seconds)
+
     def push_mru(self, action_name: str, args: dict, cap: int = 10) -> None:
         entry = {"action": action_name, "args": dict(args)}
         mru: list = self.get_ui_pref("mru", [])

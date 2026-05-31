@@ -89,14 +89,14 @@ def test_merge_failure_does_not_navigate_back(panel, configured_vm, qtbot):
 
 def test_vm_emits_pr_merged_event_on_successful_merge(configured_vm, qtbot):
     merged_events = []
-    configured_vm.pr_event.connect(lambda num, evt, msg: merged_events.append((num, evt, msg)))
+    configured_vm.pr_event.connect(lambda key, evt, msg: merged_events.append((key, evt, msg)))
     configured_vm._svc = MagicMock()
     configured_vm._svc.merge_pr.return_value = None
     configured_vm._svc.list_my_open_prs.return_value = []
 
     pr = _make_pr(1)
     configured_vm.prs = [pr]
-    configured_vm.merge_pr(1, squash=True)
+    configured_vm.merge_pr(pr, squash=True)
 
     assert any(e[1] == "pr_merged" for e in merged_events)
     assert any("My Work" in e[2] for e in merged_events)
