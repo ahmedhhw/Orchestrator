@@ -61,4 +61,10 @@ class PullRequest:
         return "passed"
 
     def is_ready_to_merge(self) -> bool:
-        return self.mergeable is True
+        if self.mergeable is not True:
+            return False
+        if not self.checks:
+            return False
+        if self.ci_status() != "passed":
+            return False
+        return any(r.state == "APPROVED" for r in self.reviews)

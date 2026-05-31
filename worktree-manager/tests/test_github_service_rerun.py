@@ -7,7 +7,7 @@ from worktree_manager.github_models import PullRequest
 
 @pytest.fixture
 def svc():
-    return GitHubService(token="ghp_test", owner="myorg", repo="myrepo")
+    return GitHubService(token="ghp_test")
 
 
 def _make_pr(owner="myorg", repo="myrepo"):

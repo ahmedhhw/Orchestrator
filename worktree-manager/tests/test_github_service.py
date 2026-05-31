@@ -4,34 +4,21 @@ from worktree_manager.github_service import GitHubService
 from worktree_manager.github_models import PullRequest, CICheck, Review, PRComment
 
 
-OWNER = "myorg"
-REPO = "myrepo"
 TOKEN = "ghp_test"
 
 
 @pytest.fixture
 def service():
-    return GitHubService(token=TOKEN, owner=OWNER, repo=REPO)
+    return GitHubService(token=TOKEN)
 
 
-# ── remote detection ────────────────────────────────────────────────────────
-
-
-def test_from_remote_url_parses_https():
-    svc = GitHubService.from_remote_url("https://github.com/myorg/myrepo.git", TOKEN)
-    assert svc.owner == "myorg"
-    assert svc.repo == "myrepo"
-
-
-def test_from_remote_url_parses_ssh():
-    svc = GitHubService.from_remote_url("git@github.com:myorg/myrepo.git", TOKEN)
-    assert svc.owner == "myorg"
-    assert svc.repo == "myrepo"
-
-
-def test_from_remote_url_strips_dot_git():
-    svc = GitHubService.from_remote_url("https://github.com/myorg/myrepo", TOKEN)
-    assert svc.repo == "myrepo"
+def _make_pr(number=1):
+    return PullRequest(
+        number=number, title="Test PR", body="",
+        html_url=f"https://github.com/myorg/myrepo/pull/{number}",
+        head_branch="feat", base_branch="main",
+        state="open", draft=False, mergeable=True,
+    )
 
 
 # ── get_authenticated_user ───────────────────────────────────────────────────
@@ -151,6 +138,7 @@ def _pr_api_payload(number=1, sha="abc123"):
 
 
 def test_get_pr_detail_fetches_checks_reviews_comments(service):
+    pr = _make_pr(1)
     pr_resp = MagicMock(status_code=200)
     pr_resp.json.return_value = _pr_api_payload(sha="abc123")
 
@@ -171,19 +159,19 @@ def test_get_pr_detail_fetches_checks_reviews_comments(service):
     ]
 
     with patch("requests.get", side_effect=[pr_resp, checks_resp, reviews_resp, comments_resp]):
-        pr = service.get_pr_detail(1)
+        detail = service.get_pr_detail(1, pr=pr)
 
-    assert pr.number == 1
-    assert len(pr.checks) == 1
-    assert pr.checks[0].name == "build"
-    assert pr.checks[0].conclusion == "success"
-    assert pr.checks[0].check_suite_id == "99"
-    assert len(pr.reviews) == 1
-    assert pr.reviews[0].author == "alice"
-    assert pr.reviews[0].state == "APPROVED"
-    assert len(pr.comments) == 1
-    assert pr.comments[0].author == "bob"
-    assert pr.comments[0].id == 1
+    assert detail.number == 1
+    assert len(detail.checks) == 1
+    assert detail.checks[0].name == "build"
+    assert detail.checks[0].conclusion == "success"
+    assert detail.checks[0].check_suite_id == "99"
+    assert len(detail.reviews) == 1
+    assert detail.reviews[0].author == "alice"
+    assert detail.reviews[0].state == "APPROVED"
+    assert len(detail.comments) == 1
+    assert detail.comments[0].author == "bob"
+    assert detail.comments[0].id == 1
 
 
 # ── create_pull_request ───────────────────────────────────────────────────────
@@ -203,7 +191,10 @@ def test_create_pull_request_posts_and_returns_pr(service):
         "mergeable": None,
     }
     with patch("requests.post", return_value=fake_response) as mock_post:
-        pr = service.create_pull_request(title="New PR", body="body", base="main", draft=False)
+        pr = service.create_pull_request(
+            title="New PR", body="body", base="main", draft=False,
+            repo_base_url="https://api.github.com/repos/myorg/myrepo",
+        )
     assert pr.number == 99
     call_kwargs = mock_post.call_args[1]["json"]
     assert call_kwargs["title"] == "New PR"
@@ -216,7 +207,10 @@ def test_create_pull_request_raises_on_422(service):
     fake_response.json.return_value = {"message": "Validation Failed"}
     with patch("requests.post", return_value=fake_response):
         with pytest.raises(RuntimeError, match="Validation Failed"):
-            service.create_pull_request(title="X", body="", base="main", draft=False)
+            service.create_pull_request(
+                title="X", body="", base="main", draft=False,
+                repo_base_url="https://api.github.com/repos/myorg/myrepo",
+            )
 
 
 # ── push_branch ────────────────────────────────────────────────────────────────

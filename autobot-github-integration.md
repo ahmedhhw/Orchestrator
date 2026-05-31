@@ -1326,3 +1326,606 @@ def _on_prs_updated(self):
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.
+
+---
+
+## Iteration 2 — Merge
+
+### Phase 2.1 — `GitHubService.merge_pr` + `is_ready_to_merge` computation
+
+**What it covers:** Add `merge_pr(pr_number, squash)` to [worktree-manager/worktree_manager/github_service.py](worktree-manager/worktree_manager/github_service.py) and update `PullRequest.is_ready_to_merge()` in [worktree-manager/worktree_manager/github_models.py](worktree-manager/worktree_manager/github_models.py) to require all checks passing, at least one `APPROVED` review, and `mergeable == True`.
+
+**Files touched:**
+- [worktree-manager/worktree_manager/github_service.py](worktree-manager/worktree_manager/github_service.py)
+- [worktree-manager/worktree_manager/github_models.py](worktree-manager/worktree_manager/github_models.py)
+
+**Tests (Red) — write these first:**
+```python
+# tests/test_github_service_merge.py
+import pytest
+from unittest.mock import MagicMock, patch
+import requests
+from worktree_manager.github_service import GitHubService
+from worktree_manager.github_models import PullRequest, CICheck, Review
+
+
+@pytest.fixture
+def svc():
+    return GitHubService(token="ghp_test", owner="myorg", repo="myrepo")
+
+
+def test_merge_pr_calls_correct_endpoint_squash(svc):
+    with patch("worktree_manager.github_service.requests.put") as mock_put:
+        mock_put.return_value = MagicMock(status_code=200, ok=True)
+        mock_put.return_value.raise_for_status = MagicMock()
+        svc.merge_pr(42, squash=True)
+    mock_put.assert_called_once()
+    url = mock_put.call_args[0][0]
+    assert "pulls/42/merge" in url
+    payload = mock_put.call_args[1]["json"]
+    assert payload["merge_method"] == "squash"
+
+
+def test_merge_pr_calls_correct_endpoint_merge(svc):
+    with patch("worktree_manager.github_service.requests.put") as mock_put:
+        mock_put.return_value = MagicMock(status_code=200, ok=True)
+        mock_put.return_value.raise_for_status = MagicMock()
+        svc.merge_pr(42, squash=False)
+    payload = mock_put.call_args[1]["json"]
+    assert payload["merge_method"] == "merge"
+
+
+def test_merge_pr_raises_on_conflict(svc):
+    with patch("worktree_manager.github_service.requests.put") as mock_put:
+        mock_put.return_value = MagicMock(status_code=405, ok=False)
+        mock_put.return_value.raise_for_status.side_effect = requests.HTTPError("405")
+        mock_put.return_value.json.return_value = {"message": "Merge conflict"}
+        with pytest.raises(RuntimeError, match="Merge conflict"):
+            svc.merge_pr(42, squash=True)
+
+
+def test_merge_pr_raises_on_branch_protection(svc):
+    with patch("worktree_manager.github_service.requests.put") as mock_put:
+        mock_put.return_value = MagicMock(status_code=405, ok=False)
+        mock_put.return_value.raise_for_status.side_effect = requests.HTTPError("405")
+        mock_put.return_value.json.return_value = {"message": "Branch protection rule"}
+        with pytest.raises(RuntimeError, match="Branch protection rule"):
+            svc.merge_pr(42, squash=True)
+
+
+# tests/test_github_models_ready_to_merge.py
+import pytest
+from worktree_manager.github_models import PullRequest, CICheck, Review
+
+
+def _make_pr(checks=None, reviews=None, mergeable=True):
+    return PullRequest(
+        number=1, title="My Work", body="",
+        html_url="https://github.com/o/r/pull/1",
+        head_branch="feat", base_branch="main",
+        state="open", draft=False,
+        mergeable=mergeable,
+        checks=checks or [],
+        reviews=reviews or [],
+    )
+
+
+def test_ready_to_merge_when_all_checks_pass_and_approved(capsys):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    assert pr.is_ready_to_merge() is True
+
+
+def test_not_ready_when_checks_failed():
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "failure")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    assert pr.is_ready_to_merge() is False
+
+
+def test_not_ready_when_checks_running():
+    pr = _make_pr(
+        checks=[CICheck("build", "in_progress", None)],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    assert pr.is_ready_to_merge() is False
+
+
+def test_not_ready_when_no_approved_review():
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "COMMENTED")],
+        mergeable=True,
+    )
+    assert pr.is_ready_to_merge() is False
+
+
+def test_not_ready_when_no_reviews_at_all():
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[],
+        mergeable=True,
+    )
+    assert pr.is_ready_to_merge() is False
+
+
+def test_not_ready_when_not_mergeable():
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=False,
+    )
+    assert pr.is_ready_to_merge() is False
+
+
+def test_not_ready_when_mergeable_is_none():
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=None,
+    )
+    assert pr.is_ready_to_merge() is False
+
+
+def test_not_ready_when_no_checks():
+    pr = _make_pr(
+        checks=[],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    assert pr.is_ready_to_merge() is False
+```
+
+**Production code (Green):**
+
+In [worktree-manager/worktree_manager/github_models.py](worktree-manager/worktree_manager/github_models.py), replace `is_ready_to_merge`:
+```python
+def is_ready_to_merge(self) -> bool:
+    if self.mergeable is not True:
+        return False
+    if not self.checks:
+        return False
+    if self.ci_status() != "passed":
+        return False
+    return any(r.state == "APPROVED" for r in self.reviews)
+```
+
+In [worktree-manager/worktree_manager/github_service.py](worktree-manager/worktree_manager/github_service.py), add:
+```python
+def merge_pr(self, pr_number: int, squash: bool = True) -> None:
+    resp = requests.put(
+        f"{self._base}/pulls/{pr_number}/merge",
+        headers=self._headers,
+        json={"merge_method": "squash" if squash else "merge"},
+    )
+    if not resp.ok:
+        msg = resp.json().get("message", f"HTTP {resp.status_code}")
+        raise RuntimeError(msg)
+```
+
+**Done when:** `merge_pr` hits `PUT /repos/…/pulls/{n}/merge` with the correct method; raises `RuntimeError` with the API's message on failure; `is_ready_to_merge()` returns `True` only when checks all pass, at least one review is `APPROVED`, and `mergeable` is `True`.
+
+---
+
+### Phase 2.2 — Merge button + squash checkbox in PR detail view
+
+**What it covers:** Add a squash checkbox and "Merge PR" button to the bottom of the PR detail view in [worktree-manager/worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py). The button and checkbox are visible only when `pr.is_ready_to_merge()` is `True`; hidden otherwise.
+
+**Files touched:**
+- [worktree-manager/worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py)
+
+**Tests (Red) — write these first:**
+```python
+# tests/test_github_panel_merge_qt.py
+import pytest
+from unittest.mock import MagicMock, patch
+from worktree_manager.github_vm import GitHubViewModel
+from worktree_manager.github_models import PullRequest, CICheck, Review
+from worktree_manager.ui.github_panel import GitHubPanel
+
+
+def _make_pr(number=1, checks=None, reviews=None, mergeable=True, state="open"):
+    return PullRequest(
+        number=number, title="My Work", body="",
+        html_url=f"https://github.com/o/r/pull/{number}",
+        head_branch="feat", base_branch="main",
+        state=state, draft=False, mergeable=mergeable,
+        checks=checks or [], reviews=reviews or [],
+    )
+
+
+@pytest.fixture
+def configured_vm(tmp_path):
+    from worktree_manager.config_store import ConfigStore
+    store = ConfigStore(path=tmp_path / "config.json")
+    store.save_github_token("ghp_test")
+    with patch("worktree_manager.github_vm.GitHubService") as MockSvc, \
+         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
+        MockSvc.from_remote_url.return_value = MagicMock()
+        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    return v
+
+
+@pytest.fixture
+def panel(configured_vm, qtbot):
+    p = GitHubPanel(vm=configured_vm)
+    qtbot.addWidget(p)
+    p.show()
+    return p
+
+
+def _show_detail(panel, vm, pr):
+    vm.selected_pr = pr
+    vm.pr_detail_updated.emit()
+
+
+def test_merge_button_exists(panel):
+    assert hasattr(panel, "_merge_btn")
+
+
+def test_squash_checkbox_exists(panel):
+    assert hasattr(panel, "_squash_checkbox")
+
+
+def test_merge_button_hidden_when_not_ready(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "failure")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    assert not panel._merge_btn.isVisible()
+    assert not panel._squash_checkbox.isVisible()
+
+
+def test_merge_button_hidden_when_no_approval(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    assert not panel._merge_btn.isVisible()
+
+
+def test_merge_button_visible_when_ready(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    assert panel._merge_btn.isVisible()
+    assert panel._squash_checkbox.isVisible()
+
+
+def test_squash_checkbox_checked_by_default(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    assert panel._squash_checkbox.isChecked()
+
+
+def test_merge_button_calls_service_with_squash(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    configured_vm._svc = MagicMock()
+    configured_vm._svc.merge_pr.return_value = None
+    panel._squash_checkbox.setChecked(True)
+    panel._merge_btn.click()
+    configured_vm._svc.merge_pr.assert_called_once_with(1, squash=True)
+
+
+def test_merge_button_calls_service_without_squash(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    configured_vm._svc = MagicMock()
+    configured_vm._svc.merge_pr.return_value = None
+    panel._squash_checkbox.setChecked(False)
+    panel._merge_btn.click()
+    configured_vm._svc.merge_pr.assert_called_once_with(1, squash=False)
+```
+
+**Production code (Green):**
+
+In [worktree-manager/worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py), in `__init__` replace the `detail_layout.addStretch(1)` block at the bottom of the detail widget with:
+```python
+merge_row = QHBoxLayout()
+self._squash_checkbox = QCheckBox("Squash and merge")
+self._squash_checkbox.setChecked(True)
+self._squash_checkbox.hide()
+merge_row.addWidget(self._squash_checkbox)
+merge_row.addStretch(1)
+self._merge_btn = QPushButton("Merge PR")
+self._merge_btn.hide()
+merge_row.addWidget(self._merge_btn)
+detail_layout.addLayout(merge_row)
+
+self._merge_error_label = QLabel()
+self._merge_error_label.setStyleSheet("color: red;")
+self._merge_error_label.setWordWrap(True)
+self._merge_error_label.hide()
+detail_layout.addWidget(self._merge_error_label)
+
+detail_layout.addStretch(1)
+```
+
+In `_on_pr_detail_updated`, replace the merge status label block at the end with:
+```python
+s = pr.ci_status()
+if s == "running":
+    self._merge_status_label.setText("⏳ Checks running — not ready to merge")
+elif s == "failed":
+    self._merge_status_label.setText("❌ Checks failed")
+else:
+    self._merge_status_label.setText("")
+
+self._merge_error_label.hide()
+if pr.is_ready_to_merge():
+    self._merge_status_label.setText("✅ Ready to merge")
+    self._squash_checkbox.show()
+    self._merge_btn.show()
+    try:
+        self._merge_btn.clicked.disconnect()
+    except RuntimeError:
+        pass
+    self._merge_btn.clicked.connect(lambda checked=False, p=pr: self._on_merge_pr(p))
+else:
+    self._squash_checkbox.hide()
+    self._merge_btn.hide()
+```
+
+Add the `_on_merge_pr` method:
+```python
+def _on_merge_pr(self, pr: PullRequest) -> None:
+    svc = self._vm._svc
+    if svc is None:
+        return
+    squash = self._squash_checkbox.isChecked()
+    self._merge_btn.setEnabled(False)
+    self._merge_btn.setText("Merging…")
+    self._merge_error_label.hide()
+    try:
+        svc.merge_pr(pr.number, squash=squash)
+        self._vm.refresh_prs()
+        self._on_back()
+    except Exception as exc:
+        self._merge_error_label.setText(str(exc))
+        self._merge_error_label.show()
+    finally:
+        self._merge_btn.setEnabled(True)
+        self._merge_btn.setText("Merge PR")
+```
+
+**Done when:** Squash checkbox and Merge PR button appear only when `pr.is_ready_to_merge()` is `True`; checkbox is checked by default; clicking the button calls `svc.merge_pr` with the correct squash flag.
+
+---
+
+### Phase 2.3 — Post-merge UX: remove PR from list, show toast, fire notification
+
+**What it covers:** After a successful merge, the PR is removed from the list view, the panel returns to the list, and `App._show_notification` fires with "✅ 'My Work' merged". A `pr_merged` event is emitted from `GitHubViewModel` so `App` can intercept it.
+
+**Files touched:**
+- [worktree-manager/worktree_manager/github_vm.py](worktree-manager/worktree_manager/github_vm.py)
+- [worktree-manager/worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py)
+- [worktree-manager/worktree_manager/cli.py](worktree-manager/worktree_manager/cli.py)
+
+**Tests (Red) — write these first:**
+```python
+# tests/test_github_panel_merge_success_qt.py
+import pytest
+from unittest.mock import MagicMock, patch
+from worktree_manager.github_vm import GitHubViewModel
+from worktree_manager.github_models import PullRequest, CICheck, Review
+from worktree_manager.ui.github_panel import GitHubPanel
+
+
+def _make_pr(number=1, checks=None, reviews=None, mergeable=True):
+    return PullRequest(
+        number=number, title="My Work", body="",
+        html_url=f"https://github.com/o/r/pull/{number}",
+        head_branch="feat", base_branch="main",
+        state="open", draft=False, mergeable=mergeable,
+        checks=checks or [], reviews=reviews or [],
+    )
+
+
+@pytest.fixture
+def configured_vm(tmp_path):
+    from worktree_manager.config_store import ConfigStore
+    store = ConfigStore(path=tmp_path / "config.json")
+    store.save_github_token("ghp_test")
+    with patch("worktree_manager.github_vm.GitHubService") as MockSvc, \
+         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
+        MockSvc.from_remote_url.return_value = MagicMock()
+        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    return v
+
+
+@pytest.fixture
+def panel(configured_vm, qtbot):
+    p = GitHubPanel(vm=configured_vm)
+    qtbot.addWidget(p)
+    p.show()
+    return p
+
+
+def _show_detail(panel, vm, pr):
+    vm.selected_pr = pr
+    vm.pr_detail_updated.emit()
+
+
+def test_merge_success_navigates_back_to_list(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    configured_vm._svc = MagicMock()
+    configured_vm._svc.merge_pr.return_value = None
+    configured_vm._svc.list_my_open_prs.return_value = []
+
+    panel._merge_btn.click()
+
+    assert panel._my_prs_stack.currentWidget() is panel._pr_list_widget
+
+
+def test_merge_failure_shows_error_label(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    configured_vm._svc = MagicMock()
+    configured_vm._svc.merge_pr.side_effect = RuntimeError("Merge conflict")
+
+    panel._merge_btn.click()
+
+    assert panel._merge_error_label.isVisible()
+    assert "Merge conflict" in panel._merge_error_label.text()
+
+
+def test_merge_failure_does_not_navigate_back(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    configured_vm._svc = MagicMock()
+    configured_vm._svc.merge_pr.side_effect = RuntimeError("Branch protection rule")
+
+    panel._merge_btn.click()
+
+    assert panel._my_prs_stack.currentWidget() is panel._pr_detail_widget
+
+
+def test_vm_emits_pr_merged_event_on_successful_merge(configured_vm, qtbot):
+    merged_events = []
+    configured_vm.pr_event.connect(lambda num, evt, msg: merged_events.append((num, evt, msg)))
+    configured_vm._svc = MagicMock()
+    configured_vm._svc.merge_pr.return_value = None
+    configured_vm._svc.list_my_open_prs.return_value = []
+
+    pr = _make_pr(1)
+    configured_vm.prs = [pr]
+    configured_vm.merge_pr(1, squash=True)
+
+    assert any(e[1] == "pr_merged" for e in merged_events)
+    assert any("My Work" in e[2] for e in merged_events)
+
+
+# tests/test_github_merge_notification.py
+import pytest
+from unittest.mock import MagicMock, patch
+from worktree_manager.cli import App
+
+
+def _make_app(qtbot, monkeypatch):
+    store = MagicMock()
+    store.get_ui_pref.side_effect = lambda key, default=None: default
+    store.all_repos.return_value = {}
+    store.all_projects.return_value = []
+    store.get_github_token.return_value = None
+    store.get_github_poll_interval.return_value = 30
+    monkeypatch.setattr("worktree_manager.cli.ConfigStore", lambda *a, **kw: store)
+    monkeypatch.setattr("worktree_manager.cli.GitService", lambda *a, **kw: MagicMock())
+    with patch("worktree_manager.main_window_vm.MainWindowViewModel") as MockVM:
+        MockVM.return_value.load_worktrees.return_value = []
+        MockVM.return_value.list_branches_with_checkout_status.return_value = []
+        app = App()
+        qtbot.addWidget(app)
+    return app, store
+
+
+def test_merge_notification_fires_when_enabled(qtbot, monkeypatch):
+    app, store = _make_app(qtbot, monkeypatch)
+    store.get_ui_pref.side_effect = lambda key, default=None: True if key == "github_notifications_enabled" else default
+
+    shown = []
+    with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
+        app._on_pr_event(1, "pr_merged", '✅ "My Work" merged')
+
+    assert len(shown) == 1
+    assert "My Work" in shown[0][1]
+    assert "merged" in shown[0][1]
+```
+
+**Production code (Green):**
+
+In [worktree-manager/worktree_manager/github_vm.py](worktree-manager/worktree_manager/github_vm.py), add a `merge_pr` method:
+```python
+def merge_pr(self, pr_number: int, squash: bool = True) -> None:
+    if self._svc is None:
+        return
+    pr = next((p for p in self.prs if p.number == pr_number), None)
+    title = pr.title if pr else f"#{pr_number}"
+    self._svc.merge_pr(pr_number, squash=squash)
+    self.pr_event.emit(pr_number, "pr_merged", f'✅ "{title}" merged')
+    self.refresh_prs()
+```
+
+In [worktree-manager/worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py), update `_on_merge_pr` to delegate to the VM:
+```python
+def _on_merge_pr(self, pr: PullRequest) -> None:
+    squash = self._squash_checkbox.isChecked()
+    self._merge_btn.setEnabled(False)
+    self._merge_btn.setText("Merging…")
+    self._merge_error_label.hide()
+    try:
+        self._vm.merge_pr(pr.number, squash=squash)
+        self._on_back()
+    except Exception as exc:
+        self._merge_error_label.setText(str(exc))
+        self._merge_error_label.show()
+    finally:
+        self._merge_btn.setEnabled(True)
+        self._merge_btn.setText("Merge PR")
+```
+
+No changes needed in [worktree-manager/worktree_manager/cli.py](worktree-manager/worktree_manager/cli.py) — `_on_pr_event` already handles any event type including `"pr_merged"` when `github_notifications_enabled` is `True`.
+
+**Done when:** Successful merge navigates back to the PR list and fires a macOS notification "✅ 'My Work' merged" (when notifications enabled); merge failure shows an inline error in the detail view without navigating away.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 2
+
+> STOP. Do not proceed until every item below is checked off by the user.
+
+- [ ] Open the PR detail for a PR where all CI checks have passed AND at least one reviewer has approved AND `mergeable` is true — the "Squash and merge" checkbox and "Merge PR" button appear at the bottom of the detail view
+- [ ] "Squash and merge" checkbox is checked by default
+- [ ] Open the PR detail for a PR where CI is still running or failed — the merge button and checkbox are NOT visible
+- [ ] Open the PR detail for a PR with no approvals — the merge button and checkbox are NOT visible
+- [ ] (If safe to do so on a test repo) Click "Merge PR" with "Squash and merge" checked — the PR is merged via squash; the panel returns to the PR list; the merged PR no longer appears in the list
+- [ ] A macOS notification fires with title "Pull Requests" and body containing the PR title and "merged"
+- [ ] Uncheck "Squash and merge" and click "Merge PR" — the PR is merged without squashing (regular merge)
+- [ ] Trigger a merge that fails (e.g. merge conflict or branch protection) — an inline error message appears in the detail view; the panel does NOT navigate back to the list
+- [ ] Regression: Copy URL and Open in browser buttons still work in PR detail
+- [ ] Regression: Re-run CI button still appears only when a check has failed
+- [ ] Regression: macOS notifications still fire for CI status changes and new comments when notifications are enabled
+- [ ] Regression: `🔴 N new` badge still appears on list rows with unseen comments and clears on opening the detail
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 2 confirmed" (or describe any failures).

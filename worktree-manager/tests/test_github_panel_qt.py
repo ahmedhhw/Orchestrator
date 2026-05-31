@@ -17,10 +17,8 @@ def _make_pr(number=1, head="feat", base="main", checks=None, reviews=None, comm
 def vm(tmp_path):
     from worktree_manager.config_store import ConfigStore
     store = ConfigStore(path=tmp_path / "config.json")
-    with patch("worktree_manager.github_vm.GitHubService"), \
-         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="")
-        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    with patch("worktree_manager.github_vm.GitHubService"):
+        v = GitHubViewModel(store=store)
     return v
 
 
@@ -63,10 +61,8 @@ def test_tabs_visible_when_token_configured(vm, qtbot, tmp_path):
     from worktree_manager.config_store import ConfigStore
     store = ConfigStore(path=tmp_path / "configured.json")
     store.save_github_token("ghp_test")
-    with patch("worktree_manager.github_vm.GitHubService"), \
-         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
-        configured_vm = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    with patch("worktree_manager.github_vm.GitHubService"):
+        configured_vm = GitHubViewModel(store=store)
     p = GitHubPanel(vm=configured_vm)
     qtbot.addWidget(p)
     p.show()
@@ -145,10 +141,8 @@ def test_poll_toggle_shows_pause_when_active(panel, vm, qtbot, tmp_path):
     from worktree_manager.config_store import ConfigStore
     store = ConfigStore(path=tmp_path / "tog.json")
     store.save_github_token("ghp_x")
-    with patch("worktree_manager.github_vm.GitHubService"), \
-         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
-        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    with patch("worktree_manager.github_vm.GitHubService"):
+        v = GitHubViewModel(store=store)
     p = GitHubPanel(vm=v)
     qtbot.addWidget(p)
     p.show()
@@ -168,10 +162,8 @@ def test_token_btn_shows_inline_form_when_clicked(panel, vm, qtbot, tmp_path):
     from worktree_manager.config_store import ConfigStore
     store = ConfigStore(path=tmp_path / "rot.json")
     store.save_github_token("ghp_x")
-    with patch("worktree_manager.github_vm.GitHubService"), \
-         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
-        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    with patch("worktree_manager.github_vm.GitHubService"):
+        v = GitHubViewModel(store=store)
     p = GitHubPanel(vm=v)
     qtbot.addWidget(p)
     p.show()

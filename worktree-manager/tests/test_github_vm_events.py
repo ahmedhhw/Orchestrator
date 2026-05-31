@@ -17,11 +17,8 @@ def vm(tmp_path):
     from worktree_manager.config_store import ConfigStore
     store = ConfigStore(path=tmp_path / "config.json")
     store.save_github_token("ghp_test")
-    with patch("worktree_manager.github_vm.GitHubService") as MockSvc, \
-         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
-        MockSvc.from_remote_url.return_value = MagicMock()
-        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    with patch("worktree_manager.github_vm.GitHubService"):
+        v = GitHubViewModel(store=store)
     return v
 
 

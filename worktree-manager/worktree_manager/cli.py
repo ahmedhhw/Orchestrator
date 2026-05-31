@@ -4,6 +4,8 @@ import os
 import sys
 import threading
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 _pkg_root = str(Path(__file__).resolve().parent.parent)
 if _pkg_root not in sys.path:
     sys.path.insert(0,_pkg_root)
@@ -775,20 +777,10 @@ class App(QMainWindow):
             panel.show_sync()
 
     def _show_github_panel(self):
-        repo_path = self._current_repo_path()
-        # Rebuild the VM (and panel) whenever the active repo changes so the
-        # service always points at the right origin remote.
-        cached_vm = getattr(self, "_github_vm", None)
-        if cached_vm is None or cached_vm._repo_path != repo_path:
+        if not hasattr(self, "_github_vm"):
             from worktree_manager.ui.github_panel import GitHubPanel
-            if cached_vm is not None:
-                cached_vm.pause_polling()
-            self._github_vm = GitHubViewModel(
-                store=self._store,
-                repo_path=repo_path,
-            )
+            self._github_vm = GitHubViewModel(store=self._store)
             self._github_vm.pr_event.connect(self._on_pr_event)
-            self._panel_cache.pop("github", None)
         if "github" not in self._panel_cache:
             from worktree_manager.ui.github_panel import GitHubPanel
             self._panel_cache["github"] = GitHubPanel(vm=self._github_vm)
@@ -796,9 +788,6 @@ class App(QMainWindow):
         self._set_panel(panel)
         self._sidebar.set_active_tab("github")
         panel.show()
-
-    def _current_repo_path(self) -> str:
-        return self._active_repo_path or ""
 
     def _show_diff(self):
         if "diff" not in self._panel_cache:

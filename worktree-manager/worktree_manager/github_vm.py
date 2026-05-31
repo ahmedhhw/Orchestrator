@@ -1,5 +1,4 @@
 import logging
-import subprocess
 from enum import Enum, auto
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -24,10 +23,9 @@ class GitHubViewModel(QObject):
     pr_event = Signal(int, str, str)  # (pr_number, event_type, message)
     loading_started = Signal()
 
-    def __init__(self, store, repo_path: str, parent=None):
+    def __init__(self, store, parent=None):
         super().__init__(parent)
         self._store = store
-        self._repo_path = repo_path
         self._svc: GitHubService | None = None
         self.prs: list[PullRequest] = []
         self.selected_pr: PullRequest | None = None
@@ -48,36 +46,15 @@ class GitHubViewModel(QObject):
         if self._token_state == TokenState.CONFIGURED:
             interval_ms = store.get_github_poll_interval() * 1000
             self._timer.start(interval_ms)
+            QTimer.singleShot(0, self.refresh_prs)
 
     @property
     def token_state(self) -> TokenState:
         return self._token_state
 
     def _init_service(self, token: str) -> None:
-        remote_url = self._detect_remote_url()
-        log.debug("_init_service: repo_path=%r remote_url=%r", self._repo_path, remote_url)
-        if remote_url:
-            try:
-                self._svc = GitHubService.from_remote_url(remote_url, token)
-                log.debug("_init_service: service owner=%r repo=%r", self._svc.owner, self._svc.repo)
-                return
-            except Exception as exc:
-                log.error("_init_service: from_remote_url failed: %s", exc)
-        log.warning("_init_service: no remote detected; service unavailable until repo path is set")
-
-    def _detect_remote_url(self) -> str:
-        if not self._repo_path:
-            return ""
-        try:
-            result = subprocess.run(
-                ["git", "remote", "get-url", "origin"],
-                cwd=self._repo_path,
-                capture_output=True,
-                text=True,
-            )
-            return result.stdout.strip() if result.returncode == 0 else ""
-        except Exception:
-            return ""
+        self._svc = GitHubService(token=token)
+        log.debug("_init_service: service created")
 
     def save_token(self, token: str) -> None:
         self._store.save_github_token(token)
@@ -163,6 +140,16 @@ class GitHubViewModel(QObject):
         interval_ms = self._store.get_github_poll_interval() * 1000
         self._timer.start(interval_ms)
         self.polling_active = True
+
+    def merge_pr(self, pr_number: int, squash: bool = True) -> None:
+        if self._svc is None:
+            return
+        pr = next((p for p in self.prs if p.number == pr_number), None)
+        if pr is None:
+            return
+        self._svc.merge_pr(pr, squash=squash)
+        self.pr_event.emit(pr_number, "pr_merged", f'✅ "{pr.title}" merged')
+        self.refresh_prs()
 
     def _on_poll(self) -> None:
         self.refresh_prs()

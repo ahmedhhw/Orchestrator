@@ -27,6 +27,30 @@ def _current_git_branch(repo_path: str) -> str:
         return ""
 
 
+def _github_api_base(repo_path: str) -> str:
+    """Return 'https://api.github.com/repos/{owner}/{repo}' for the cwd's origin remote."""
+    import re
+    cwd = repo_path if repo_path and Path(repo_path).is_dir() else None
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=cwd, capture_output=True, text=True,
+        )
+        remote = result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+    ssh = re.match(r"git@github\.com:([^/]+)/(.+?)(?:\.git)?$", remote)
+    if ssh:
+        return f"https://api.github.com/repos/{ssh.group(1)}/{ssh.group(2)}"
+    from urllib.parse import urlparse
+    parsed = urlparse(remote)
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) >= 2:
+        owner, repo = parts[0], parts[1].removesuffix(".git")
+        return f"https://api.github.com/repos/{owner}/{repo}"
+    return ""
+
+
 class GitHubPanel(QWidget):
     def __init__(self, vm: GitHubViewModel, parent=None):
         super().__init__(parent)
@@ -189,6 +213,24 @@ class GitHubPanel(QWidget):
 
         self._merge_status_label = QLabel()
         detail_layout.addWidget(self._merge_status_label)
+
+        merge_row = QHBoxLayout()
+        self._squash_checkbox = QCheckBox("Squash and merge")
+        self._squash_checkbox.setChecked(True)
+        self._squash_checkbox.hide()
+        merge_row.addWidget(self._squash_checkbox)
+        merge_row.addStretch(1)
+        self._merge_btn = QPushButton("Merge PR")
+        self._merge_btn.hide()
+        merge_row.addWidget(self._merge_btn)
+        detail_layout.addLayout(merge_row)
+
+        self._merge_error_label = QLabel()
+        self._merge_error_label.setStyleSheet("color: red;")
+        self._merge_error_label.setWordWrap(True)
+        self._merge_error_label.hide()
+        detail_layout.addWidget(self._merge_error_label)
+
         detail_layout.addStretch(1)
 
         self._my_prs_stack.addWidget(self._pr_detail_widget)
@@ -260,6 +302,9 @@ class GitHubPanel(QWidget):
 
         self._apply_token_state()
         self._populate_open_pr_form()
+        if vm.token_state == TokenState.CONFIGURED:
+            self._pr_list.hide()
+            self._loading_label.show()
 
     # ── token state ────────────────────────────────────────────────────────────
 
@@ -338,7 +383,7 @@ class GitHubPanel(QWidget):
         self._pr_list.show()
         self._pr_error_label.hide()
         self._pr_list.clear()
-        current_branch = _current_git_branch(getattr(self._vm, "_repo_path", ""))
+        current_branch = _current_git_branch("")
         for pr in self._vm.prs:
             status = self._ci_badge(pr)
             unread = self._vm.unread_comment_count(pr.number)
@@ -423,19 +468,46 @@ class GitHubPanel(QWidget):
             self._merge_status_label.setText("⏳ Checks running — not ready to merge")
         elif s == "failed":
             self._merge_status_label.setText("❌ Checks failed")
-        elif s == "passed" and pr.is_ready_to_merge():
-            self._merge_status_label.setText("✅ Ready to merge")
         else:
             self._merge_status_label.setText("")
+
+        self._merge_error_label.hide()
+        if pr.is_ready_to_merge():
+            self._merge_status_label.setText("✅ Ready to merge")
+            self._squash_checkbox.show()
+            self._merge_btn.show()
+            try:
+                self._merge_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self._merge_btn.clicked.connect(lambda checked=False, p=pr: self._on_merge_pr(p))
+        else:
+            self._squash_checkbox.hide()
+            self._merge_btn.hide()
 
     def _on_back(self):
         self._vm.deselect_pr()
         self._my_prs_stack.setCurrentWidget(self._pr_list_widget)
 
+    def _on_merge_pr(self, pr: PullRequest) -> None:
+        squash = self._squash_checkbox.isChecked()
+        self._merge_btn.setEnabled(False)
+        self._merge_btn.setText("Merging…")
+        self._merge_error_label.hide()
+        try:
+            self._vm.merge_pr(pr.number, squash=squash)
+            self._on_back()
+        except Exception as exc:
+            self._merge_error_label.setText(str(exc))
+            self._merge_error_label.show()
+        finally:
+            self._merge_btn.setEnabled(True)
+            self._merge_btn.setText("Merge PR")
+
     # ── Open PR form ───────────────────────────────────────────────────────────
 
     def _populate_open_pr_form(self):
-        repo_path = getattr(self._vm, "_repo_path", "") or ""
+        repo_path = ""
         branch = _current_git_branch(repo_path)
         self._branch_label.setText(f"Current branch: {branch}")
 
@@ -457,8 +529,7 @@ class GitHubPanel(QWidget):
 
     def _check_open_pr_tab(self):
         """Show existing-PR summary if current branch already has an open PR."""
-        repo_path = getattr(self._vm, "_repo_path", "") or ""
-        current_branch = _current_git_branch(repo_path)
+        current_branch = _current_git_branch("")
         existing = next((p for p in self._vm.prs if p.head_branch == current_branch), None)
         if existing:
             badge = self._ci_badge(existing)
@@ -474,7 +545,7 @@ class GitHubPanel(QWidget):
         body = self._description_edit.toPlainText()
         base = self._base_branch_combo.currentText()
         draft = self._draft_checkbox.isChecked()
-        repo_path = getattr(self._vm, "_repo_path", "") or ""
+        repo_path = ""
         branch = _current_git_branch(repo_path)
 
         self._open_pr_error_label.hide()
@@ -485,8 +556,11 @@ class GitHubPanel(QWidget):
             svc = self._vm._svc
             if svc is None:
                 raise RuntimeError("GitHub service not configured")
+            repo_base_url = _github_api_base(repo_path)
+            if not repo_base_url:
+                raise RuntimeError("Could not detect GitHub remote for this directory")
             svc.push_branch(branch, repo_path=repo_path)
-            svc.create_pull_request(title=title, body=body, base=base, draft=draft)
+            svc.create_pull_request(title=title, body=body, base=base, draft=draft, repo_base_url=repo_base_url)
             self._vm.refresh_prs()
             self._tabs.setCurrentIndex(0)
         except Exception as exc:
