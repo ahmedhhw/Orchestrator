@@ -154,6 +154,24 @@ def test_fetch_status_changed_emits_no_repos_when_none_tracked(vm, qtbot):
     assert any("Tracking" in s or "No repos" in s for s in statuses)
 
 
+# ── fetch_mergeable during refresh ───────────────────────────────────────────
+
+def test_refresh_prs_populates_mergeable_for_each_pr(vm, qtbot):
+    """After refresh_prs, vm.prs[0].mergeable is populated — no 'View' needed."""
+    vm._known_repos = {("myorg", "myrepo")}
+    vm._login = "me"
+    pr = _make_pr(1, sha="deadbeef")
+    pr.mergeable = None  # simulate list-endpoint value
+    vm._svc.list_prs_for_repo.return_value = [pr]
+    vm._svc.fetch_check_runs.return_value = []
+    vm._svc.fetch_mergeable.return_value = True
+
+    vm.refresh_prs()
+
+    assert vm.prs[0].mergeable is True
+    vm._svc.fetch_mergeable.assert_called_once_with("myorg", "myrepo", 1)
+
+
 # ── rescan_repos ─────────────────────────────────────────────────────────────
 
 def test_rescan_repos_clears_known_repos(vm, qtbot):

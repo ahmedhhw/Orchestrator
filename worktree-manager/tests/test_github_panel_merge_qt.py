@@ -133,3 +133,17 @@ def test_merge_button_calls_service_without_squash(panel, configured_vm, qtbot):
     args, kwargs = configured_vm._svc.merge_pr.call_args
     assert args[0].number == 1
     assert kwargs["squash"] is False
+
+
+def test_merge_btn_reconnect_does_not_warn(panel, configured_vm, recwarn):
+    """Showing a mergeable PR twice must not emit a RuntimeWarning for the merge button."""
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=True,
+    )
+    _show_detail(panel, configured_vm, pr)
+    _show_detail(panel, configured_vm, pr)
+
+    runtime_warnings = [w for w in recwarn.list if issubclass(w.category, RuntimeWarning)]
+    assert runtime_warnings == []

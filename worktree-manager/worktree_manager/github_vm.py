@@ -139,15 +139,20 @@ class GitHubViewModel(QObject):
                 owner, repo = owner_repo
                 prs = self._svc.list_prs_for_repo(owner, repo, self._login)
                 checks_futures = {}
+                mergeable_futures = {}
                 with concurrent.futures.ThreadPoolExecutor() as inner:
                     for pr in prs:
                         if pr.head_sha:
                             checks_futures[pr.number] = inner.submit(
                                 self._svc.fetch_check_runs, owner, repo, pr.head_sha
                             )
+                        mergeable_futures[pr.number] = inner.submit(
+                            self._svc.fetch_mergeable, owner, repo, pr.number
+                        )
                 for pr in prs:
                     if pr.number in checks_futures:
                         pr.checks = checks_futures[pr.number].result()
+                    pr.mergeable = mergeable_futures[pr.number].result()
                 return prs
 
             with concurrent.futures.ThreadPoolExecutor() as pool:
@@ -168,6 +173,10 @@ class GitHubViewModel(QObject):
                         "Fetching: " + "  ".join(f"{k} {v}" for k, v in status_parts.items())
                     )
 
+            prev_mergeable = {p.number: p.mergeable for p in self.prs if p.mergeable is not None}
+            for pr in all_prs:
+                if pr.mergeable is None and pr.number in prev_mergeable:
+                    pr.mergeable = prev_mergeable[pr.number]
             self.prs = all_prs
             self._emit_pr_events(self.prs)
             self.prs_updated.emit()
@@ -188,13 +197,35 @@ class GitHubViewModel(QObject):
         self._login = ""
         self.refresh_prs()
 
+    def _write_mergeable_to_prs(self, pr_number: int, mergeable) -> None:
+        for pr in self.prs:
+            if pr.number == pr_number:
+                pr.mergeable = mergeable
+                break
+
     def select_pr(self, pr_number: int) -> None:
         if self._svc is None:
             return
         listed_pr = next((p for p in self.prs if p.number == pr_number), None)
+        log.debug("select_pr #%d: listed mergeable=%r", pr_number, listed_pr.mergeable if listed_pr else "N/A")
         self.selected_pr = self._svc.get_pr_detail(pr_number, pr=listed_pr)
+        log.debug("select_pr #%d: after get_pr_detail mergeable=%r", pr_number, self.selected_pr.mergeable)
+        self._write_mergeable_to_prs(pr_number, self.selected_pr.mergeable)
         self.pr_detail_updated.emit()
         self.mark_pr_comments_seen(pr_number)
+        if self.selected_pr.mergeable is None:
+            log.debug("select_pr #%d: mergeable still None, scheduling refetch in 2s", pr_number)
+            QTimer.singleShot(2000, lambda: self._refetch_mergeable(pr_number))
+
+    def _refetch_mergeable(self, pr_number: int) -> None:
+        if self._svc is None or self.selected_pr is None or self.selected_pr.number != pr_number:
+            log.debug("_refetch_mergeable #%d: skipped (pr changed or no service)", pr_number)
+            return
+        log.debug("_refetch_mergeable #%d: fetching…", pr_number)
+        self.selected_pr = self._svc.get_pr_detail(pr_number, pr=self.selected_pr)
+        log.debug("_refetch_mergeable #%d: mergeable=%r", pr_number, self.selected_pr.mergeable)
+        self._write_mergeable_to_prs(pr_number, self.selected_pr.mergeable)
+        self.pr_detail_updated.emit()
 
     def deselect_pr(self) -> None:
         self.selected_pr = None

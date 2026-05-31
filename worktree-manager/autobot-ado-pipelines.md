@@ -69,14 +69,34 @@ The Pipelines tab sits between Pull Requests and Worktrees — grouped with the 
                      └──────────────────────────────────────────────┘
 ```
 
+### Pipelines panel — project picker (first connect, or "Change projects")
+
+```
+┌────────────────────┬──────────────────────────────────────────────┐
+│ 📁  Projects       │ ▷  Pipelines                                 │
+│ ⊞  Commands       ├──────────────────────────────────────────────┤
+│ ⇄  Diff           │  Which projects should we scan for pipelines? │
+│ ⬡  Pull Requests  │                                              │
+│ ▷  Pipelines ◀   │  ☑  MyApp                                    │
+│ 🌳  Worktrees      │  ☑  PlatformLib                              │
+│ 🌿  Branches       │  ☐  InternalTools                            │
+│                    │  ☑  Infra                                    │
+│ ↻  Refresh        │  ☐  Archive                                   │
+│ ⚙  Settings       │                                              │
+└────────────────────│  [ Confirm ]                                 │
+                     │                                              │
+                     └──────────────────────────────────────────────┘
+```
+Shown once on first connect. Selection is saved; subsequent launches skip straight to the loaded state.
+
 ### Pipelines panel — loading state
 
 ```
 ┌────────────────────┬──────────────────────────────────────────────┐
-│ 📁  Projects       │ ▷  Pipelines                  ↻ Refreshing… │
+│ 📁  Projects       │ ▷  Pipelines                  ↻ Loading…    │
 │ ⊞  Commands       ├──────────────────────────────────────────────┤
 │ ⇄  Diff           │                                              │
-│ ⬡  Pull Requests  │   ⠸  Discovering pipelines…                  │
+│ ⬡  Pull Requests  │   ⠸  Fetching pipelines from 3 projects…     │
 │ ▷  Pipelines ◀   │                                              │
 │ 🌳  Worktrees      │                                              │
 │ 🌿  Branches       │                                              │
@@ -90,7 +110,7 @@ The Pipelines tab sits between Pull Requests and Worktrees — grouped with the 
 
 ```
 ┌────────────────────┬──────────────────────────────────────────────┐
-│ 📁  Projects       │ ▷  Pipelines              [ Refresh ]  ⚿ PAT│
+│ 📁  Projects       │ ▷  Pipelines   [Change projects]      ⚿ PAT │
 │ ⊞  Commands       ├──────────────────────────────────────────────┤
 │ ⇄  Diff           │ 🔍 Filter pipelines…                         │
 │ ⬡  Pull Requests  ├──────────────────────────────────────────────┤
@@ -102,13 +122,13 @@ The Pipelines tab sits between Pull Requests and Worktrees — grouped with the 
 │ ⚙  Settings       │                                              │
 └────────────────────┴──────────────────────────────────────────────┘
 ```
-Each row: `<project> / <pipeline name>` · your last-run status badge · age · **Run** button.
+Each row: `<project> / <pipeline name>` · your last-run status badge · age · **Run** button. "Change projects" reopens the project picker inline.
 
-### One-click run — happy path (no required params)
+### One-click run — happy path (no required params, or last used covers all)
 
 ```
 ┌────────────────────┬──────────────────────────────────────────────┐
-│ 📁  Projects       │ ▷  Pipelines              [ Refresh ]  ⚿ PAT│
+│ 📁  Projects       │ ▷  Pipelines   [Change projects]      ⚿ PAT │
 │ ⊞  Commands       ├──────────────────────────────────────────────┤
 │ ⇄  Diff           │ 🔍 Filter pipelines…                         │
 │ ⬡  Pull Requests  ├──────────────────────────────────────────────┤
@@ -120,13 +140,13 @@ Each row: `<project> / <pipeline name>` · your last-run status badge · age · 
 │ ⚙  Settings       │                                              │
 └────────────────────┴──────────────────────────────────────────────┘
 ```
-Button becomes a spinner inline; status badge updates to "queued" then "running". No modal, no dialog, list stays visible.
+Button becomes a spinner inline; status badge updates to "queued" then "running". No popover, no dialog, list stays visible.
 
-### One-click run — required parameters intercepted (popover opens automatically)
+### Popover — first ever run (no last used yet, required params unfilled)
 
 ```
 ┌────────────────────┬──────────────────────────────────────────────┐
-│ 📁  Projects       │ ▷  Pipelines              [ Refresh ]  ⚿ PAT│
+│ 📁  Projects       │ ▷  Pipelines   [Change projects]      ⚿ PAT │
 │ ⊞  Commands       ├──────────────────────────────────────────────┤
 │ ⇄  Diff           │ 🔍 Filter pipelines…                         │
 │ ⬡  Pull Requests  ├──────────────────────────────────────────────┤
@@ -134,26 +154,91 @@ Button becomes a spinner inline; status badge updates to "queued" then "running"
 │ 🌳  Worktrees      │ MyApp / Deploy Staging   🟡 running [ ▷ Run ]│
 │ 🌿  Branches       │ PlatformLib / Tests      ❌ 1h ago  [ ▷ Run ]│
 │                    │ Infra / Apply TF         ✅ 1d ago  [▷ Run▾]│
-│ ↻  Refresh        │                         ┌────────────────────┤
-│ ⚙  Settings       │                         │ Branch: main    [✎]│
-└────────────────────┘                         │ ─ Required ────────│
-                                               │ environment *      │
-                                               │ [ production     ▾]│
-                                               │ region      *      │
-                                               │ [ us-east-1      ▾]│
-                                               │ ─ Optional ────────│
-                                               │ dry_run            │
-                                               │ [ false          ▾]│
-                                               │ [▷ Run with options]│
-                                               └────────────────────┘
+│ ↻  Refresh        │                    ┌───────────────────────── ┤
+│ ⚙  Settings       │                    │ Preset: [ None      ▾][+]│
+└────────────────────┘                    │ Branch: main         [✎]│
+                                          │ ─ Required ─────────────│
+                                          │ environment *           │
+                                          │ [                    ▾] │
+                                          │ region      *           │
+                                          │ [                    ▾] │
+                                          │ ─ Optional ─────────────│
+                                          │ dry_run                 │
+                                          │ [ false              ▾] │
+                                          │ [💾 Save] [▷ Run] (off) │
+                                          └─────────────────────────┘
 ```
-Popover anchors below the Run button. Required fields `*` are highlighted; Run button inside the popover is disabled until all are filled. Click outside to dismiss.
+First time: no preset, required fields empty, Run button disabled until filled.
+
+### Popover — subsequent runs (last used pre-fills everything, one click away)
+
+```
+┌────────────────────┬──────────────────────────────────────────────┐
+│ 📁  Projects       │ ▷  Pipelines   [Change projects]      ⚿ PAT │
+│ ⊞  Commands       ├──────────────────────────────────────────────┤
+│ ⇄  Diff           │ 🔍 Filter pipelines…                         │
+│ ⬡  Pull Requests  ├──────────────────────────────────────────────┤
+│ ▷  Pipelines ◀   │ MyApp / CI Build         ✅ 2m ago  [ ▷ Run ]│
+│ 🌳  Worktrees      │ MyApp / Deploy Staging   🟡 running [ ▷ Run ]│
+│ 🌿  Branches       │ PlatformLib / Tests      ❌ 1h ago  [ ▷ Run ]│
+│                    │ Infra / Apply TF         ✅ 1d ago  [▷ Run▾]│
+│ ↻  Refresh        │                    ┌───────────────────────── ┤
+│ ⚙  Settings       │                    │ Preset:[↺ Last used ▾][+]│
+└────────────────────┘                    │ Branch: main         [✎]│
+                                          │ ─ Required ─────────────│
+                                          │ environment *           │
+                                          │ [ production         ▾] │
+                                          │ region      *           │
+                                          │ [ us-east-1          ▾] │
+                                          │ ─ Optional ─────────────│
+                                          │ dry_run                 │
+                                          │ [ false              ▾] │
+                                          │ [💾 Save]    [▷ Run]    │
+                                          └─────────────────────────┘
+```
+Fields pre-filled from last used. Run button is enabled — one click fires immediately.
+
+Note: if all required params are covered by last used, the popover is **skipped entirely** and the run queues on the very first click with no popover shown.
+
+### Popover — with named presets saved (preset dropdown expanded)
+
+```
+┌────────────────────┬──────────────────────────────────────────────┐
+│ 📁  Projects       │ ▷  Pipelines   [Change projects]      ⚿ PAT │
+│ ⊞  Commands       ├──────────────────────────────────────────────┤
+│ ⇄  Diff           │ 🔍 Filter pipelines…                         │
+│ ⬡  Pull Requests  ├──────────────────────────────────────────────┤
+│ ▷  Pipelines ◀   │ MyApp / CI Build         ✅ 2m ago  [ ▷ Run ]│
+│ 🌳  Worktrees      │ MyApp / Deploy Staging   🟡 running [ ▷ Run ]│
+│ 🌿  Branches       │ PlatformLib / Tests      ❌ 1h ago  [ ▷ Run ]│
+│                    │ Infra / Apply TF         ✅ 1d ago  [▷ Run▾]│
+│ ↻  Refresh        │                    ┌───────────────────────── ┤
+│ ⚙  Settings       │                    │ Preset:[↺ Last used ▾][+]│
+└────────────────────┘                    │        ┌────────────────│
+                                          │        │ ↺ Last used    │
+                                          │        │ ─────────────  │
+                                          │        │ Deploy staging  │
+                                          │        │ Deploy prod     │
+                                          │        └────────────────│
+                                          │ Branch: main         [✎]│
+                                          │ ─ Required ─────────────│
+                                          │ environment *           │
+                                          │ [ production         ▾] │
+                                          │ region      *           │
+                                          │ [ us-east-1          ▾] │
+                                          │ ─ Optional ─────────────│
+                                          │ dry_run                 │
+                                          │ [ false              ▾] │
+                                          │ [💾 Save]    [▷ Run]    │
+                                          └─────────────────────────┘
+```
+Selecting a preset instantly loads its saved values into all fields.
 
 ### Error state — inline, no navigation disruption
 
 ```
 ┌────────────────────┬──────────────────────────────────────────────┐
-│ 📁  Projects       │ ▷  Pipelines              [ Refresh ]  ⚿ PAT│
+│ 📁  Projects       │ ▷  Pipelines   [Change projects]      ⚿ PAT │
 │ ⊞  Commands       ├──────────────────────────────────────────────┤
 │ ⇄  Diff           │ 🔍 Filter pipelines…                         │
 │ ⬡  Pull Requests  ├──────────────────────────────────────────────┤
@@ -182,14 +267,14 @@ Error replaces the status+button area inline for 8 seconds, then fades back to t
 │ ↻  Refresh        │  ──────────────────────────────────────────  │
 │ ⚙  Settings ◀    │  Org URL [ https://dev.azure.com/myorg ]     │
 └────────────────────│  PAT     [ ••••••••••••••••••        🗑 ]   │
-                     │  Poll    [ 60 ] seconds                      │
+                     │  Projects  MyApp, PlatformLib, Infra  [Edit] │
                      │                                              │
                      └──────────────────────────────────────────────┘
 ```
 
 ## Architecture
 
-### Data flow — initial load
+### Data flow — initial connect
 
 ```mermaid
 sequenceDiagram
@@ -201,14 +286,20 @@ sequenceDiagram
     UI->>VM: connect(org_url, pat)
     VM->>SVC: validate_token()
     SVC->>ADO: GET /_apis/projects
-    ADO-->>SVC: project list
-    SVC-->>VM: ok
-    VM->>SVC: list_pipelines()
-    SVC->>ADO: GET /{project}/_apis/pipelines (per project, parallel)
-    ADO-->>SVC: pipeline definitions
+    ADO-->>SVC: full project list
+    SVC-->>VM: list[str] project names
+    VM-->>UI: projects_available(projects) signal
+    UI-->>User: project picker shown (multi-select, saved to config)
+    User->>UI: confirms project selection
+    UI->>VM: set_projects(selected)
+    VM->>SVC: list_pipelines(selected_projects)
+    SVC->>ADO: GET /{project}/_apis/pipelines (per selected project, parallel)
+    ADO-->>SVC: pipeline definitions + last run per pipeline
     SVC-->>VM: list[Pipeline]
     VM-->>UI: pipelines_loaded signal
 ```
+
+On subsequent app launches the saved project selection is used directly — the project picker is skipped and pipelines load immediately. The user can re-open the picker at any time via a "Change projects" link in the panel header.
 
 ### Data flow — queue a run
 
@@ -224,22 +315,25 @@ sequenceDiagram
     SVC->>ADO: GET /{project}/_apis/pipelines/{id}?api-version=7.1
     ADO-->>SVC: definition with parameters[]
     SVC-->>VM: list[PipelineParameter]
-    alt has required params with no value
-        VM-->>UI: show_params_popover(pipeline_id, params) signal
+    VM->>VM: load last_used values from config for this pipeline_id
+    alt has required params with no default and no last_used value
+        VM-->>UI: show_params_popover(pipeline_id, params, last_used) signal
         UI->>VM: queue_run(pipeline_id, branch, param_values)
-    else all params have defaults or none exist
-        VM->>SVC: queue_pipeline_run(pipeline_id, branch, {})
+    else all required params satisfied (defaults or last_used)
+        VM->>SVC: queue_pipeline_run(pipeline_id, branch, merged_values)
     end
+    VM->>VM: save param_values as last_used in config
     SVC->>ADO: POST /{project}/_apis/pipelines/{id}/runs
     ADO-->>SVC: run object (id, state)
     SVC-->>VM: PipelineRun
     VM-->>UI: run_queued(pipeline_id, run) signal
-    loop poll until terminal state
+    loop poll every ~10s until state = completed|canceled
         VM->>SVC: get_run(pipeline_id, run_id)
         SVC->>ADO: GET /{project}/_apis/pipelines/{id}/runs/{runId}
         ADO-->>SVC: run state
         VM-->>UI: run_status_updated signal
     end
+    note over VM: timer stops when run reaches terminal state.<br/>No background polling otherwise — pipeline list is static after load.
 ```
 
 ### New components
@@ -249,10 +343,11 @@ sequenceDiagram
 | `Pipeline` dataclass | `worktree_manager/ado_models.py` | Pipeline definition + last run |
 | `PipelineRun` dataclass | `worktree_manager/ado_models.py` | A single run's state |
 | `PipelineParameter` dataclass | `worktree_manager/ado_models.py` | A parameter definition (name, type, default, allowed values, required) |
+| `PipelinePreset` dataclass | `worktree_manager/ado_models.py` | A named preset: name + param key/value dict |
 | `ADOService` class | `worktree_manager/ado_service.py` | REST wrapper for ADO API |
-| `PipelinesViewModel` class | `worktree_manager/pipelines_vm.py` | Discovery, polling, run queueing |
+| `PipelinesViewModel` class | `worktree_manager/pipelines_vm.py` | Discovery, polling, run queueing, preset management |
 | `PipelinesPanel` widget | `worktree_manager/ui/pipelines_panel.py` | Full UI panel |
-| ADO config methods | [`worktree_manager/config_store.py`](worktree_manager/config_store.py) | Persist org URL + PAT |
+| ADO config methods | [`worktree_manager/config_store.py`](worktree_manager/config_store.py) | Persist org URL, PAT, selected project list, last-used params, and named presets per pipeline |
 | ADO settings UI | [`worktree_manager/ui/settings_panel.py`](worktree_manager/ui/settings_panel.py) | Token management UI |
 | New sidebar tab | [`worktree_manager/ui/sidebar.py`](worktree_manager/ui/sidebar.py) | `▷  Pipelines` tab |
 | Panel wiring | [`worktree_manager/cli.py`](worktree_manager/cli.py) | Instantiate + show panel |
@@ -295,20 +390,28 @@ classDiagram
         +list~str~ allowed_values
         +bool required
     }
+    class PipelinePreset {
+        +str name        # "↺ Last used" (reserved) or user-chosen
+        +dict params     # key→value map
+        +str branch      # optional branch override
+    }
     Pipeline "1" --> "0..1" PipelineRun : last_my_run
     Pipeline "1" --> "*" PipelineParameter : parameters
     PipelinesViewModel "1" --> "*" Pipeline : _pipelines
     PipelinesViewModel --> ADOService : _svc
     PipelinesPanel --> PipelinesViewModel : _vm
+    ConfigStore "1" --> "*" PipelinePreset : per pipeline_id
 ```
 
 ## Open Questions
 
-- **Which projects to include?** ADO organisations can have many projects. Should we discover pipelines from ALL accessible projects automatically, or let the user pick a project subset to scan?
-- **Polling granularity** — Should the app poll only your active (in-progress) runs frequently (e.g. every 10s) while refreshing the full pipeline list less often (e.g. every 5 min), or poll everything on a single interval?
+_None — all questions resolved._
 
 _Resolved:_
+- **Project scope** — On first connect, fetch all accessible projects and show a multi-select picker. Save the selection to config. Subsequent launches use the saved list directly. "Change projects" in the panel header and an [Edit] link in Settings both reopen the picker.
+- **Polling** — No background polling of the pipeline list after initial load (definitions don't change). Only actively-queued runs are polled (~10s interval) until they reach a terminal state (`completed` or `canceled`). Timer stops automatically; no continuous polling.
 - **Required parameters** — One-click Run fetches the pipeline definition first; if any required parameter has no default, the popover opens automatically with those fields highlighted. Pipelines with all-defaulted params queue immediately on one click.
 - **Parameter types** — Dropdown parameters (`allowedValues` in the definition) render as dropdowns in the popover; all others are text fields.
-- **Whose runs are shown** — Only runs triggered by the authenticated user are tracked and displayed (filtered client-side by `triggeredBy.uniqueName` or display name matching the authenticated identity).
-- **Variables vs parameters** — Scope is YAML `templateParameters` only (the typed, named inputs). Classic pipeline variables settable at queue time are deferred to a future iteration.
+- **Whose runs are shown** — Only runs triggered by the authenticated user are tracked and displayed (filtered client-side by `triggeredBy.uniqueName` matching the authenticated identity).
+- **Variables vs parameters** — Scope is YAML `templateParameters` only. Classic pipeline variables settable at queue time are deferred to a future iteration.
+- **Parameter caching** — Option C: auto-save last-used param values per pipeline after every run; also support named presets. Popover always opens pre-filled with "↺ Last used" selected. Preset dropdown includes `↺ Last used` at top followed by any named presets. "💾 Save preset" button saves current field values under a user-chosen name. Config shape: `ado_presets[pipeline_id] = {last_used: {params, branch}, presets: [{name, params, branch}, ...]}`. If a pipeline has required params but `last_used` covers them all, it queues directly on one click without opening the popover.

@@ -20,18 +20,25 @@ def _make_pr(number=1):
     )
 
 
-def test_get_pr_detail_with_cached_pr_skips_pr_and_checks_fetch(svc):
-    """When a cached pr is passed, only reviews + comments are fetched (2 calls, not 4)."""
+def test_get_pr_detail_with_cached_pr_skips_checks_fetch(svc):
+    """When a cached pr is passed, PR endpoint + reviews + comments are fetched (3 calls, not 4).
+    The checks endpoint is still skipped since head_sha is already known."""
     pr = _make_pr(1)
+    pr_resp = MagicMock(status_code=200)
+    pr_resp.json.return_value = {
+        "number": 1, "title": "My PR", "body": "", "state": "open", "draft": False,
+        "mergeable": True, "html_url": "https://github.com/myorg/myrepo/pull/1",
+        "head": {"ref": "feat", "sha": "abc123"}, "base": {"ref": "main"},
+    }
     reviews_resp = MagicMock(status_code=200)
     reviews_resp.json.return_value = [{"user": {"login": "alice"}, "state": "APPROVED"}]
     comments_resp = MagicMock(status_code=200)
     comments_resp.json.return_value = []
 
-    with patch("requests.get", side_effect=[reviews_resp, comments_resp]) as mock_get:
+    with patch("requests.get", side_effect=[pr_resp, reviews_resp, comments_resp]) as mock_get:
         detail = svc.get_pr_detail(1, pr=pr)
 
-    assert mock_get.call_count == 2
+    assert mock_get.call_count == 3
     assert detail.checks == pr.checks
     assert len(detail.reviews) == 1
     assert detail.reviews[0].author == "alice"

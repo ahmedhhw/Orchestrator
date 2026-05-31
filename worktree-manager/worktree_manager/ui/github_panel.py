@@ -1,6 +1,9 @@
+import logging
 import subprocess
 import time
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QHBoxLayout, QLabel, QLineEdit,
@@ -241,6 +244,7 @@ class GitHubPanel(QWidget):
         merge_row.addStretch(1)
         self._merge_btn = QPushButton("Merge PR")
         self._merge_btn.hide()
+        self._merge_btn_conn = None
         merge_row.addWidget(self._merge_btn)
         detail_layout.addLayout(merge_row)
 
@@ -464,6 +468,10 @@ class GitHubPanel(QWidget):
         pr = next((p for p in self._vm.prs if p.number == pr_number), None)
         if pr is None:
             return
+        log.debug(
+            "context_menu PR #%d: mergeable=%r is_ready=%r",
+            pr_number, pr.mergeable, pr.is_ready_to_merge(),
+        )
         menu = QMenu(self)
         menu.addAction("↗ View details")
         if pr.is_ready_to_merge():
@@ -542,15 +550,17 @@ class GitHubPanel(QWidget):
             self._merge_status_label.setText("")
 
         self._merge_error_label.hide()
+        log.debug(
+            "pr_detail_updated PR #%d: mergeable=%r is_ready=%r",
+            pr.number, pr.mergeable, pr.is_ready_to_merge(),
+        )
         if pr.is_ready_to_merge():
             self._merge_status_label.setText("✅ Ready to merge")
             self._squash_checkbox.show()
             self._merge_btn.show()
-            try:
-                self._merge_btn.clicked.disconnect()
-            except RuntimeError:
-                pass
-            self._merge_btn.clicked.connect(lambda checked=False, p=pr: self._on_merge_pr(p))
+            if self._merge_btn_conn is not None:
+                self._merge_btn.clicked.disconnect(self._merge_btn_conn)
+            self._merge_btn_conn = self._merge_btn.clicked.connect(lambda checked=False, p=pr: self._on_merge_pr(p))
         else:
             self._squash_checkbox.hide()
             self._merge_btn.hide()

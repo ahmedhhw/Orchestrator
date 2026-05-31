@@ -71,6 +71,14 @@ class GitHubService:
             if item.get("user", {}).get("login") == login
         ]
 
+    def fetch_mergeable(self, owner: str, repo: str, pr_number: int) -> bool | None:
+        resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}",
+            headers=self._headers,
+        )
+        resp.raise_for_status()
+        return resp.json().get("mergeable")
+
     def fetch_check_runs(self, owner: str, repo: str, sha: str) -> list[CICheck]:
         resp = requests.get(
             f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}/check-runs",
@@ -130,13 +138,17 @@ class GitHubService:
     def get_pr_detail(self, pr_number: int, pr: PullRequest) -> PullRequest:
         base = self._base_for_pr(pr)
 
+        pr_resp = requests.get(f"{base}/pulls/{pr_number}", headers=self._headers)
+        pr_resp.raise_for_status()
+        pr_data = pr_resp.json()
+        log.debug("get_pr_detail #%d: API returned mergeable=%r", pr_number, pr_data.get("mergeable"))
+
         if pr.head_sha:
             detail = pr
+            detail.mergeable = pr_data.get("mergeable")
         else:
-            pr_resp = requests.get(f"{base}/pulls/{pr_number}", headers=self._headers)
-            pr_resp.raise_for_status()
-            detail = self._pr_from_dict(pr_resp.json())
-            sha = pr_resp.json()["head"]["sha"]
+            detail = self._pr_from_dict(pr_data)
+            sha = pr_data["head"]["sha"]
             checks_resp = requests.get(
                 f"{base}/commits/{sha}/check-runs",
                 headers=self._headers,

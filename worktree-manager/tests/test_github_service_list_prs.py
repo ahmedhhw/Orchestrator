@@ -148,6 +148,33 @@ def test_fetch_check_runs_calls_correct_endpoint(svc):
     assert "repos/myorg/myrepo/commits/abc123/check-runs" in url
 
 
+# ── fetch_mergeable ──────────────────────────────────────────────────────────
+
+def test_fetch_mergeable_returns_true_when_api_says_true(svc):
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"mergeable": True}
+    with patch("requests.get", return_value=resp):
+        result = svc.fetch_mergeable("myorg", "myrepo", 1)
+    assert result is True
+
+
+def test_fetch_mergeable_returns_none_when_api_says_null(svc):
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"mergeable": None}
+    with patch("requests.get", return_value=resp):
+        result = svc.fetch_mergeable("myorg", "myrepo", 1)
+    assert result is None
+
+
+def test_fetch_mergeable_calls_correct_endpoint(svc):
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"mergeable": True}
+    with patch("requests.get", return_value=resp) as mock_get:
+        svc.fetch_mergeable("myorg", "myrepo", 42)
+    url = mock_get.call_args[0][0]
+    assert url == "https://api.github.com/repos/myorg/myrepo/pulls/42"
+
+
 # ── head_sha field on PullRequest ─────────────────────────────────────────────
 
 def test_pull_request_has_head_sha_field():
