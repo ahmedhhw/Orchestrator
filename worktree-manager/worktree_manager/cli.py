@@ -1,8 +1,11 @@
 import argparse
+import logging
 import os
 import sys
 import threading
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 _pkg_root = str(Path(__file__).resolve().parent.parent)
 if _pkg_root not in sys.path:
     sys.path.insert(0,_pkg_root)
@@ -13,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from worktree_manager.branch_mgmt_vm import BranchMgmtViewModel
+from worktree_manager.github_vm import GitHubViewModel
 from worktree_manager.command_center_vm import CommandCenterViewModel
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
@@ -95,6 +99,7 @@ class App(QMainWindow):
             on_branch_management=self._show_branch_management,
             on_worktree_management=self._show_worktree_management,
             on_diff=self._show_diff,
+            on_github=self._show_github_panel,
             on_settings=self._handle_settings,
             on_refresh=self._refresh,
             on_hide=self._collapse_sidebar,
@@ -771,6 +776,19 @@ class App(QMainWindow):
         if first_visit:
             panel.show_sync()
 
+    def _show_github_panel(self):
+        if not hasattr(self, "_github_vm"):
+            from worktree_manager.ui.github_panel import GitHubPanel
+            self._github_vm = GitHubViewModel(store=self._store)
+            self._github_vm.pr_event.connect(self._on_pr_event)
+        if "github" not in self._panel_cache:
+            from worktree_manager.ui.github_panel import GitHubPanel
+            self._panel_cache["github"] = GitHubPanel(vm=self._github_vm)
+        panel = self._panel_cache["github"]
+        self._set_panel(panel)
+        self._sidebar.set_active_tab("github")
+        panel.show()
+
     def _show_diff(self):
         if "diff" not in self._panel_cache:
             from worktree_manager.ui.diff_panel import DiffPanel
@@ -949,6 +967,12 @@ class App(QMainWindow):
             "cmd_center_notifications_enabled", True
         ))
 
+    def _on_pr_event(self, pr_number: int, event_type: str, message: str) -> None:
+        if self._store.get_ui_pref("github_notifications_enabled", True):
+            self._show_notification("Pull Requests", message)
+            if not self.isActiveWindow():
+                QApplication.alert(self, 0)
+
     def _on_command_finished(self, run_id: str, handle) -> None:
         from worktree_manager.command_runner import RunStatus
 
@@ -1003,6 +1027,10 @@ class App(QMainWindow):
 
 
 def main():
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
     args = parse_args(sys.argv[1:])
     git = GitService()
     repo_path = resolve_repo_path(args.repo_path, git)

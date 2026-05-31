@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 from worktree_manager.ui.background_job import BackgroundJob
 from worktree_manager.ui.inline_progress import InlineProgress
 from worktree_manager.ui.project_operations_dialog import ProjectOperationsDialog
@@ -212,14 +214,14 @@ class WorkspaceProjectsPanel(QWidget):
         lbl.setToolTip(worktree_path)
         row.addWidget(lbl, 1)
         if branches:
-            combo = QComboBox()
+            combo = FilterableComboBox()
             combo.addItems(branches)
             if current_branch in branches:
                 combo.setCurrentText(current_branch)
             combo.setMinimumWidth(140)
-            combo.currentTextChanged.connect(
-                lambda new, p=worktree_path, orig=current_branch:
-                    self._on_branch_changed(p, orig, new)
+            combo.currentIndexChanged.connect(
+                lambda _idx, c=combo, p=worktree_path, orig=current_branch:
+                    self._on_branch_changed(p, orig, c.currentText())
             )
             row.addWidget(combo)
         else:

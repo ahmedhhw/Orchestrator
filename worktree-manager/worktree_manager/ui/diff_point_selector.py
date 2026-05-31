@@ -1,8 +1,12 @@
+import sys
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QLineEdit, QPushButton,
 )
 from PySide6.QtCore import Qt
+
+_MERGE_BASE_SUFFIX = " (merge base)"
 
 
 class DiffPointSelector(QWidget):
@@ -12,6 +16,7 @@ class DiffPointSelector(QWidget):
         self._compare_cb = None
         self._repo_path = None
         self._git_service = None
+        self._config_store = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -72,18 +77,66 @@ class DiffPointSelector(QWidget):
         git_service=None,
         suggested_newer: list | None = None,
         suggested_older: list | None = None,
+        config_store=None,
     ) -> None:
         self._repo_path = repo_path
         self._git_service = git_service
+        self._config_store = config_store
         self._points = points
+        # Merge-base resolution needs git; without it we can't resolve, so fall
+        # back to raw refs rather than mislabelling tips as merge bases.
+        use_merge_base = (
+            self._branch_diff_mode() == "merge_base" and self._git_service is not None
+        )
+        resolved = self._resolve_points(points) if use_merge_base else points
         self._populate_list(self._newer_list, points, suggested_newer)
-        self._populate_list(self._older_list, points, suggested_older)
+        self._populate_list(self._older_list, resolved, suggested_older, resolved=use_merge_base, original_points=points)
         self._newer_filter.clear()
         self._older_filter.clear()
         self._merge_base_note.hide()
 
+    def _branch_diff_mode(self) -> str:
+        if self._config_store is not None:
+            return self._config_store.get_branch_diff_mode()
+        return "merge_base"
+
+    def _resolve_points(self, points: list) -> list:
+        from worktree_manager.diff_models import HistoryPoint
+        result = []
+        for pt in points:
+            if pt.kind != "branch":
+                result.append(pt)
+                continue
+            try:
+                sha = self._git_service.resolve_merge_base(self._repo_path, pt.label, "HEAD")
+            except Exception as exc:
+                print(
+                    f"merge-base resolution failed for {pt.label!r}: {exc}",
+                    file=sys.stderr,
+                )
+                result.append(pt)
+                continue
+            try:
+                message = self._git_service.commit_subject(self._repo_path, sha)
+            except Exception as exc:
+                print(
+                    f"merge-base subject lookup failed for {pt.label!r}: {exc}",
+                    file=sys.stderr,
+                )
+                message = pt.message
+            result.append(HistoryPoint(
+                kind="branch",
+                label=f"{pt.label}{_MERGE_BASE_SUFFIX}",
+                short_sha=sha[:12],
+                message=message,
+            ))
+        return result
+
     def _on_older_changed(self, current, previous) -> None:
         if current is None:
+            self._merge_base_note.hide()
+            return
+        if self._branch_diff_mode() == "merge_base":
             self._merge_base_note.hide()
             return
         ref = current.data(Qt.UserRole)
@@ -108,27 +161,39 @@ class DiffPointSelector(QWidget):
     def on_compare(self, callback) -> None:
         self._compare_cb = callback
 
+    def _point_ref(self, pt, resolved: bool = False) -> str:
+        if pt.kind.startswith("working_tree"):
+            return pt.kind
+        if resolved and pt.kind == "branch" and pt.short_sha:
+            return pt.short_sha
+        return pt.label
+
     def _populate_list(
-        self, lst: QListWidget, points: list, suggested_refs: list | None = None
+        self, lst: QListWidget, points: list, suggested_refs: list | None = None,
+        resolved: bool = False, original_points: list | None = None,
     ) -> None:
         lst.clear()
         if suggested_refs:
             header = QListWidgetItem("★ Suggested")
             header.setFlags(header.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsEnabled)
             lst.addItem(header)
-            ref_map = {
-                (pt.kind if pt.kind.startswith("working_tree") else pt.label): pt
-                for pt in points
-            }
+            # Map original branch labels → resolved display points so suggested_refs
+            # (which always use original branch names) find the right resolved entry.
+            def orig_key(pt):
+                return pt.kind if pt.kind.startswith("working_tree") else pt.label
+            src = original_points if original_points is not None else points
+            orig_to_resolved = {orig_key(o): r for o, r in zip(src, points)}
             for ref in suggested_refs:
-                pt = ref_map.get(ref)
+                pt = orig_to_resolved.get(ref)
                 if pt is None:
                     item = QListWidgetItem(ref)
+                    item.setData(Qt.UserRole, ref)
                 elif pt.short_sha:
                     item = QListWidgetItem(f"{pt.label}  {pt.short_sha}  \"{pt.message}\"")
+                    item.setData(Qt.UserRole, self._point_ref(pt, resolved))
                 else:
                     item = QListWidgetItem(pt.label)
-                item.setData(Qt.UserRole, ref)
+                    item.setData(Qt.UserRole, self._point_ref(pt, resolved))
                 lst.addItem(item)
             sep = QListWidgetItem("─" * 30)
             sep.setFlags(sep.flags() & ~Qt.ItemIsSelectable & ~Qt.ItemIsEnabled)
@@ -139,8 +204,7 @@ class DiffPointSelector(QWidget):
             else:
                 text = pt.label
             item = QListWidgetItem(text)
-            ref = pt.kind if pt.kind.startswith("working_tree") else pt.label
-            item.setData(Qt.UserRole, ref)
+            item.setData(Qt.UserRole, self._point_ref(pt, resolved))
             lst.addItem(item)
 
     def _apply_filter(self, lst: QListWidget, text: str) -> None:
@@ -164,6 +228,15 @@ class DiffPointSelector(QWidget):
         for i in range(lst.count()):
             item = lst.item(i)
             if item.data(Qt.UserRole) == ref:
+                lst.setCurrentItem(item)
+                return
+        # Fallback: a saved branch name (e.g. "main") should match the resolved
+        # "main (merge base)" row whose UserRole is the merge-base SHA.
+        for i in range(lst.count()):
+            item = lst.item(i)
+            label_part = (item.text() or "").split("  ")[0].strip()
+            branch = label_part.removesuffix(_MERGE_BASE_SUFFIX)
+            if branch == ref:
                 lst.setCurrentItem(item)
                 return
 

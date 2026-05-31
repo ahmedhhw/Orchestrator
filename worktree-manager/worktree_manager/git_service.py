@@ -414,6 +414,19 @@ class GitService:
         Falls back to ("main", None) if nothing can be determined.
         """
         import subprocess
+
+        # Collect the SHA each local branch points to so we can skip branches
+        # that were merged INTO current_branch (their tip is an ancestor of HEAD)
+        # rather than branches that current_branch was created FROM.
+        try:
+            merged_out = self._run(
+                ["git", "branch", "--merged", "HEAD", "--format=%(refname:short)"],
+                cwd=repo_path,
+            )
+            merged_branches: set[str] = set(merged_out.splitlines())
+        except subprocess.CalledProcessError:
+            merged_branches = set()
+
         try:
             out = self._run(
                 ["git", "log", "--first-parent", "--simplify-by-decoration",
@@ -431,22 +444,30 @@ class GitService:
                 ref = token.strip()
                 if ref.startswith("HEAD -> "):
                     ref = ref[len("HEAD -> "):]
+                # Strip origin/ prefix so we can compare and use the local name
+                is_origin = ref.startswith("origin/")
+                local_ref = ref[len("origin/"):] if is_origin else ref
                 if (not ref
-                        or ref == "HEAD"
-                        or ref.startswith("origin/")
+                        or local_ref == "HEAD"
                         or ref.startswith("tag:")
-                        or ref == current_branch):
+                        or local_ref == current_branch
+                        or local_ref in merged_branches):
                     continue
+                # Prefer the plain local name; fall back to origin/X if no local exists
+                candidate = local_ref if not is_origin else ref
                 if parent is None:
-                    parent = ref
-                if feature_or_main is None and (ref == "main" or ref.startswith("feature/")):
-                    feature_or_main = ref
+                    parent = candidate
+                if feature_or_main is None and (local_ref == "main" or local_ref.startswith("feature/")):
+                    feature_or_main = candidate
                 if parent is not None and feature_or_main is not None:
                     break
             if parent is not None and feature_or_main is not None:
                 break
 
         if parent is None:
+            # If already on main (or no parent found), no meaningful suggestion
+            if current_branch == "main":
+                return (None, None)
             return ("main", None)
         # deduplicate: if feature_or_main is same as parent, suppress it
         if feature_or_main == parent:
@@ -463,6 +484,9 @@ class GitService:
 
     def resolve_merge_base(self, repo_path: str, branch: str, onto: str) -> str:
         return self._run(["git", "merge-base", onto, branch], cwd=repo_path).strip()
+
+    def commit_subject(self, repo_path: str, ref: str) -> str:
+        return self._run(["git", "log", "-1", "--format=%s", ref], cwd=repo_path).strip()
 
     def _build_patch(self, file_path: str, hunks: list) -> str:
         lines = [

@@ -8,6 +8,8 @@ from PySide6.QtWidgets import (
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 from worktree_manager.ui.background_job import BackgroundJob
 from worktree_manager.ui.cleanup_wizard import (
     _group_candidates, _merged_subgroups, _reason,
@@ -474,7 +476,7 @@ class BranchManagementPanel(QWidget):
         selector_row = QHBoxLayout()
         selector_label = QLabel("Repo:")
         selector_row.addWidget(selector_label)
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         self._repo_combo.addItem("all repos", None)
         repos = self._vm.list_repos()
         for path in repos:

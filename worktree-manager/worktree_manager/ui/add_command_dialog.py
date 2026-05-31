@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (
     QPushButton, QVBoxLayout,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 
 class AddCommandDialog(QDialog):
     def __init__(self, parent, vm, initial_repo: str | None = None, on_saved=None):
@@ -42,7 +44,7 @@ class AddCommandDialog(QDialog):
 
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Repo:"))
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         self._repo_combo.addItems(display_names)
         if default_name:
             self._repo_combo.setCurrentText(default_name)

@@ -3,6 +3,8 @@ from PySide6.QtWidgets import (
     QPushButton, QRadioButton, QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 
 class _StringVar:
     """Tiny tk-style facade so existing tests calling ._mode_var.set/get keep working."""
@@ -111,10 +113,12 @@ class CreateDialog(QDialog):
 
         new_layout.addSpacing(6)
         new_layout.addWidget(QLabel("Base branch:"))
-        self._base_combo = QComboBox()
+        self._base_combo = FilterableComboBox()
         self._base_combo.addItems(self._branches or ["main"])
         self._base_var = _StringVar(self._branches[0] if self._branches else "main")
-        self._base_combo.currentTextChanged.connect(self._base_var.set)
+        self._base_combo.currentIndexChanged.connect(
+            lambda _: self._base_var.set(self._base_combo.currentText())
+        )
         self._base_var._on_change = self._base_combo.setCurrentText
         new_layout.addWidget(self._base_combo)
 
@@ -127,12 +131,14 @@ class CreateDialog(QDialog):
         ex_layout.setSpacing(4)
 
         ex_layout.addWidget(QLabel("Existing branch:"))
-        self._existing_combo = QComboBox()
+        self._existing_combo = FilterableComboBox()
         self._existing_combo.addItems(self._existing_branches or ["(none available)"])
         self._existing_var = _StringVar(
             self._existing_branches[0] if self._existing_branches else ""
         )
-        self._existing_combo.currentTextChanged.connect(self._existing_var.set)
+        self._existing_combo.currentIndexChanged.connect(
+            lambda _: self._existing_var.set(self._existing_combo.currentText())
+        )
         self._existing_var._on_change = self._existing_combo.setCurrentText
         ex_layout.addWidget(self._existing_combo)
 

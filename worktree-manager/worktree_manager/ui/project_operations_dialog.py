@@ -1,3 +1,4 @@
+import bisect
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -5,6 +6,8 @@ from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
+
+from worktree_manager.ui.filterable_combo import FilterableComboBox
 
 from worktree_manager.models import WorkspaceEntry
 
@@ -56,11 +59,13 @@ class ProjectOperationsDialog(QDialog):
         outer.addWidget(QLabel("Add worktrees:"))
         picker = QHBoxLayout()
         picker.addWidget(QLabel("Repo:"))
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         repo_names = list(self._repos.keys())
         self._repo_label_map = {Path(p).name: p for p in repo_names}
         self._repo_combo.addItems(list(self._repo_label_map.keys()) or ["(no repos)"])
-        self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
+        self._repo_combo.currentIndexChanged.connect(
+            lambda _: self._on_repo_changed(self._repo_combo.currentText())
+        )
         picker.addWidget(self._repo_combo, 1)
         self._add_repo_btn = QPushButton("+ Add repo…")
         self._add_repo_btn.clicked.connect(self._toggle_add_repo_panel)
@@ -190,7 +195,7 @@ class ProjectOperationsDialog(QDialog):
         nb_layout.addWidget(self._new_branch_le)
 
         nb_layout.addWidget(QLabel("Base branch:"))
-        self._new_base_combo = QComboBox()
+        self._new_base_combo = FilterableComboBox()
         self._new_base_combo.addItem("main")
         nb_layout.addWidget(self._new_base_combo)
 
@@ -203,7 +208,7 @@ class ProjectOperationsDialog(QDialog):
         ex_layout.setSpacing(2)
 
         ex_layout.addWidget(QLabel("Existing branch:"))
-        self._existing_branch_combo = QComboBox()
+        self._existing_branch_combo = FilterableComboBox()
         ex_layout.addWidget(self._existing_branch_combo)
 
         ex_layout.addWidget(QLabel("Worktree name:"))
@@ -481,16 +486,19 @@ class ProjectOperationsDialog(QDialog):
 
         self._all_branches_cache = all_branches or ["main"]
 
-        self._new_base_combo.clear()
-        self._new_base_combo.addItems(self._all_branches_cache)
-        self._existing_branch_combo.clear()
-        self._existing_branch_combo.addItems(self._all_branches_cache or ["(none)"])
-
+        self._repopulate_branch_combos(self._all_branches_cache)
         self._render_worktree_rows(statuses, self._all_branches_cache)
+
+    def _repopulate_branch_combos(self, branches: list) -> None:
+        self._new_base_combo.clear()
+        self._new_base_combo.addItems(branches)
+        self._existing_branch_combo.clear()
+        self._existing_branch_combo.addItems(branches or ["(none)"])
 
     def _refresh_worktrees_from_cache(self) -> None:
         statuses = list(self._worktree_status_map.values())
         branches = getattr(self, "_all_branches_cache", ["main"])
+        self._repopulate_branch_combos(branches)
         self._render_worktree_rows(statuses, branches)
 
     def _render_worktree_rows(self, statuses: list, branches: list = None) -> None:
@@ -514,13 +522,14 @@ class ProjectOperationsDialog(QDialog):
             name_lbl = QLabel(f"{wt_name}:")
             row.addWidget(name_lbl)
 
-            branch_combo = QComboBox()
+            branch_combo = FilterableComboBox()
             branch_combo.addItems(branches)
             if status.branch in branches:
                 branch_combo.setCurrentText(status.branch)
             _prev = [status.branch]
 
-            def _on_branch_changed(new_branch, path=status.path, combo=branch_combo, prev=_prev):
+            def _on_branch_changed(_idx, path=status.path, combo=branch_combo, prev=_prev):
+                new_branch = combo.currentText()
                 if new_branch == prev[0]:
                     return
                 try:
@@ -533,7 +542,7 @@ class ProjectOperationsDialog(QDialog):
                     combo.blockSignals(False)
                     QMessageBox.critical(self, "Cannot switch branch", str(e))
 
-            branch_combo.currentTextChanged.connect(_on_branch_changed)
+            branch_combo.currentIndexChanged.connect(_on_branch_changed)
             row.addWidget(branch_combo, 1)
 
             if status.has_uncommitted:
@@ -612,7 +621,7 @@ class ProjectOperationsDialog(QDialog):
 
         base_row = QHBoxLayout()
         base_row.addWidget(QLabel("Base from:"))
-        base_combo = QComboBox()
+        base_combo = FilterableComboBox()
         if dirty:
             base_combo.addItem("current HEAD")
             base_combo.setEnabled(False)
@@ -669,6 +678,9 @@ class ProjectOperationsDialog(QDialog):
             )
             self._worktree_status_map[worktree_path] = updated
             self._active_new_branch_panel = None
+            # Add the new branch to the cached list so all worktree dropdowns see it
+            if new_branch not in self._all_branches_cache:
+                bisect.insort(self._all_branches_cache, new_branch)
             # Refresh using the updated in-memory map so we don't need a round-trip
             self._refresh_worktrees_from_cache()
 

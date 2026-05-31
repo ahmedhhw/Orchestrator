@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QStackedWidget, QPushButton, QSplitter,
 )
+
+from worktree_manager.ui.filterable_combo import FilterableComboBox
 from PySide6.QtCore import Qt
 
 from worktree_manager.diff_vm import DiffViewModel
@@ -30,7 +32,7 @@ class DiffPanel(QWidget):
         # Repo dropdown row
         repo_row = QHBoxLayout()
         repo_row.addWidget(QLabel("Repo:"))
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         self._repo_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         repo_row.addWidget(self._repo_combo, 1)
         layout.addLayout(repo_row)
@@ -38,7 +40,7 @@ class DiffPanel(QWidget):
         # Worktree dropdown row
         wt_row = QHBoxLayout()
         wt_row.addWidget(QLabel("Worktree:"))
-        self._worktree_combo = QComboBox()
+        self._worktree_combo = FilterableComboBox()
         self._worktree_combo.setObjectName("worktree_combo")
         self._worktree_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         wt_row.addWidget(self._worktree_combo, 1)
@@ -167,17 +169,20 @@ class DiffPanel(QWidget):
             git_service=self._git,
             suggested_newer=suggested_newer,
             suggested_older=suggested_older,
+            config_store=self._store,
         )
         default_newer = self._vm.default_newer_ref(worktree_path)
         default_older = self._vm.default_older_ref(worktree_path)
         pref = self._store.get_diff_pref(self._vm.repo_path)
         pref_from = pref.get("from_ref") if pref else None
         pref_to = pref.get("to_ref") if pref else None
-        # Prefer a branch over a raw commit SHA: if the saved older ref looks
-        # like a commit SHA (short hex, no slashes), fall back to the inferred default.
+        # Discard stale saved refs: reject SHAs and display labels containing spaces
+        # (e.g. "main (merge base)" stored before the raw-ref fix).
         from_ref = (
             pref_from
-            if isinstance(pref_from, str) and not self._looks_like_sha(pref_from)
+            if isinstance(pref_from, str)
+            and not self._looks_like_sha(pref_from)
+            and " " not in pref_from
             else default_older
         )
         to_ref = pref_to if isinstance(pref_to, str) and pref_to else default_newer
@@ -192,6 +197,11 @@ class DiffPanel(QWidget):
     def _show_point_selector(self) -> None:
         self._summary_bar.hide()
         self._right_area.setCurrentWidget(self._point_selector)
+
+    def refresh(self) -> None:
+        wt_path = self._worktree_combo.currentData()
+        if wt_path:
+            self._load_worktree(wt_path)
 
     def show_for_repo(self, repo_path: str, worktree_path: str | None = None) -> None:
         self._set_repo_combo(repo_path)
@@ -230,13 +240,21 @@ class DiffPanel(QWidget):
 
     def _on_compare(self, base_ref: str, target_ref: str) -> None:
         self._vm.set_points(base_ref, target_ref)
-        self._store.set_diff_pref(self._vm.repo_path, base_ref, target_ref)
+        older_item = self._point_selector._older_list.currentItem()
+        base_display = older_item.text().split("  ")[0] if older_item else base_ref
+        # Persist a mode-agnostic ref so prefs round-trip: for a merge-base branch the
+        # diff ref is a resolved SHA, but we store the branch name and re-resolve on load.
+        if base_display.endswith(" (merge base)"):
+            persist_ref = base_display[: -len(" (merge base)")]
+        else:
+            persist_ref = base_ref
+        self._store.set_diff_pref(self._vm.repo_path, persist_ref, target_ref)
         files = self._vm.load_diff_files()
         self._file_list.set_files(files)
         self._file_list.set_live_mode(self._vm.target_is_working_tree)
         self._hunk_view.set_hunks("", [], live_mode=False)
         self._summary_label.setText(
-            f"OLDER: {base_ref}  →  NEWER: {target_ref}"
+            f"OLDER: {base_display}  →  NEWER: {target_ref}"
         )
         self._summary_bar.show()
         self._right_area.setCurrentWidget(self._diff_splitter)

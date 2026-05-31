@@ -7,6 +7,7 @@ _TAB_DEFS = [
     ("workspace_projects", "📁  Projects"),
     ("cmd_center",         "⊞  Commands"),
     ("diff",               "⇄  Diff"),
+    ("github",             "⬡  Pull Requests"),
     ("worktree_management","🌳  Worktrees"),
     ("branch_management",  "🌿  Branches"),
 ]
@@ -70,6 +71,7 @@ class Sidebar(QWidget):
         on_worktree_management,
         on_settings,
         on_diff=None,
+        on_github=None,
         on_refresh=None,
         on_hide=None,
         parent=None,
@@ -82,6 +84,7 @@ class Sidebar(QWidget):
             "branch_management": on_branch_management,
             "worktree_management": on_worktree_management,
             "diff": on_diff or (lambda: None),
+            "github": on_github or (lambda: None),
         }
         self._on_settings = on_settings
         self._on_refresh = on_refresh

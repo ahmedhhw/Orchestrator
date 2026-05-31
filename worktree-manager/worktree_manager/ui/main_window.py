@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 from worktree_manager.main_window_vm import MainWindowViewModel
 from worktree_manager.models import WorktreeModel
 from worktree_manager.ui.delete_dialog import DeleteDialog
@@ -143,14 +145,15 @@ class MainWindow(QWidget):
         all_branches = [b for b, _ in branch_status]
         checked_out_set = {b for b, co in branch_status if co and b != wt.branch}
 
-        combo = QComboBox()
+        combo = FilterableComboBox()
         combo.addItems(all_branches)
         if wt.branch in all_branches:
             combo.setCurrentText(wt.branch)
         combo.setMinimumWidth(140)
         combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        def _on_change(new_branch, path=wt.path, c=combo, orig=wt.branch):
+        def _on_change(_index, path=wt.path, c=combo, orig=wt.branch):
+            new_branch = c.currentText()
             if new_branch == orig:
                 return
             if new_branch in checked_out_set:
@@ -167,7 +170,7 @@ class MainWindow(QWidget):
                 c.setCurrentText(orig)
                 c.blockSignals(False)
 
-        combo.currentTextChanged.connect(_on_change)
+        combo.currentIndexChanged.connect(_on_change)
         layout.addWidget(combo)
 
         if not wt.is_main:

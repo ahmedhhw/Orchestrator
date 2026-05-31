@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.filterable_combo import FilterableComboBox
+
 from worktree_manager.command_runner import RunStatus
 from worktree_manager.models import SavedCommand, WorktreeModel
 
@@ -156,11 +158,13 @@ class LaunchDialog(QDialog):
 
         row1 = QHBoxLayout()
         row1.addWidget(QLabel("Repo:"))
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         self._repo_combo.addItems(display_names)
         if default_name:
             self._repo_combo.setCurrentText(default_name)
-        self._repo_combo.currentTextChanged.connect(self._on_repo_changed)
+        self._repo_combo.currentIndexChanged.connect(
+            lambda _: self._on_repo_changed(self._repo_combo.currentText())
+        )
         self._repo_combo.setMinimumWidth(200)
         if self._locked_repo_path:
             self._repo_combo.setEnabled(False)
@@ -169,7 +173,7 @@ class LaunchDialog(QDialog):
 
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Worktree:"))
-        self._wt_combo = QComboBox()
+        self._wt_combo = FilterableComboBox()
         self._wt_combo.setMinimumWidth(200)
         self._wt_combo.currentIndexChanged.connect(self._on_wt_combo_changed)
         if self._locked_worktree_path:

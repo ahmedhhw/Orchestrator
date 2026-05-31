@@ -52,6 +52,7 @@ def test_diff_pref_persisted_on_compare(qtbot, tmp_path):
 
     pref = store.get_diff_pref(repo_path)
     assert pref is not None
+    # Raw ref stored (not display label) so prefs are mode-agnostic
     assert pref["from_ref"] == "main"
     assert pref["to_ref"] == "working_tree_unstaged"
 
@@ -65,6 +66,7 @@ def test_diff_pref_pre_selects_on_worktree_load(qtbot, tmp_path):
     from_item = panel._point_selector._from_list.currentItem()
     to_item = panel._point_selector._to_list.currentItem()
     assert from_item is not None
-    assert from_item.data(Qt.UserRole) == "feature/x"
+    # In merge-base mode the list shows "feature/x (merge base)"
+    assert "feature/x" in from_item.text()
     assert to_item is not None
     assert to_item.data(Qt.UserRole) == "working_tree_unstaged"
