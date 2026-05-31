@@ -115,7 +115,7 @@ def test_clicking_pr_row_calls_vm_select(panel, vm, qtbot):
         widget = panel._pr_list.itemWidget(item)
         btn = widget.findChild(QPushButton)
         btn.click()
-    mock_select.assert_called_once_with(7)
+    mock_select.assert_called_once_with(_make_pr(7))
 
 
 def test_detail_view_shows_back_button(panel, vm, qtbot):

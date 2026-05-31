@@ -44,7 +44,7 @@ def test_select_pr_reflects_mergeable_from_detail(vm, qtbot):
     vm.prs = [pr]
     vm._svc.get_pr_detail.return_value = pr
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
-        vm.select_pr(42)
+        vm.select_pr(pr)
     assert vm.selected_pr.mergeable is True
     assert vm._svc.get_pr_detail.call_count == 1
 
@@ -52,10 +52,11 @@ def test_select_pr_reflects_mergeable_from_detail(vm, qtbot):
 def test_select_pr_with_null_mergeable_shows_none(vm, qtbot):
     """mergeable=None from detail is shown as-is; no retry fires."""
     pr_null = _make_pr(42, mergeable=None)
-    vm.prs = [_make_pr(42, mergeable=None)]
+    listed = _make_pr(42, mergeable=None)
+    vm.prs = [listed]
     vm._svc.get_pr_detail.return_value = pr_null
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
-        vm.select_pr(42)
+        vm.select_pr(listed)
     assert vm.selected_pr.mergeable is None
     # No retry: get_pr_detail should only be called once
     qtbot.wait(500)

@@ -44,7 +44,7 @@ def test_select_pr_uses_cached_pr_from_list(vm, qtbot):
     vm.prs = [pr]
     vm._svc.get_pr_detail.return_value = pr
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
-        vm.select_pr(42)
+        vm.select_pr(pr)
     call_args = vm._svc.get_pr_detail.call_args
     assert call_args[1]["pr"] is pr or call_args[0][1] is pr
 
@@ -53,7 +53,7 @@ def test_select_pr_does_not_refetch_checks(vm, qtbot):
     pr = _make_pr(42)
     vm.prs = [pr]
     vm._svc.get_pr_detail.return_value = pr
-    vm.select_pr(42)
+    vm.select_pr(pr)
     vm._svc.fetch_check_runs.assert_not_called()
 
 
@@ -67,5 +67,5 @@ def test_select_pr_detail_preserves_checks_from_list(vm, qtbot):
     supplemented.reviews = [Review("alice", "APPROVED")]
     vm._svc.get_pr_detail.return_value = supplemented
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
-        vm.select_pr(42)
+        vm.select_pr(pr)
     assert vm.selected_pr.checks == checks

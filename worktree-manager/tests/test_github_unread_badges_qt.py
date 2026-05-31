@@ -41,7 +41,8 @@ def panel(vm, qtbot):
 
 
 def test_unread_count_zero_initially(vm):
-    assert vm.unread_comment_count(1) == 0
+    pr = _make_pr(1)
+    assert vm.unread_comment_count(pr) == 0
 
 
 def test_unread_count_increases_on_new_comments(vm):
@@ -49,13 +50,14 @@ def test_unread_count_increases_on_new_comments(vm):
     new_pr = _make_pr(1, comments=[_make_comment(1), _make_comment(2)])
     vm._emit_pr_events([old_pr])   # seed baseline (comment 1 noted, no event)
     vm._emit_pr_events([new_pr])   # new comment 2 → unread
-    assert vm.unread_comment_count(1) == 1
+    assert vm.unread_comment_count(new_pr) == 1
 
 
 def test_mark_pr_comments_seen_clears_unread(vm):
-    vm._unseen_comment_ids_by_pr = {1: {10, 11}}
-    vm.mark_pr_comments_seen(1)
-    assert vm.unread_comment_count(1) == 0
+    pr = _make_pr(1)
+    vm._unseen_comment_ids_by_pr[pr.pr_key] = {10, 11}
+    vm.mark_pr_comments_seen(pr)
+    assert vm.unread_comment_count(pr) == 0
 
 
 def _pr_list_label_texts(panel) -> list[str]:
@@ -71,7 +73,7 @@ def _pr_list_label_texts(panel) -> list[str]:
 
 def test_list_row_shows_badge_for_unread_comments(vm, panel, qtbot):
     pr = _make_pr(1, comments=[_make_comment(1), _make_comment(2)])
-    vm._unseen_comment_ids_by_pr = {1: {2}}
+    vm._unseen_comment_ids_by_pr[pr.pr_key] = {2}
     vm.prs = [pr]
     vm.prs_updated.emit()
 
@@ -91,7 +93,7 @@ def test_list_row_no_badge_when_no_unread(vm, panel, qtbot):
 
 def test_opening_detail_clears_badge(vm, panel, qtbot):
     pr = _make_pr(1, comments=[_make_comment(1)])
-    vm._unseen_comment_ids_by_pr = {1: {1}}
+    vm._unseen_comment_ids_by_pr[pr.pr_key] = {1}
     vm.selected_pr = pr
     vm.pr_detail_updated.emit()
-    assert vm.unread_comment_count(1) == 0
+    assert vm.unread_comment_count(pr) == 0

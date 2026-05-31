@@ -27,7 +27,7 @@ class GitHubViewModel(QObject):
     pr_detail_updated = Signal()
     token_state_changed = Signal()
     refresh_error = Signal(str)
-    pr_event = Signal(int, str, str)  # (pr_number, event_type, message)
+    pr_event = Signal(object, str, str)  # (pr_key tuple, event_type, message)
     loading_started = Signal()
     fetch_status_changed = Signal(str)
 
@@ -38,9 +38,9 @@ class GitHubViewModel(QObject):
         self.prs: list[PullRequest] = []
         self.selected_pr: PullRequest | None = None
         self.polling_active: bool = True
-        self._unseen_comment_ids_by_pr: dict[int, set[int]] = {}
+        self._unseen_comment_ids_by_pr: dict[tuple, set[int]] = {}
         self._pr_state_path: Path = store._path.parent / "github_pr_state.json"
-        self._pr_state: dict[int, dict] = self._load_pr_state()
+        self._pr_state: dict[tuple, dict] = self._load_pr_state()
         self._known_prs: list[tuple[str, str, int]] = []
         self._login: str = ""
         self._initial_load_done: bool = False
@@ -86,11 +86,11 @@ class GitHubViewModel(QObject):
         self._start_timers()
         self.token_state_changed.emit()
 
-    def unread_comment_count(self, pr_number: int) -> int:
-        return len(self._unseen_comment_ids_by_pr.get(pr_number, set()))
+    def unread_comment_count(self, pr: PullRequest) -> int:
+        return len(self._unseen_comment_ids_by_pr.get(pr.pr_key, set()))
 
-    def mark_pr_comments_seen(self, pr_number: int) -> None:
-        self._unseen_comment_ids_by_pr.pop(pr_number, None)
+    def mark_pr_comments_seen(self, pr: PullRequest) -> None:
+        self._unseen_comment_ids_by_pr.pop(pr.pr_key, None)
 
     # ── fetch entry points ────────────────────────────────────────────────────
 
@@ -158,7 +158,7 @@ class GitHubViewModel(QObject):
             return
 
         prev_mergeable = {
-            p.number: (p.mergeable, p.mergeable_state)
+            p.pr_key: (p.mergeable, p.mergeable_state)
             for p in self.prs if p.mergeable is not None
         }
 
@@ -174,10 +174,10 @@ class GitHubViewModel(QObject):
                     results.append(pr)
 
         for pr in results:
-            if pr.mergeable is None and pr.number in prev_mergeable:
-                pr.mergeable, pr.mergeable_state = prev_mergeable[pr.number]
+            if pr.mergeable is None and pr.pr_key in prev_mergeable:
+                pr.mergeable, pr.mergeable_state = prev_mergeable[pr.pr_key]
 
-        results.sort(key=lambda p: p.number)
+        results.sort(key=lambda p: p.pr_key)
         self.prs = results
         self._emit_pr_events(self.prs)
         self._initial_load_done = True
@@ -203,42 +203,40 @@ class GitHubViewModel(QObject):
 
     # ── notification de-dup ───────────────────────────────────────────────────
 
-    def _load_pr_state(self) -> dict[int, dict]:
+    def _load_pr_state(self) -> dict[tuple, dict]:
         if not self._pr_state_path.exists():
             return {}
         try:
             raw = json.loads(self._pr_state_path.read_text())
-            return {
-                int(pr_num): {
+            result = {}
+            for raw_key, entry in raw.items():
+                owner, repo, num = raw_key.rsplit("/", 2)
+                key = (owner, repo, int(num))
+                result[key] = {
                     "ci": entry["ci"],
                     "mergeable_state": entry["mergeable_state"],
                     "comment_ids": set(entry["comment_ids"]),
                     "review_keys": {tuple(k) for k in entry["review_keys"]},
                 }
-                for pr_num, entry in raw.items()
-            }
+            return result
         except Exception:
             log.warning("Failed to load PR state from disk; starting fresh", exc_info=True)
             return {}
 
     def _save_pr_state(self) -> None:
         if self._known_prs:
-            known_numbers = {n for _, _, n in self._known_prs}
-            pruned = {
-                pr_num: entry
-                for pr_num, entry in self._pr_state.items()
-                if pr_num in known_numbers
-            }
+            known_keys = {(o, r, n) for o, r, n in self._known_prs}
+            pruned = {k: v for k, v in self._pr_state.items() if k in known_keys}
         else:
             pruned = dict(self._pr_state)
         serialisable = {
-            str(pr_num): {
+            f"{owner}/{repo}/{num}": {
                 "ci": entry["ci"],
                 "mergeable_state": entry["mergeable_state"],
                 "comment_ids": list(entry["comment_ids"]),
                 "review_keys": [list(k) for k in entry["review_keys"]],
             }
-            for pr_num, entry in pruned.items()
+            for (owner, repo, num), entry in pruned.items()
         }
         try:
             self._pr_state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -248,12 +246,13 @@ class GitHubViewModel(QObject):
 
     def _emit_pr_events(self, new_prs: list[PullRequest]) -> None:
         for pr in new_prs:
-            state = self._pr_state.get(pr.number)
+            pk = pr.pr_key
+            state = self._pr_state.get(pk)
             curr_ci = pr.ci_status()
             curr_merge = pr.mergeable_state
 
             if state is None:
-                self._pr_state[pr.number] = {
+                self._pr_state[pk] = {
                     "ci": curr_ci,
                     "mergeable_state": curr_merge,
                     "comment_ids": {c.id for c in pr.comments},
@@ -263,30 +262,30 @@ class GitHubViewModel(QObject):
 
             if state["ci"] != curr_ci:
                 if curr_ci == "failed":
-                    self.pr_event.emit(pr.number, "ci_failed", f'❌ "{pr.title}" — checks failed')
+                    self.pr_event.emit(pk, "ci_failed", f'❌ "{pr.title}" — checks failed')
                 elif curr_ci == "passed":
-                    self.pr_event.emit(pr.number, "ci_passed", f'✅ "{pr.title}" — all checks passed')
+                    self.pr_event.emit(pk, "ci_passed", f'✅ "{pr.title}" — all checks passed')
                 state["ci"] = curr_ci
 
             if state["mergeable_state"] != curr_merge and pr.mergeability() == "conflicts":
-                self.pr_event.emit(pr.number, "pr_conflicts", f'⚠️ "{pr.title}" has merge conflicts')
+                self.pr_event.emit(pk, "pr_conflicts", f'⚠️ "{pr.title}" has merge conflicts')
             state["mergeable_state"] = curr_merge
 
             for comment in pr.comments:
                 if comment.id not in state["comment_ids"]:
-                    self.pr_event.emit(pr.number, "new_comment",
+                    self.pr_event.emit(pk, "new_comment",
                                        f'💬 {comment.author} commented on "{pr.title}"')
                     state["comment_ids"].add(comment.id)
-                    self._unseen_comment_ids_by_pr.setdefault(pr.number, set()).add(comment.id)
+                    self._unseen_comment_ids_by_pr.setdefault(pk, set()).add(comment.id)
 
             for review in pr.reviews:
                 key = (review.author, review.state)
                 if key not in state["review_keys"]:
                     if review.state == "APPROVED":
-                        self.pr_event.emit(pr.number, "review_approved",
+                        self.pr_event.emit(pk, "review_approved",
                                            f'✅ {review.author} approved "{pr.title}"')
                     elif review.state == "CHANGES_REQUESTED":
-                        self.pr_event.emit(pr.number, "review_changes_requested",
+                        self.pr_event.emit(pk, "review_changes_requested",
                                            f'🔄 {review.author} requested changes on "{pr.title}"')
                     state["review_keys"].add(key)
 
@@ -294,15 +293,14 @@ class GitHubViewModel(QObject):
 
     # ── PR detail / selection ─────────────────────────────────────────────────
 
-    def select_pr(self, pr_number: int) -> None:
+    def select_pr(self, pr: PullRequest) -> None:
         if self._svc is None:
             return
-        listed_pr = next((p for p in self.prs if p.number == pr_number), None)
-        log.debug("select_pr #%d: listed mergeable=%r", pr_number, listed_pr.mergeable if listed_pr else "N/A")
-        self.selected_pr = self._svc.get_pr_detail(pr_number, pr=listed_pr)
-        log.debug("select_pr #%d: after get_pr_detail mergeable=%r", pr_number, self.selected_pr.mergeable)
+        log.debug("select_pr #%d: listed mergeable=%r", pr.number, pr.mergeable)
+        self.selected_pr = self._svc.get_pr_detail(pr.number, pr=pr)
+        log.debug("select_pr #%d: after get_pr_detail mergeable=%r", pr.number, self.selected_pr.mergeable)
         self.pr_detail_updated.emit()
-        self.mark_pr_comments_seen(pr_number)
+        self.mark_pr_comments_seen(pr)
 
     def deselect_pr(self) -> None:
         self.selected_pr = None
@@ -319,14 +317,11 @@ class GitHubViewModel(QObject):
 
     # ── merge ─────────────────────────────────────────────────────────────────
 
-    def merge_pr(self, pr_number: int, squash: bool = True) -> None:
+    def merge_pr(self, pr: PullRequest, squash: bool = True) -> None:
         if self._svc is None:
             return
-        pr = next((p for p in self.prs if p.number == pr_number), None)
-        if pr is None:
-            return
         self._svc.merge_pr(pr, squash=squash)
-        self.pr_event.emit(pr_number, "pr_merged", f'✅ "{pr.title}" merged')
+        self.pr_event.emit(pr.pr_key, "pr_merged", f'✅ "{pr.title}" merged')
         self.total_fetch()
 
     # ── repo/branch helpers (used by open-PR form) ────────────────────────────

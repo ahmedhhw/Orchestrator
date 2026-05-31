@@ -45,7 +45,7 @@ def test_select_pr_updates_selected_pr_with_detail(vm, qtbot):
     vm._svc.get_pr_detail.return_value = detailed
 
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
-        vm.select_pr(42)
+        vm.select_pr(listed)
 
     assert vm.selected_pr.mergeable is True
 

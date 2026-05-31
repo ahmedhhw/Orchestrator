@@ -104,6 +104,29 @@ class TestMergeability:
         assert _pr(mergeable=False, mergeable_state="clean").is_ready_to_merge() is False
 
 
+class TestPRKey:
+    def test_pr_key_returns_owner_repo_number(self):
+        pr = PullRequest(
+            number=2, title="t", body="",
+            html_url="https://github.com/ahmedhhw/Orchestrator/pull/2",
+            head_branch="f", base_branch="main", state="open", draft=False, mergeable=True,
+        )
+        assert pr.pr_key == ("ahmedhhw", "Orchestrator", 2)
+
+    def test_pr_key_different_repos_same_number_are_distinct(self):
+        pr1 = PullRequest(
+            number=2, title="t", body="",
+            html_url="https://github.com/ahmedhhw/Orchestrator/pull/2",
+            head_branch="f", base_branch="main", state="open", draft=False, mergeable=True,
+        )
+        pr2 = PullRequest(
+            number=2, title="t", body="",
+            html_url="https://github.com/ahmedhhw/time-control-swift/pull/2",
+            head_branch="f", base_branch="main", state="open", draft=False, mergeable=True,
+        )
+        assert pr1.pr_key != pr2.pr_key
+
+
 class TestPRCommentSeen:
     def test_seen_defaults_to_false(self):
         c = PRComment(id=1, author="alice", body="hi", created_at="2024-01-01T00:00:00Z")

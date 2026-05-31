@@ -26,7 +26,7 @@ def test_pr_event_notification_fires_when_enabled(qtbot, monkeypatch):
 
     shown = []
     with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
-        app._on_pr_event(1, "ci_failed", '❌ "My Work" — checks failed')
+        app._on_pr_event(("myorg", "myrepo", 1), "ci_failed", '❌ "My Work" — checks failed')
 
     assert len(shown) == 1
     assert shown[0][0] == "Pull Requests"
@@ -39,7 +39,7 @@ def test_pr_event_notification_suppressed_when_disabled(qtbot, monkeypatch):
 
     shown = []
     with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
-        app._on_pr_event(1, "ci_passed", '✅ "My Work" — all checks passed')
+        app._on_pr_event(("myorg", "myrepo", 1), "ci_passed", '✅ "My Work" — all checks passed')
 
     assert shown == []
 
@@ -50,6 +50,6 @@ def test_pr_event_alert_fires_with_notification(qtbot, monkeypatch):
 
     with patch.object(app, "_show_notification"), \
          patch("worktree_manager.cli.QApplication.alert") as mock_alert:
-        app._on_pr_event(1, "ci_failed", '❌ "My Work" — checks failed')
+        app._on_pr_event(("myorg", "myrepo", 1), "ci_failed", '❌ "My Work" — checks failed')
 
     mock_alert.assert_called_once()

@@ -6,7 +6,8 @@ from worktree_manager.github_vm import GitHubViewModel, TokenState
 
 def _make_pr(number=1, head="feat", base="main", checks=None, reviews=None, comments=None):
     return PullRequest(
-        number=number, title=f"PR {number}", body="", html_url=f"http://x/{number}",
+        number=number, title=f"PR {number}", body="",
+        html_url=f"https://github.com/myorg/myrepo/pull/{number}",
         head_branch=head, base_branch=base, state="open", draft=False, mergeable=True,
         checks=checks or [], reviews=reviews or [], comments=comments or [],
     )
@@ -239,7 +240,7 @@ def test_no_event_on_first_sighting(store, qtbot):
     svc = MagicMock()
     vm = _vm_with(svc, store)
     events = []
-    vm.pr_event.connect(lambda n, t, m: events.append(t))
+    vm.pr_event.connect(lambda k, t, m: events.append(t))
     vm._emit_pr_events([_make_pr(1, checks=[CICheck("b", "completed", "failure")])])
     assert events == []
     vm.deleteLater()
@@ -249,7 +250,7 @@ def test_no_repeat_event_when_state_unchanged(store, qtbot):
     svc = MagicMock()
     vm = _vm_with(svc, store)
     events = []
-    vm.pr_event.connect(lambda n, t, m: events.append(t))
+    vm.pr_event.connect(lambda k, t, m: events.append(t))
     pr = _make_pr(1, checks=[CICheck("b", "completed", "failure")])
     vm._emit_pr_events([pr])
     vm._emit_pr_events([pr])
@@ -262,7 +263,7 @@ def test_event_fires_on_ci_transition(store, qtbot):
     svc = MagicMock()
     vm = _vm_with(svc, store)
     events = []
-    vm.pr_event.connect(lambda n, t, m: events.append(t))
+    vm.pr_event.connect(lambda k, t, m: events.append(t))
     vm._emit_pr_events([_make_pr(1, checks=[CICheck("b", "in_progress", None)])])
     vm._emit_pr_events([_make_pr(1, checks=[CICheck("b", "completed", "failure")])])
     assert "ci_failed" in events
@@ -273,7 +274,7 @@ def test_comment_notified_once(store, qtbot):
     svc = MagicMock()
     vm = _vm_with(svc, store)
     events = []
-    vm.pr_event.connect(lambda n, t, m: events.append(t))
+    vm.pr_event.connect(lambda k, t, m: events.append(t))
     c = PRComment(id=7, author="bob", body="hi", created_at="t")
     vm._emit_pr_events([_make_pr(1, comments=[c])])
     vm._emit_pr_events([_make_pr(1, comments=[c])])
@@ -294,20 +295,22 @@ def test_select_pr_fetches_detail(store, qtbot):
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         MockSvc.return_value = svc
         vm = GitHubViewModel(store=store)
+    vm.prs = [pr]
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
-        vm.select_pr(42)
+        vm.select_pr(pr)
     assert vm.selected_pr is not None
     assert vm.selected_pr.number == 42
     vm.deleteLater()
 
 
 def test_deselect_pr_clears_selection(store, qtbot):
+    pr = _make_pr(1)
     svc = MagicMock()
-    svc.get_pr_detail.return_value = _make_pr(1)
+    svc.get_pr_detail.return_value = pr
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         MockSvc.return_value = svc
         vm = GitHubViewModel(store=store)
-        vm.select_pr(1)
+        vm.select_pr(pr)
         vm.deselect_pr()
     assert vm.selected_pr is None
     vm.deleteLater()

@@ -51,6 +51,10 @@ class PullRequest:
                 self.owner = parts[0]
                 self.repo = parts[1]
 
+    @property
+    def pr_key(self) -> tuple[str, str, int]:
+        return (self.owner, self.repo, self.number)
+
     def ci_status(self) -> str:
         """Return 'running', 'failed', 'passed', or 'unknown'."""
         if not self.checks:

@@ -409,7 +409,7 @@ class GitHubPanel(QWidget):
         self._pr_list.clear()
         for pr in self._vm.prs:
             badge = self._ci_badge(pr)
-            unread = self._vm.unread_comment_count(pr.number)
+            unread = self._vm.unread_comment_count(pr)
             badge_prefix = f"🔴 {unread} new  " if unread > 0 else ""
             merge_badge = self._mergeable_badge(pr)
             label_text = (f"#{pr.number}  {pr.title}   {badge_prefix}{badge}\n"
@@ -423,11 +423,11 @@ class GitHubPanel(QWidget):
             row_layout.addWidget(lbl, 1)
             view_btn = QPushButton("↗ View")
             view_btn.setFixedWidth(64)
-            view_btn.clicked.connect(lambda checked=False, n=pr.number: self._vm.select_pr(n))
+            view_btn.clicked.connect(lambda checked=False, p=pr: self._vm.select_pr(p))
             row_layout.addWidget(view_btn)
 
             item = QListWidgetItem()
-            item.setData(Qt.UserRole, pr.number)
+            item.setData(Qt.UserRole, pr.pr_key)
             item.setSizeHint(row_widget.sizeHint().__class__(0, 48))
             self._pr_list.addItem(item)
             self._pr_list.setItemWidget(item, row_widget)
@@ -457,16 +457,16 @@ class GitHubPanel(QWidget):
         item = self._pr_list.itemAt(pos)
         if item is None:
             return
-        pr_number = item.data(Qt.UserRole)
-        self._show_pr_context_menu(pr_number, item)
+        pr_key = item.data(Qt.UserRole)
+        self._show_pr_context_menu(pr_key, item)
 
-    def _show_pr_context_menu(self, pr_number: int, item: QListWidgetItem) -> None:
-        pr = next((p for p in self._vm.prs if p.number == pr_number), None)
+    def _show_pr_context_menu(self, pr_key: tuple, item: QListWidgetItem) -> None:
+        pr = next((p for p in self._vm.prs if p.pr_key == pr_key), None)
         if pr is None:
             return
         log.debug(
             "context_menu PR #%d: mergeable=%r is_ready=%r",
-            pr_number, pr.mergeable, pr.is_ready_to_merge(),
+            pr.number, pr.mergeable, pr.is_ready_to_merge(),
         )
         menu = QMenu(self)
         menu.addAction("↗ View details")
@@ -478,9 +478,9 @@ class GitHubPanel(QWidget):
             return
         text = action.text()
         if text == "↗ View details":
-            self._vm.select_pr(pr_number)
+            self._vm.select_pr(pr)
         elif text == "✓ Merge (squash)":
-            self._vm.merge_pr(pr_number, squash=True)
+            self._vm.merge_pr(pr, squash=True)
         elif text == "⧉ Copy URL":
             QApplication.clipboard().setText(pr.html_url)
 
@@ -490,7 +490,7 @@ class GitHubPanel(QWidget):
             self._my_prs_stack.setCurrentWidget(self._pr_list_widget)
             return
         self._my_prs_stack.setCurrentWidget(self._pr_detail_widget)
-        self._vm.mark_pr_comments_seen(pr.number)
+        self._vm.mark_pr_comments_seen(pr)
         self._detail_title_label.setText(f"#{pr.number}  {pr.title}\n{pr.head_branch} → {pr.base_branch}")
 
         if self._copy_url_conn is not None:
@@ -573,7 +573,7 @@ class GitHubPanel(QWidget):
         self._merge_btn.setText("Merging…")
         self._merge_error_label.hide()
         try:
-            self._vm.merge_pr(pr.number, squash=squash)
+            self._vm.merge_pr(pr, squash=squash)
             self._squash_checkbox.hide()
             self._merge_btn.hide()
             self._merge_status_label.setStyleSheet("color: green; font-weight: bold;")
