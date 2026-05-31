@@ -37,7 +37,57 @@ class GitHubService:
             state=data["state"],
             draft=data.get("draft", False),
             mergeable=data.get("mergeable"),
+            head_sha=data["head"].get("sha", ""),
         )
+
+    def discover_open_pr_repos(self, login: str) -> set[tuple[str, str]]:
+        resp = requests.get(
+            "https://api.github.com/search/issues",
+            headers=self._headers,
+            params={"q": f"is:pr is:open author:{login}", "per_page": 100},
+        )
+        if resp.status_code == 401:
+            raise PermissionError("GitHub token is invalid or expired")
+        resp.raise_for_status()
+        repos: set[tuple[str, str]] = set()
+        for item in resp.json().get("items", []):
+            parts = urlparse(item["html_url"]).path.strip("/").split("/")
+            if len(parts) >= 2:
+                repos.add((parts[0], parts[1]))
+        return repos
+
+    def list_prs_for_repo(self, owner: str, repo: str, login: str) -> list[PullRequest]:
+        resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/pulls",
+            headers=self._headers,
+            params={"state": "open", "per_page": 100},
+        )
+        if resp.status_code == 401:
+            raise PermissionError("GitHub token is invalid or expired")
+        resp.raise_for_status()
+        return [
+            self._pr_from_dict(item)
+            for item in resp.json()
+            if item.get("user", {}).get("login") == login
+        ]
+
+    def fetch_check_runs(self, owner: str, repo: str, sha: str) -> list[CICheck]:
+        resp = requests.get(
+            f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}/check-runs",
+            headers=self._headers,
+            params={"per_page": 100},
+        )
+        if resp.status_code != 200:
+            return []
+        return [
+            CICheck(
+                name=c["name"],
+                status=c["status"],
+                conclusion=c.get("conclusion"),
+                check_suite_id=str(c["check_suite"]["id"]) if c.get("check_suite") else None,
+            )
+            for c in resp.json().get("check_runs", [])
+        ]
 
     def list_my_open_prs(self) -> list[PullRequest]:
         login = self.get_authenticated_user()
@@ -79,26 +129,29 @@ class GitHubService:
 
     def get_pr_detail(self, pr_number: int, pr: PullRequest) -> PullRequest:
         base = self._base_for_pr(pr)
-        pr_resp = requests.get(f"{base}/pulls/{pr_number}", headers=self._headers)
-        pr_resp.raise_for_status()
-        detail = self._pr_from_dict(pr_resp.json())
-        sha = pr_resp.json()["head"]["sha"]
 
-        checks_resp = requests.get(
-            f"{base}/commits/{sha}/check-runs",
-            headers=self._headers,
-            params={"per_page": 100},
-        )
-        if checks_resp.status_code == 200:
-            detail.checks = [
-                CICheck(
-                    name=c["name"],
-                    status=c["status"],
-                    conclusion=c.get("conclusion"),
-                    check_suite_id=str(c["check_suite"]["id"]) if c.get("check_suite") else None,
-                )
-                for c in checks_resp.json().get("check_runs", [])
-            ]
+        if pr.head_sha:
+            detail = pr
+        else:
+            pr_resp = requests.get(f"{base}/pulls/{pr_number}", headers=self._headers)
+            pr_resp.raise_for_status()
+            detail = self._pr_from_dict(pr_resp.json())
+            sha = pr_resp.json()["head"]["sha"]
+            checks_resp = requests.get(
+                f"{base}/commits/{sha}/check-runs",
+                headers=self._headers,
+                params={"per_page": 100},
+            )
+            if checks_resp.status_code == 200:
+                detail.checks = [
+                    CICheck(
+                        name=c["name"],
+                        status=c["status"],
+                        conclusion=c.get("conclusion"),
+                        check_suite_id=str(c["check_suite"]["id"]) if c.get("check_suite") else None,
+                    )
+                    for c in checks_resp.json().get("check_runs", [])
+                ]
 
         reviews_resp = requests.get(f"{base}/pulls/{pr_number}/reviews", headers=self._headers)
         if reviews_resp.status_code == 200:

@@ -49,21 +49,21 @@ class TestIsReadyToMerge:
         )
         assert pr.is_ready_to_merge() is True
 
-    def test_not_ready_when_checks_running(self):
+    def test_ready_when_checks_running_but_mergeable_and_approved(self):
         pr = _pr(
             checks=[CICheck("build", "in_progress", None)],
             reviews=[Review("alice", "APPROVED")],
             mergeable=True,
         )
-        assert pr.is_ready_to_merge() is False
+        assert pr.is_ready_to_merge() is True
 
-    def test_not_ready_without_approval(self):
+    def test_ready_without_approval_when_mergeable(self):
         pr = _pr(
             checks=[CICheck("build", "completed", "success")],
             reviews=[],
             mergeable=True,
         )
-        assert pr.is_ready_to_merge() is False
+        assert pr.is_ready_to_merge() is True
 
     def test_not_ready_when_not_mergeable(self):
         pr = _pr(

@@ -46,22 +46,33 @@ def test_squash_checkbox_exists(panel):
     assert hasattr(panel, "_squash_checkbox")
 
 
-def test_merge_button_hidden_when_not_ready(panel, configured_vm, qtbot):
+def test_merge_button_visible_when_checks_failed_but_approved_and_mergeable(panel, configured_vm, qtbot):
     pr = _make_pr(
         checks=[CICheck("build", "completed", "failure")],
         reviews=[Review("alice", "APPROVED")],
         mergeable=True,
     )
     _show_detail(panel, configured_vm, pr)
+    assert panel._merge_btn.isVisible()
+    assert panel._squash_checkbox.isVisible()
+
+
+def test_merge_button_hidden_when_not_mergeable(panel, configured_vm, qtbot):
+    pr = _make_pr(
+        checks=[CICheck("build", "completed", "success")],
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=False,
+    )
+    _show_detail(panel, configured_vm, pr)
     assert not panel._merge_btn.isVisible()
     assert not panel._squash_checkbox.isVisible()
 
 
-def test_merge_button_hidden_when_no_approval(panel, configured_vm, qtbot):
+def test_merge_button_hidden_when_mergeable_unknown(panel, configured_vm, qtbot):
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
-        reviews=[],
-        mergeable=True,
+        reviews=[Review("alice", "APPROVED")],
+        mergeable=None,
     )
     _show_detail(panel, configured_vm, pr)
     assert not panel._merge_btn.isVisible()

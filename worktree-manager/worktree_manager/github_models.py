@@ -39,6 +39,7 @@ class PullRequest:
     checks: list[CICheck] = field(default_factory=list)
     reviews: list[Review] = field(default_factory=list)
     comments: list[PRComment] = field(default_factory=list)
+    head_sha: str = field(default="")
     owner: str = field(default="")
     repo: str = field(default="")
 
@@ -61,10 +62,6 @@ class PullRequest:
         return "passed"
 
     def is_ready_to_merge(self) -> bool:
-        if self.mergeable is not True:
-            return False
-        if not self.checks:
-            return False
-        if self.ci_status() != "passed":
-            return False
-        return any(r.state == "APPROVED" for r in self.reviews)
+        #DON'T CHANGE THIS METHOD, I want this to depend on only whether the PR is marked as mergeable by GitHub, 
+        #which is what the real UI does.
+        return self.mergeable

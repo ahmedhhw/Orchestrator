@@ -67,12 +67,22 @@ def test_save_token_updates_state_to_configured(tmp_path, qtbot):
 
 
 def test_refresh_prs_updates_pr_list(store, qtbot):
-    prs = [_make_pr(1), _make_pr(2)]
+    from PySide6.QtWidgets import QApplication
+    pr1 = _make_pr(1)
+    pr2 = _make_pr(2)
     svc = MagicMock()
-    svc.list_my_open_prs.return_value = prs
+    svc.get_authenticated_user.return_value = "me"
+    svc.discover_open_pr_repos.return_value = set()
+    svc.list_prs_for_repo.return_value = []
+    svc.fetch_check_runs.return_value = []
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         MockSvc.return_value = svc
         vm = GitHubViewModel(store=store)
+        vm._timer.stop()
+    QApplication.processEvents()
+    vm._known_repos = {("myorg", "api")}
+    vm._login = "me"
+    svc.list_prs_for_repo.return_value = [pr1, pr2]
     with qtbot.waitSignal(vm.prs_updated, timeout=1000):
         vm.refresh_prs()
     assert len(vm.prs) == 2
@@ -81,11 +91,15 @@ def test_refresh_prs_updates_pr_list(store, qtbot):
 
 
 def test_refresh_prs_on_401_sets_expired_state(store, qtbot):
+    from PySide6.QtWidgets import QApplication
     svc = MagicMock()
-    svc.list_my_open_prs.side_effect = PermissionError("401")
+    svc.get_authenticated_user.return_value = "me"
+    svc.discover_open_pr_repos.side_effect = PermissionError("401")
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         MockSvc.return_value = svc
         vm = GitHubViewModel(store=store)
+        vm._timer.stop()
+    QApplication.processEvents()
     with qtbot.waitSignal(vm.token_state_changed, timeout=1000):
         vm.refresh_prs()
     assert vm.token_state == TokenState.EXPIRED

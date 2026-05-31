@@ -4,12 +4,12 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QPushButton, QScrollArea,
+    QListWidget, QListWidgetItem, QMenu, QPushButton, QScrollArea,
     QSizePolicy, QStackedWidget, QTabWidget, QTextEdit,
     QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QCursor, QDesktopServices
 
 from worktree_manager.github_vm import GitHubViewModel, TokenState
 from worktree_manager.github_models import PullRequest
@@ -166,8 +166,22 @@ class GitHubPanel(QWidget):
         self._loading_label.hide()
         pr_list_layout.addWidget(self._loading_label)
         self._pr_list = QListWidget()
-        self._pr_list.itemActivated.connect(self._on_pr_row_activated)
+        self._pr_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._pr_list.customContextMenuRequested.connect(self._on_pr_list_context_menu)
         pr_list_layout.addWidget(self._pr_list)
+
+        footer_layout = QHBoxLayout()
+        footer_layout.setContentsMargins(8, 4, 8, 4)
+        self._fetch_status_label = QLabel("Scanning GitHub for repos with your open PRs…")
+        self._fetch_status_label.setStyleSheet("color: gray; font-size: 11px;")
+        self._fetch_status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        footer_layout.addWidget(self._fetch_status_label, 1)
+        self._rescan_btn = QPushButton("↺ Rescan")
+        self._rescan_btn.setFixedWidth(80)
+        self._rescan_btn.clicked.connect(vm.rescan_repos)
+        footer_layout.addWidget(self._rescan_btn)
+        pr_list_layout.addLayout(footer_layout)
+
         self._my_prs_stack.addWidget(self._pr_list_widget)
 
         self._pr_detail_widget = QWidget()
@@ -185,9 +199,11 @@ class GitHubPanel(QWidget):
         detail_header.addWidget(self._detail_title_label, 1)
         self._copy_url_btn = QPushButton("⧉ Copy URL")
         self._copy_url_btn.setFixedWidth(90)
+        self._copy_url_conn = None
         detail_header.addWidget(self._copy_url_btn)
         self._open_url_btn = QPushButton("↗ Open")
         self._open_url_btn.setFixedWidth(70)
+        self._open_url_conn = None
         detail_header.addWidget(self._open_url_btn)
         detail_layout.addLayout(detail_header)
 
@@ -197,6 +213,7 @@ class GitHubPanel(QWidget):
         self._rerun_btn = QPushButton("↺ Re-run")
         self._rerun_btn.setFixedWidth(80)
         self._rerun_btn.hide()
+        self._rerun_conn = None
         checks_header.addWidget(self._rerun_btn)
         detail_layout.addLayout(checks_header)
         self._checks_list = QListWidget()
@@ -316,6 +333,7 @@ class GitHubPanel(QWidget):
         vm.pr_detail_updated.connect(self._on_pr_detail_updated)
         vm.token_state_changed.connect(self._apply_token_state)
         vm.refresh_error.connect(self._on_refresh_error)
+        vm.fetch_status_changed.connect(self._fetch_status_label.setText)
 
         self._apply_token_state()
         self._populate_open_pr_form()
@@ -400,26 +418,67 @@ class GitHubPanel(QWidget):
         self._pr_list.show()
         self._pr_error_label.hide()
         self._pr_list.clear()
-        current_branch = _current_git_branch("")
         for pr in self._vm.prs:
-            status = self._ci_badge(pr)
+            badge = self._ci_badge(pr)
             unread = self._vm.unread_comment_count(pr.number)
-            badge = f"🔴 {unread} new  " if unread > 0 else ""
-            label = f"#{pr.number}  {pr.title}   {badge}{status}"
-            if pr.head_branch == current_branch:
-                label += "   ← current branch"
-            item = QListWidgetItem(label)
+            badge_prefix = f"🔴 {unread} new  " if unread > 0 else ""
+            label_text = f"#{pr.number}  {pr.title}   {badge_prefix}{badge}\n{pr.head_branch} → {pr.base_branch}"
+
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(8, 4, 8, 4)
+            lbl = QLabel(label_text)
+            lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            row_layout.addWidget(lbl, 1)
+            view_btn = QPushButton("↗ View")
+            view_btn.setFixedWidth(64)
+            view_btn.clicked.connect(lambda checked=False, n=pr.number: self._vm.select_pr(n))
+            row_layout.addWidget(view_btn)
+
+            item = QListWidgetItem()
             item.setData(Qt.UserRole, pr.number)
+            item.setSizeHint(row_widget.sizeHint().__class__(0, 48))
             self._pr_list.addItem(item)
+            self._pr_list.setItemWidget(item, row_widget)
+
         self._check_open_pr_tab()
 
     def _ci_badge(self, pr: PullRequest) -> str:
         s = pr.ci_status()
-        return {"running": "⏳", "failed": "❌", "passed": "✅", "unknown": "–"}.get(s, "–")
+        if s == "running":
+            return "⏳ checks running"
+        if s == "failed":
+            return "❌ checks failed"
+        if s == "passed":
+            return "✅ ready to merge" if pr.is_ready_to_merge() else "✅ checks passed"
+        return "– no checks"
 
-    def _on_pr_row_activated(self, item: QListWidgetItem):
+    def _on_pr_list_context_menu(self, pos) -> None:
+        item = self._pr_list.itemAt(pos)
+        if item is None:
+            return
         pr_number = item.data(Qt.UserRole)
-        self._vm.select_pr(pr_number)
+        self._show_pr_context_menu(pr_number, item)
+
+    def _show_pr_context_menu(self, pr_number: int, item: QListWidgetItem) -> None:
+        pr = next((p for p in self._vm.prs if p.number == pr_number), None)
+        if pr is None:
+            return
+        menu = QMenu(self)
+        menu.addAction("↗ View details")
+        if pr.is_ready_to_merge():
+            menu.addAction("✓ Merge (squash)")
+        menu.addAction("⧉ Copy URL")
+        action = menu.exec(QCursor.pos())
+        if action is None:
+            return
+        text = action.text()
+        if text == "↗ View details":
+            self._vm.select_pr(pr_number)
+        elif text == "✓ Merge (squash)":
+            self._vm.merge_pr(pr_number, squash=True)
+        elif text == "⧉ Copy URL":
+            QApplication.clipboard().setText(pr.html_url)
 
     def _on_pr_detail_updated(self):
         pr = self._vm.selected_pr
@@ -430,18 +489,14 @@ class GitHubPanel(QWidget):
         self._vm.mark_pr_comments_seen(pr.number)
         self._detail_title_label.setText(f"#{pr.number}  {pr.title}\n{pr.head_branch} → {pr.base_branch}")
 
-        try:
-            self._copy_url_btn.clicked.disconnect()
-        except RuntimeError:
-            pass
-        self._copy_url_btn.clicked.connect(
+        if self._copy_url_conn is not None:
+            self._copy_url_btn.clicked.disconnect(self._copy_url_conn)
+        self._copy_url_conn = self._copy_url_btn.clicked.connect(
             lambda: QApplication.clipboard().setText(pr.html_url)
         )
-        try:
-            self._open_url_btn.clicked.disconnect()
-        except RuntimeError:
-            pass
-        self._open_url_btn.clicked.connect(
+        if self._open_url_conn is not None:
+            self._open_url_btn.clicked.disconnect(self._open_url_conn)
+        self._open_url_conn = self._open_url_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl(pr.html_url))
         )
 
@@ -455,11 +510,9 @@ class GitHubPanel(QWidget):
         if failed_checks:
             self._rerun_btn.show()
             suite_id = failed_checks[0].check_suite_id
-            try:
-                self._rerun_btn.clicked.disconnect()
-            except RuntimeError:
-                pass
-            self._rerun_btn.clicked.connect(
+            if self._rerun_conn is not None:
+                self._rerun_btn.clicked.disconnect(self._rerun_conn)
+            self._rerun_conn = self._rerun_btn.clicked.connect(
                 lambda checked=False, sid=suite_id, p=pr: self._vm._svc.rerun_failed_checks(sid, p) if self._vm._svc else None
             )
         else:
@@ -513,11 +566,18 @@ class GitHubPanel(QWidget):
         self._merge_error_label.hide()
         try:
             self._vm.merge_pr(pr.number, squash=squash)
+            self._squash_checkbox.hide()
+            self._merge_btn.hide()
+            self._merge_status_label.setStyleSheet("color: green; font-weight: bold;")
+            for remaining in range(5, 0, -1):
+                self._merge_status_label.setText(f"✅ Merged — refreshing in {remaining}s…")
+                QApplication.processEvents()
+                time.sleep(1)
+            self._vm.refresh_prs()
             self._on_back()
         except Exception as exc:
             self._merge_error_label.setText(str(exc))
             self._merge_error_label.show()
-        finally:
             self._merge_btn.setEnabled(True)
             self._merge_btn.setText("Merge PR")
 

@@ -57,13 +57,24 @@ def test_mark_pr_comments_seen_clears_unread(vm):
     assert vm.unread_comment_count(1) == 0
 
 
+def _pr_list_label_texts(panel) -> list[str]:
+    from PySide6.QtWidgets import QLabel
+    texts = []
+    for i in range(panel._pr_list.count()):
+        item = panel._pr_list.item(i)
+        widget = panel._pr_list.itemWidget(item)
+        label = widget.findChild(QLabel) if widget else None
+        texts.append(label.text() if label else "")
+    return texts
+
+
 def test_list_row_shows_badge_for_unread_comments(vm, panel, qtbot):
     pr = _make_pr(1, comments=[_make_comment(1), _make_comment(2)])
     vm._unseen_comment_ids_by_pr = {1: {2}}
     vm.prs = [pr]
     vm.prs_updated.emit()
 
-    items = [panel._pr_list.item(i).text() for i in range(panel._pr_list.count())]
+    items = _pr_list_label_texts(panel)
     assert any("🔴" in text and "new" in text for text in items)
 
 
@@ -73,7 +84,7 @@ def test_list_row_no_badge_when_no_unread(vm, panel, qtbot):
     vm.prs = [pr]
     vm.prs_updated.emit()
 
-    items = [panel._pr_list.item(i).text() for i in range(panel._pr_list.count())]
+    items = _pr_list_label_texts(panel)
     assert not any("🔴" in text for text in items)
 
 

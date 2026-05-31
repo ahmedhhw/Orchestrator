@@ -80,34 +80,41 @@ def test_prs_updated_signal_refreshes_list(panel, vm, qtbot):
 
 
 def test_pr_row_shows_number_and_title(panel, vm, qtbot):
+    from PySide6.QtWidgets import QLabel
     vm.prs = [_make_pr(42)]
     vm.prs_updated.emit()
-    item_text = panel._pr_list.item(0).text()
+    item = panel._pr_list.item(0)
+    widget = panel._pr_list.itemWidget(item)
+    label = widget.findChild(QLabel)
+    item_text = label.text() if label else ""
     assert "#42" in item_text
     assert "PR 42" in item_text
 
 
-def test_current_branch_pr_shows_label(panel, vm, qtbot, monkeypatch):
-    import subprocess
-    monkeypatch.setattr(
-        "worktree_manager.ui.github_panel.subprocess.run",
-        lambda *a, **kw: MagicMock(returncode=0, stdout="feat\n"),
-    )
+def test_current_branch_pr_shows_label(panel, vm, qtbot):
+    from PySide6.QtWidgets import QLabel
     vm.prs = [_make_pr(1, head="feat")]
     vm.prs_updated.emit()
-    item_text = panel._pr_list.item(0).text()
-    assert "current branch" in item_text
+    item = panel._pr_list.item(0)
+    widget = panel._pr_list.itemWidget(item)
+    label = widget.findChild(QLabel)
+    item_text = label.text() if label else ""
+    assert "current branch" not in item_text
+    assert "feat" in item_text
 
 
 # ── My PRs tab — detail ────────────────────────────────────────────────────────
 
 
 def test_clicking_pr_row_calls_vm_select(panel, vm, qtbot):
+    from PySide6.QtWidgets import QPushButton
     vm.prs = [_make_pr(7)]
     vm.prs_updated.emit()
     with patch.object(vm, "select_pr") as mock_select:
-        panel._pr_list.item(0).setSelected(True)
-        panel._on_pr_row_activated(panel._pr_list.item(0))
+        item = panel._pr_list.item(0)
+        widget = panel._pr_list.itemWidget(item)
+        btn = widget.findChild(QPushButton)
+        btn.click()
     mock_select.assert_called_once_with(7)
 
 

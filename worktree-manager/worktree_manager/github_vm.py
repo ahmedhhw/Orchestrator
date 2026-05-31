@@ -1,3 +1,4 @@
+import concurrent.futures
 import logging
 from enum import Enum, auto
 
@@ -23,6 +24,7 @@ class GitHubViewModel(QObject):
     refresh_error = Signal(str)
     pr_event = Signal(int, str, str)  # (pr_number, event_type, message)
     loading_started = Signal()
+    fetch_status_changed = Signal(str)
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -34,6 +36,8 @@ class GitHubViewModel(QObject):
         self._pr_snapshots: dict[int, PullRequest] = {}
         self._seen_comment_ids: set[int] = set()
         self._unseen_comment_ids_by_pr: dict[int, set[int]] = {}
+        self._known_repos: set[tuple[str, str]] = set()
+        self._login: str = ""
 
         token = store.get_github_token()
         if token:
@@ -102,17 +106,74 @@ class GitHubViewModel(QObject):
 
             self._pr_snapshots[pr.number] = pr
 
+    def _add_repo_if_new(self, owner: str, repo: str) -> None:
+        self._known_repos.add((owner, repo))
+
     def refresh_prs(self) -> None:
         if self._svc is None:
             log.debug("refresh_prs: no service, skipping")
             return
         self.loading_started.emit()
-        log.debug("refresh_prs: calling list_my_open_prs")
         try:
-            self.prs = self._svc.list_my_open_prs()
-            log.debug("refresh_prs: got %d PRs", len(self.prs))
+            if not self._login:
+                self._login = self._svc.get_authenticated_user()
+            if not self._known_repos:
+                self.fetch_status_changed.emit("Scanning GitHub for repos with your open PRs…")
+                self._known_repos = self._svc.discover_open_pr_repos(self._login)
+
+            if not self._known_repos:
+                self.prs = []
+                self._emit_pr_events(self.prs)
+                self.prs_updated.emit()
+                self.fetch_status_changed.emit("Tracking: no repos found")
+                return
+
+            status_parts: dict[str, str] = {f"{o}/{r}": "⏳" for o, r in self._known_repos}
+            self.fetch_status_changed.emit(
+                "Fetching: " + "  ".join(f"{k} {v}" for k, v in status_parts.items())
+            )
+
+            all_prs: list[PullRequest] = []
+
+            def _fetch_repo(owner_repo: tuple[str, str]) -> list[PullRequest]:
+                owner, repo = owner_repo
+                prs = self._svc.list_prs_for_repo(owner, repo, self._login)
+                checks_futures = {}
+                with concurrent.futures.ThreadPoolExecutor() as inner:
+                    for pr in prs:
+                        if pr.head_sha:
+                            checks_futures[pr.number] = inner.submit(
+                                self._svc.fetch_check_runs, owner, repo, pr.head_sha
+                            )
+                for pr in prs:
+                    if pr.number in checks_futures:
+                        pr.checks = checks_futures[pr.number].result()
+                return prs
+
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                futures = {pool.submit(_fetch_repo, repo): repo for repo in self._known_repos}
+                for future in concurrent.futures.as_completed(futures):
+                    owner, repo = futures[future]
+                    key = f"{owner}/{repo}"
+                    try:
+                        repo_prs = future.result()
+                        all_prs.extend(repo_prs)
+                        status_parts[key] = "✅"
+                    except PermissionError:
+                        raise
+                    except Exception as exc:
+                        log.error("fetch failed for %s/%s: %s", owner, repo, exc)
+                        status_parts[key] = "❌"
+                    self.fetch_status_changed.emit(
+                        "Fetching: " + "  ".join(f"{k} {v}" for k, v in status_parts.items())
+                    )
+
+            self.prs = all_prs
             self._emit_pr_events(self.prs)
             self.prs_updated.emit()
+            self.fetch_status_changed.emit(
+                "Tracking: " + "  ".join(f"{o}/{r}" for o, r in sorted(self._known_repos))
+            )
         except PermissionError:
             log.warning("refresh_prs: token expired/invalid")
             self._token_state = TokenState.EXPIRED
@@ -121,6 +182,11 @@ class GitHubViewModel(QObject):
         except Exception as exc:
             log.error("refresh_prs: unexpected error: %s", exc, exc_info=True)
             self.refresh_error.emit(str(exc))
+
+    def rescan_repos(self) -> None:
+        self._known_repos = set()
+        self._login = ""
+        self.refresh_prs()
 
     def select_pr(self, pr_number: int) -> None:
         if self._svc is None:
