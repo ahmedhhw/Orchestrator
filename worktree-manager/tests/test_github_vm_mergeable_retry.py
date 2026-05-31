@@ -28,62 +28,35 @@ def vm(store, qtbot):
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         svc = MagicMock()
         svc.get_authenticated_user.return_value = "me"
-        svc.discover_open_pr_repos.return_value = set()
-        svc.list_prs_for_repo.return_value = []
-        svc.fetch_check_runs.return_value = []
+        svc.discover_open_prs.return_value = []
         MockSvc.return_value = svc
         from worktree_manager.github_vm import GitHubViewModel
         v = GitHubViewModel(store=store)
-        v._timer.stop()
+        v._total_timer.stop()
+        v._quick_timer.stop()
     QApplication.processEvents()
     v._svc.get_pr_detail.reset_mock()
     return v
 
 
-def test_select_pr_schedules_retry_when_mergeable_is_none(vm, qtbot):
-    """When get_pr_detail returns mergeable=None, a retry fires after 2s."""
-    pr_null = _make_pr(42, mergeable=None)
-    pr_resolved = _make_pr(42, mergeable=True)
-    vm.prs = [_make_pr(42, mergeable=None)]
-    vm._svc.get_pr_detail.side_effect = [pr_null, pr_resolved]
-
-    with qtbot.waitSignal(vm.pr_detail_updated, timeout=3000):
-        vm.select_pr(42)
-
-    with qtbot.waitSignal(vm.pr_detail_updated, timeout=3000):
-        pass
-
-    assert vm.selected_pr.mergeable is True
-    assert vm._svc.get_pr_detail.call_count == 2
-
-
-def test_select_pr_no_retry_when_mergeable_is_known(vm, qtbot):
-    """No retry is scheduled when mergeable is already True or False."""
+def test_select_pr_reflects_mergeable_from_detail(vm, qtbot):
     pr = _make_pr(42, mergeable=True)
     vm.prs = [pr]
     vm._svc.get_pr_detail.return_value = pr
-
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
         vm.select_pr(42)
-
-    # Wait long enough that a retry would have fired if scheduled
-    qtbot.wait(2500)
+    assert vm.selected_pr.mergeable is True
     assert vm._svc.get_pr_detail.call_count == 1
 
 
-def test_refetch_mergeable_noops_if_pr_changed(vm, qtbot):
-    """If the user navigates away before the retry fires, it does nothing."""
+def test_select_pr_with_null_mergeable_shows_none(vm, qtbot):
+    """mergeable=None from detail is shown as-is; no retry fires."""
     pr_null = _make_pr(42, mergeable=None)
-    pr_other = _make_pr(99, mergeable=True)
-    vm.prs = [pr_null]
+    vm.prs = [_make_pr(42, mergeable=None)]
     vm._svc.get_pr_detail.return_value = pr_null
-
     with qtbot.waitSignal(vm.pr_detail_updated, timeout=1000):
         vm.select_pr(42)
-
-    # Navigate to a different PR before the 2s timer fires
-    vm.selected_pr = pr_other
-
-    # Wait for the timer; it must not call get_pr_detail again for PR 42
-    qtbot.wait(2500)
+    assert vm.selected_pr.mergeable is None
+    # No retry: get_pr_detail should only be called once
+    qtbot.wait(500)
     assert vm._svc.get_pr_detail.call_count == 1

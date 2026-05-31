@@ -45,7 +45,7 @@ def test_token_missing_hides_header_controls(panel, qtbot):
 def test_save_token_button_calls_vm(panel, vm, qtbot):
     panel._token_input.setText("ghp_abc")
     with patch.object(vm, "save_token") as mock_save, \
-         patch.object(vm, "refresh_prs"):
+         patch.object(vm, "total_fetch"):
         panel._save_token_btn.click()
     mock_save.assert_called_once_with("ghp_abc")
 

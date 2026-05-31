@@ -174,6 +174,63 @@ def test_get_pr_detail_fetches_checks_reviews_comments(service):
     assert detail.comments[0].id == 1
 
 
+# ── discover_open_prs ────────────────────────────────────────────────────────
+
+
+def test_discover_open_prs_returns_owner_repo_number(service):
+    search_resp = MagicMock(status_code=200)
+    search_resp.ok = True
+    search_resp.json.return_value = {
+        "items": [
+            {"number": 2, "html_url": "https://github.com/ahmedhhw/Orchestrator/pull/2",
+             "pull_request": {"url": "https://api.github.com/repos/ahmedhhw/Orchestrator/pulls/2"}},
+            {"number": 9, "html_url": "https://github.com/myorg/api/pull/9",
+             "pull_request": {"url": "https://api.github.com/repos/myorg/api/pulls/9"}},
+        ]
+    }
+    with patch("requests.get", return_value=search_resp) as mock_get:
+        result = service.discover_open_prs("ahmedhhw")
+    assert ("ahmedhhw", "Orchestrator", 2) in result
+    assert ("myorg", "api", 9) in result
+    assert len(result) == 2
+    call_args = mock_get.call_args
+    assert call_args[0][0] == "https://api.github.com/search/issues"
+    assert "is:pr is:open author:ahmedhhw" in call_args[1]["params"]["q"]
+
+
+def test_discover_open_prs_raises_permission_error_on_401(service):
+    resp = MagicMock(status_code=401)
+    resp.raise_for_status.side_effect = Exception("401")
+    with patch("requests.get", return_value=resp):
+        with pytest.raises(PermissionError):
+            service.discover_open_prs("ahmedhhw")
+
+
+def test_pr_from_dict_captures_mergeable_state(service):
+    data = {
+        "number": 2, "title": "t", "body": "", "html_url": "https://github.com/o/r/pull/2",
+        "head": {"ref": "f", "sha": "abc"}, "base": {"ref": "main"},
+        "state": "open", "draft": False, "mergeable": False, "mergeable_state": "dirty",
+    }
+    pr = service._pr_from_dict(data)
+    assert pr.mergeable is False
+    assert pr.mergeable_state == "dirty"
+
+
+def test_get_pr_detail_populates_mergeable_state(service):
+    pr = _make_pr(2)
+    pr.head_sha = "abc"
+    pr_resp = MagicMock(status_code=200)
+    pr_resp.json.return_value = {"mergeable": False, "mergeable_state": "dirty",
+                                 "head": {"sha": "abc"}}
+    other = MagicMock(status_code=200)
+    other.json.return_value = []
+    with patch("requests.get", side_effect=[pr_resp, other, other]):
+        detail = service.get_pr_detail(2, pr=pr)
+    assert detail.mergeable is False
+    assert detail.mergeable_state == "dirty"
+
+
 # ── create_pull_request ───────────────────────────────────────────────────────
 
 

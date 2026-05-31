@@ -27,6 +27,8 @@ def vm(tmp_path):
     store.save_github_token("ghp_test")
     with patch("worktree_manager.github_vm.GitHubService"):
         v = GitHubViewModel(store=store)
+        v._total_timer.stop()
+        v._quick_timer.stop()
     return v
 
 
@@ -45,9 +47,8 @@ def test_unread_count_zero_initially(vm):
 def test_unread_count_increases_on_new_comments(vm):
     old_pr = _make_pr(1, comments=[_make_comment(1)])
     new_pr = _make_pr(1, comments=[_make_comment(1), _make_comment(2)])
-    vm._pr_snapshots = {1: old_pr}
-    vm._seen_comment_ids = {1}
-    vm._emit_pr_events([new_pr])
+    vm._emit_pr_events([old_pr])   # seed baseline (comment 1 noted, no event)
+    vm._emit_pr_events([new_pr])   # new comment 2 → unread
     assert vm.unread_comment_count(1) == 1
 
 

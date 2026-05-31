@@ -37,8 +37,25 @@ class GitHubService:
             state=data["state"],
             draft=data.get("draft", False),
             mergeable=data.get("mergeable"),
+            mergeable_state=data.get("mergeable_state", "") or "",
             head_sha=data["head"].get("sha", ""),
         )
+
+    def discover_open_prs(self, login: str) -> list[tuple[str, str, int]]:
+        resp = requests.get(
+            "https://api.github.com/search/issues",
+            headers=self._headers,
+            params={"q": f"is:pr is:open author:{login}", "per_page": 100},
+        )
+        if resp.status_code == 401:
+            raise PermissionError("GitHub token is invalid or expired")
+        resp.raise_for_status()
+        out: list[tuple[str, str, int]] = []
+        for item in resp.json().get("items", []):
+            parts = urlparse(item["html_url"]).path.strip("/").split("/")
+            if len(parts) >= 4:
+                out.append((parts[0], parts[1], int(item["number"])))
+        return out
 
     def discover_open_pr_repos(self, login: str) -> set[tuple[str, str]]:
         resp = requests.get(
@@ -146,6 +163,7 @@ class GitHubService:
         if pr.head_sha:
             detail = pr
             detail.mergeable = pr_data.get("mergeable")
+            detail.mergeable_state = pr_data.get("mergeable_state", "") or ""
         else:
             detail = self._pr_from_dict(pr_data)
             sha = pr_data["head"]["sha"]

@@ -85,7 +85,7 @@ def test_push_open_pr_resolves_display_name_to_full_path(panel, vm, store):
     vm._svc = mock_svc
 
     with patch("worktree_manager.ui.github_panel._github_api_base", return_value="https://api.github.com/repos/o/r"), \
-         patch.object(vm, "refresh_prs"):
+         patch.object(vm, "total_fetch"):
         panel._push_open_btn.click()
 
     mock_svc.push_branch.assert_called_once_with("feature/foo", repo_path="/repos/alpha")

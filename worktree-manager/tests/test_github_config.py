@@ -39,3 +39,12 @@ def test_github_poll_interval_persisted_to_disk(tmp_path):
     ConfigStore(path=path).save_github_poll_interval(120)
     raw = json.loads(path.read_text())
     assert raw["ui"]["github_poll_interval_seconds"] == 120
+
+
+def test_total_fetch_interval_defaults_to_300(store):
+    assert store.get_github_total_fetch_interval() == 300
+
+
+def test_total_fetch_interval_roundtrips(store):
+    store.save_github_total_fetch_interval(120)
+    assert store.get_github_total_fetch_interval() == 120

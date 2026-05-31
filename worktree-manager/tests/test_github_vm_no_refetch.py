@@ -29,15 +29,13 @@ def vm(store, qtbot):
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         svc = MagicMock()
         svc.get_authenticated_user.return_value = "me"
-        svc.discover_open_pr_repos.return_value = set()
-        svc.list_prs_for_repo.return_value = []
-        svc.fetch_check_runs.return_value = []
+        svc.discover_open_prs.return_value = []
         MockSvc.return_value = svc
         v = GitHubViewModel(store=store)
-        v._timer.stop()
+        v._total_timer.stop()
+        v._quick_timer.stop()
     QApplication.processEvents()
     v._svc.get_pr_detail.reset_mock()
-    v._svc.fetch_check_runs.reset_mock()
     return v
 
 

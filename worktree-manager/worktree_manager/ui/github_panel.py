@@ -233,6 +233,9 @@ class GitHubPanel(QWidget):
         self._comments_list.setMaximumHeight(120)
         detail_layout.addWidget(self._comments_list)
 
+        self._mergeability_label = QLabel()
+        detail_layout.addWidget(self._mergeability_label)
+
         self._merge_status_label = QLabel()
         detail_layout.addWidget(self._merge_status_label)
 
@@ -350,7 +353,7 @@ class GitHubPanel(QWidget):
         if token:
             self._vm.save_token(token)
             self._token_input.clear()
-            self._vm.refresh_prs()
+            self._vm.total_fetch()
 
     def _toggle_token_form(self):
         visible = self._token_rotate_widget.isVisible()
@@ -362,7 +365,7 @@ class GitHubPanel(QWidget):
             self._vm.save_token(token)
             self._token_rotate_input.clear()
             self._token_rotate_widget.hide()
-            self._vm.refresh_prs()
+            self._vm.total_fetch()
 
     # ── poll toggle ────────────────────────────────────────────────────────────
 
@@ -408,7 +411,9 @@ class GitHubPanel(QWidget):
             badge = self._ci_badge(pr)
             unread = self._vm.unread_comment_count(pr.number)
             badge_prefix = f"🔴 {unread} new  " if unread > 0 else ""
-            label_text = f"#{pr.number}  {pr.title}   {badge_prefix}{badge}\n{pr.head_branch} → {pr.base_branch}"
+            merge_badge = self._mergeable_badge(pr)
+            label_text = (f"#{pr.number}  {pr.title}   {badge_prefix}{badge}\n"
+                          f"{pr.head_branch} → {pr.base_branch}    {merge_badge}")
 
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
@@ -427,6 +432,16 @@ class GitHubPanel(QWidget):
             self._pr_list.addItem(item)
             self._pr_list.setItemWidget(item, row_widget)
 
+
+    @staticmethod
+    def _mergeable_badge(pr: PullRequest) -> str:
+        return {
+            "mergeable": "🟢 Mergeable",
+            "conflicts": "🔴 Conflicts",
+            "behind":    "🟠 Behind base",
+            "blocked":   "🔒 Blocked",
+            "checking":  "⚪ Checking mergeability…",
+        }.get(pr.mergeability(), "⚪ Checking mergeability…")
 
     def _ci_badge(self, pr: PullRequest) -> str:
         s = pr.ci_status()
@@ -522,6 +537,8 @@ class GitHubPanel(QWidget):
         else:
             self._comments_list.addItem("No comments.")
 
+        self._mergeability_label.setText("Mergeability:  " + self._mergeable_badge(pr))
+
         s = pr.ci_status()
         if s == "running":
             self._merge_status_label.setText("⏳ Checks running — not ready to merge")
@@ -564,7 +581,7 @@ class GitHubPanel(QWidget):
                 self._merge_status_label.setText(f"✅ Merged — refreshing in {remaining}s…")
                 QApplication.processEvents()
                 time.sleep(1)
-            self._vm.refresh_prs()
+            self._vm.total_fetch()
             self._on_back()
         except Exception as exc:
             self._merge_error_label.setText(str(exc))
@@ -708,7 +725,7 @@ class GitHubPanel(QWidget):
                 self._push_open_btn.setText(f"Sleeping {remaining}s before fetching PRs…")
                 QApplication.processEvents()
                 time.sleep(1)
-            self._vm.refresh_prs()
+            self._vm.total_fetch()
             self._tabs.setCurrentIndex(0)
         except Exception as exc:
             self._open_pr_error_label.setText(str(exc))

@@ -24,7 +24,8 @@ def vm(tmp_path):
     store.save_github_token("ghp_test")
     with patch("worktree_manager.github_vm.GitHubService"):
         v = GitHubViewModel(store=store)
-    v._timer.stop()
+    v._total_timer.stop()
+    v._quick_timer.stop()
     return v
 
 
@@ -249,3 +250,50 @@ def test_context_menu_copy_url_writes_clipboard(vm, panel, qtbot):
         mock_menu.addAction.return_value = copy_action
         panel._show_pr_context_menu(42, panel._pr_list.item(0))
     MockApp.clipboard.return_value.setText.assert_called()
+
+
+# ── mergeability badge ────────────────────────────────────────────────────────
+
+def test_mergeable_badge_clean():
+    pr = PullRequest(number=1, title="t", body="", html_url="https://github.com/o/r/pull/1",
+                     head_branch="f", base_branch="main", state="open", draft=False,
+                     mergeable=True, mergeable_state="clean")
+    assert "Mergeable" in GitHubPanel._mergeable_badge(pr)
+
+
+def test_mergeable_badge_dirty():
+    pr = PullRequest(number=1, title="t", body="", html_url="https://github.com/o/r/pull/1",
+                     head_branch="f", base_branch="main", state="open", draft=False,
+                     mergeable=False, mergeable_state="dirty")
+    assert "Conflicts" in GitHubPanel._mergeable_badge(pr)
+
+
+def test_mergeable_badge_behind():
+    pr = PullRequest(number=1, title="t", body="", html_url="https://github.com/o/r/pull/1",
+                     head_branch="f", base_branch="main", state="open", draft=False,
+                     mergeable=False, mergeable_state="behind")
+    assert "Behind" in GitHubPanel._mergeable_badge(pr)
+
+
+def test_mergeable_badge_blocked():
+    pr = PullRequest(number=1, title="t", body="", html_url="https://github.com/o/r/pull/1",
+                     head_branch="f", base_branch="main", state="open", draft=False,
+                     mergeable=False, mergeable_state="blocked")
+    assert "Blocked" in GitHubPanel._mergeable_badge(pr)
+
+
+def test_mergeable_badge_checking():
+    pr = PullRequest(number=1, title="t", body="", html_url="https://github.com/o/r/pull/1",
+                     head_branch="f", base_branch="main", state="open", draft=False,
+                     mergeable=None, mergeable_state="unknown")
+    assert "Checking" in GitHubPanel._mergeable_badge(pr)
+
+
+def test_mergeable_badge_shown_in_pr_list_row(vm, panel, qtbot):
+    vm.prs = [PullRequest(
+        number=1, title="t", body="", html_url="https://github.com/o/r/pull/1",
+        head_branch="f", base_branch="main", state="open", draft=False,
+        mergeable=False, mergeable_state="dirty",
+    )]
+    vm.prs_updated.emit()
+    assert "Conflicts" in _row_label_text(panel, 0)
