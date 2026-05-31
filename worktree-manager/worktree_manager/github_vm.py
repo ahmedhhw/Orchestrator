@@ -39,6 +39,7 @@ class GitHubViewModel(QObject):
         self._unseen_comment_ids_by_pr: dict[int, set[int]] = {}
         self._known_repos: set[tuple[str, str]] = set()
         self._login: str = ""
+        self._initial_load_done: bool = False
 
         token = store.get_github_token()
         if token:
@@ -114,7 +115,8 @@ class GitHubViewModel(QObject):
         if self._svc is None:
             log.debug("refresh_prs: no service, skipping")
             return
-        self.loading_started.emit()
+        if not self._initial_load_done:
+            self.loading_started.emit()
         threading.Thread(target=self._do_refresh_prs, daemon=True).start()
 
     def _do_refresh_prs(self) -> None:
@@ -128,6 +130,7 @@ class GitHubViewModel(QObject):
             if not self._known_repos:
                 self.prs = []
                 self._emit_pr_events(self.prs)
+                self._initial_load_done = True
                 self.prs_updated.emit()
                 self.fetch_status_changed.emit("Tracking: no repos found")
                 return
@@ -183,6 +186,7 @@ class GitHubViewModel(QObject):
                     pr.mergeable = prev_mergeable[pr.number]
             self.prs = all_prs
             self._emit_pr_events(self.prs)
+            self._initial_load_done = True
             self.prs_updated.emit()
             self.fetch_status_changed.emit(
                 "Tracking: " + "  ".join(f"{o}/{r}" for o, r in sorted(self._known_repos))
