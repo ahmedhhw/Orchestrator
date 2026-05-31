@@ -787,6 +787,7 @@ class App(QMainWindow):
                 store=self._store,
                 repo_path=repo_path,
             )
+            self._github_vm.pr_event.connect(self._on_pr_event)
             self._panel_cache.pop("github", None)
         if "github" not in self._panel_cache:
             from worktree_manager.ui.github_panel import GitHubPanel
@@ -976,6 +977,12 @@ class App(QMainWindow):
         return bool(self._store.get_ui_pref(
             "cmd_center_notifications_enabled", True
         ))
+
+    def _on_pr_event(self, pr_number: int, event_type: str, message: str) -> None:
+        if self._store.get_ui_pref("github_notifications_enabled", True):
+            self._show_notification("Pull Requests", message)
+            if not self.isActiveWindow():
+                QApplication.alert(self, 0)
 
     def _on_command_finished(self, run_id: str, handle) -> None:
         from worktree_manager.command_runner import RunStatus

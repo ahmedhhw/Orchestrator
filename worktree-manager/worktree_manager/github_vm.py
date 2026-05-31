@@ -21,6 +21,8 @@ class GitHubViewModel(QObject):
     pr_detail_updated = Signal()
     token_state_changed = Signal()
     refresh_error = Signal(str)
+    pr_event = Signal(int, str, str)  # (pr_number, event_type, message)
+    loading_started = Signal()
 
     def __init__(self, store, repo_path: str, parent=None):
         super().__init__(parent)
@@ -30,6 +32,9 @@ class GitHubViewModel(QObject):
         self.prs: list[PullRequest] = []
         self.selected_pr: PullRequest | None = None
         self.polling_active: bool = True
+        self._pr_snapshots: dict[int, PullRequest] = {}
+        self._seen_comment_ids: set[int] = set()
+        self._unseen_comment_ids_by_pr: dict[int, set[int]] = {}
 
         token = store.get_github_token()
         if token:
@@ -58,8 +63,7 @@ class GitHubViewModel(QObject):
                 return
             except Exception as exc:
                 log.error("_init_service: from_remote_url failed: %s", exc)
-        log.warning("_init_service: no remote detected; owner/repo will be empty")
-        self._svc = GitHubService(token=token, owner="", repo="")
+        log.warning("_init_service: no remote detected; service unavailable until repo path is set")
 
     def _detect_remote_url(self) -> str:
         if not self._repo_path:
@@ -83,14 +87,53 @@ class GitHubViewModel(QObject):
         self._timer.start(interval_ms)
         self.token_state_changed.emit()
 
+    def unread_comment_count(self, pr_number: int) -> int:
+        return len(self._unseen_comment_ids_by_pr.get(pr_number, set()))
+
+    def mark_pr_comments_seen(self, pr_number: int) -> None:
+        self._unseen_comment_ids_by_pr.pop(pr_number, None)
+
+    def _emit_pr_events(self, new_prs: list[PullRequest]) -> None:
+        for pr in new_prs:
+            prev = self._pr_snapshots.get(pr.number)
+            if prev is None:
+                self._pr_snapshots[pr.number] = pr
+                continue
+
+            prev_ci = prev.ci_status()
+            curr_ci = pr.ci_status()
+            if prev_ci != "failed" and curr_ci == "failed":
+                self.pr_event.emit(pr.number, "ci_failed", f'❌ "{pr.title}" — checks failed')
+            elif prev_ci != "passed" and curr_ci == "passed":
+                self.pr_event.emit(pr.number, "ci_passed", f'✅ "{pr.title}" — all checks passed')
+
+            prev_comment_ids = {c.id for c in prev.comments}
+            for comment in pr.comments:
+                if comment.id not in prev_comment_ids:
+                    self.pr_event.emit(pr.number, "new_comment", f'💬 {comment.author} commented on "{pr.title}"')
+                    self._unseen_comment_ids_by_pr.setdefault(pr.number, set()).add(comment.id)
+                    self._seen_comment_ids.add(comment.id)
+
+            prev_review_authors = {(r.author, r.state) for r in prev.reviews}
+            for review in pr.reviews:
+                if (review.author, review.state) not in prev_review_authors:
+                    if review.state == "APPROVED":
+                        self.pr_event.emit(pr.number, "review_approved", f'✅ {review.author} approved "{pr.title}"')
+                    elif review.state == "CHANGES_REQUESTED":
+                        self.pr_event.emit(pr.number, "review_changes_requested", f'🔄 {review.author} requested changes on "{pr.title}"')
+
+            self._pr_snapshots[pr.number] = pr
+
     def refresh_prs(self) -> None:
         if self._svc is None:
             log.debug("refresh_prs: no service, skipping")
             return
+        self.loading_started.emit()
         log.debug("refresh_prs: calling list_my_open_prs")
         try:
             self.prs = self._svc.list_my_open_prs()
             log.debug("refresh_prs: got %d PRs", len(self.prs))
+            self._emit_pr_events(self.prs)
             self.prs_updated.emit()
         except PermissionError:
             log.warning("refresh_prs: token expired/invalid")
@@ -107,6 +150,7 @@ class GitHubViewModel(QObject):
         listed_pr = next((p for p in self.prs if p.number == pr_number), None)
         self.selected_pr = self._svc.get_pr_detail(pr_number, pr=listed_pr)
         self.pr_detail_updated.emit()
+        self.mark_pr_comments_seen(pr_number)
 
     def deselect_pr(self) -> None:
         self.selected_pr = None

@@ -157,6 +157,14 @@ class GitHubService:
             raise RuntimeError(msg)
         return self._pr_from_dict(resp.json())
 
+    def rerun_failed_checks(self, check_suite_id: str, pr: "PullRequest") -> None:
+        base = self._base_for_pr(pr)
+        resp = requests.post(
+            f"{base}/check-suites/{check_suite_id}/rerequest",
+            headers=self._headers,
+        )
+        resp.raise_for_status()
+
     def push_branch(self, branch: str, repo_path: str) -> None:
         result = subprocess.run(
             ["git", "push", "-u", "origin", branch],

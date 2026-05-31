@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 
 @dataclass
@@ -38,6 +39,15 @@ class PullRequest:
     checks: list[CICheck] = field(default_factory=list)
     reviews: list[Review] = field(default_factory=list)
     comments: list[PRComment] = field(default_factory=list)
+    owner: str = field(default="")
+    repo: str = field(default="")
+
+    def __post_init__(self):
+        if (not self.owner or not self.repo) and self.html_url:
+            parts = urlparse(self.html_url).path.strip("/").split("/")
+            if len(parts) >= 2:
+                self.owner = parts[0]
+                self.repo = parts[1]
 
     def ci_status(self) -> str:
         """Return 'running', 'failed', 'passed', or 'unknown'."""
@@ -51,8 +61,4 @@ class PullRequest:
         return "passed"
 
     def is_ready_to_merge(self) -> bool:
-        return (
-            self.ci_status() == "passed"
-            and any(r.state == "APPROVED" for r in self.reviews)
-            and self.mergeable is True
-        )
+        return self.mergeable is True

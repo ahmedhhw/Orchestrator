@@ -540,3 +540,789 @@ None — all scope decisions resolved in conversation.
 
 **How to confirm:** Run the app, perform each action above, and check off each item manually.
 Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
+
+---
+
+## Iteration 1 — Actions, Notifications & Badges
+
+### Phase 1.1 — Copy URL and Open in Browser buttons
+
+**What it covers:** Add `[⧉ Copy URL]` and `[↗ Open]` buttons to the PR detail header in `GitHubPanel`.
+
+**Files touched:**
+- [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py)
+
+**Tests (Red) — write these first:**
+```python
+# tests/test_github_panel_iter1_qt.py
+import pytest
+from unittest.mock import MagicMock, patch
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QClipboard
+from worktree_manager.github_vm import GitHubViewModel, TokenState
+from worktree_manager.github_models import PullRequest, CICheck, Review, PRComment
+from worktree_manager.ui.github_panel import GitHubPanel
+
+
+def _make_pr(number=1, head="feat", base="main", checks=None, reviews=None, comments=None, html_url=None):
+    return PullRequest(
+        number=number, title=f"PR {number}", body="", html_url=html_url or f"https://github.com/o/r/pull/{number}",
+        head_branch=head, base_branch=base, state="open", draft=False, mergeable=True,
+        checks=checks or [], reviews=reviews or [], comments=comments or [],
+    )
+
+
+@pytest.fixture
+def vm(tmp_path):
+    from worktree_manager.config_store import ConfigStore
+    store = ConfigStore(path=tmp_path / "config.json")
+    with patch("worktree_manager.github_vm.GitHubService"), \
+         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="")
+        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    return v
+
+
+@pytest.fixture
+def configured_vm(tmp_path):
+    from worktree_manager.config_store import ConfigStore
+    store = ConfigStore(path=tmp_path / "config.json")
+    store.save_github_token("ghp_test")
+    with patch("worktree_manager.github_vm.GitHubService") as MockSvc, \
+         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
+        MockSvc.from_remote_url.return_value = MagicMock()
+        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    return v
+
+
+@pytest.fixture
+def panel(vm, qtbot):
+    p = GitHubPanel(vm=vm)
+    qtbot.addWidget(p)
+    p.show()
+    return p
+
+
+@pytest.fixture
+def configured_panel(configured_vm, qtbot):
+    p = GitHubPanel(vm=configured_vm)
+    qtbot.addWidget(p)
+    p.show()
+    return p
+
+
+def _show_detail(panel, vm, pr):
+    vm.selected_pr = pr
+    vm.pr_detail_updated.emit()
+
+
+def test_copy_url_button_exists_on_detail_view(configured_panel, configured_vm, qtbot):
+    pr = _make_pr(42, html_url="https://github.com/o/r/pull/42")
+    _show_detail(configured_panel, configured_vm, pr)
+    assert hasattr(configured_panel, "_copy_url_btn")
+    assert configured_panel._copy_url_btn is not None
+
+
+def test_open_url_button_exists_on_detail_view(configured_panel, configured_vm, qtbot):
+    pr = _make_pr(42, html_url="https://github.com/o/r/pull/42")
+    _show_detail(configured_panel, configured_vm, pr)
+    assert hasattr(configured_panel, "_open_url_btn")
+    assert configured_panel._open_url_btn is not None
+
+
+def test_copy_url_writes_to_clipboard(configured_panel, configured_vm, qtbot):
+    pr = _make_pr(42, html_url="https://github.com/o/r/pull/42")
+    _show_detail(configured_panel, configured_vm, pr)
+    configured_panel._copy_url_btn.click()
+    clipboard = QApplication.clipboard()
+    assert clipboard.text() == "https://github.com/o/r/pull/42"
+
+
+def test_open_url_calls_desktop_services(configured_panel, configured_vm, qtbot):
+    pr = _make_pr(42, html_url="https://github.com/o/r/pull/42")
+    _show_detail(configured_panel, configured_vm, pr)
+    with patch("worktree_manager.ui.github_panel.QDesktopServices.openUrl") as mock_open:
+        configured_panel._open_url_btn.click()
+    mock_open.assert_called_once()
+    called_url = mock_open.call_args[0][0]
+    assert "pull/42" in called_url.toString()
+```
+
+**Production code (Green):**
+
+In [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py):
+
+1. Add `QDesktopServices` to imports from `PySide6.QtGui`, and `QUrl` from `PySide6.QtCore`.
+2. Add `_copy_url_btn` and `_open_url_btn` to the detail header row (alongside `_detail_title_label`).
+3. In `_on_pr_detail_updated`, update button callbacks to use the current PR's `html_url`.
+
+```python
+# In imports, add:
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
+
+# In __init__, replace the detail_title_label block with:
+detail_header = QHBoxLayout()
+self._detail_title_label = QLabel()
+self._detail_title_label.setStyleSheet("font-weight: bold;")
+self._detail_title_label.setWordWrap(True)
+detail_header.addWidget(self._detail_title_label, 1)
+self._copy_url_btn = QPushButton("⧉ Copy URL")
+self._copy_url_btn.setFixedWidth(90)
+detail_header.addWidget(self._copy_url_btn)
+self._open_url_btn = QPushButton("↗ Open")
+self._open_url_btn.setFixedWidth(70)
+detail_header.addWidget(self._open_url_btn)
+detail_layout.addLayout(detail_header)
+
+# In _on_pr_detail_updated, after setting detail_title_label text:
+self._copy_url_btn.clicked.disconnect()
+self._copy_url_btn.clicked.connect(
+    lambda: QApplication.clipboard().setText(pr.html_url)
+)
+self._open_url_btn.clicked.disconnect()
+self._open_url_btn.clicked.connect(
+    lambda: QDesktopServices.openUrl(QUrl(pr.html_url))
+)
+```
+
+**Done when:** PR detail view shows `⧉ Copy URL` and `↗ Open` buttons; clicking Copy URL puts the URL in the clipboard; clicking Open fires `QDesktopServices.openUrl` with the correct URL.
+
+---
+
+### Phase 1.2 — Re-run CI button
+
+**What it covers:** Add a `[↺ Re-run]` button to the CI Checks section of the PR detail; it appears only when at least one check has `conclusion == "failure"`, calls `GitHubService.rerun_failed_checks`, and is hidden otherwise.
+
+**Files touched:**
+- [worktree_manager/github_service.py](worktree-manager/worktree_manager/github_service.py)
+- [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py)
+
+**Tests (Red) — write these first:**
+```python
+# Append to tests/test_github_panel_iter1_qt.py
+
+def test_rerun_button_hidden_when_no_failures(configured_panel, configured_vm, qtbot):
+    pr = _make_pr(42, checks=[CICheck("build", "completed", "success", "suite-1")])
+    _show_detail(configured_panel, configured_vm, pr)
+    assert not configured_panel._rerun_btn.isVisible()
+
+
+def test_rerun_button_visible_when_check_failed(configured_panel, configured_vm, qtbot):
+    pr = _make_pr(42, checks=[CICheck("build", "completed", "failure", "suite-1")])
+    _show_detail(configured_panel, configured_vm, pr)
+    assert configured_panel._rerun_btn.isVisible()
+
+
+def test_rerun_button_calls_service(configured_panel, configured_vm, qtbot):
+    failed_check = CICheck("build", "completed", "failure", "suite-99")
+    pr = _make_pr(42, checks=[failed_check])
+    _show_detail(configured_panel, configured_vm, pr)
+    configured_vm._svc = MagicMock()
+    configured_panel._rerun_btn.click()
+    configured_vm._svc.rerun_failed_checks.assert_called_once_with("suite-99")
+
+
+# tests/test_github_service_rerun.py
+import pytest
+from unittest.mock import MagicMock, patch
+import requests
+from worktree_manager.github_service import GitHubService
+
+
+@pytest.fixture
+def svc():
+    return GitHubService(token="ghp_test", owner="myorg", repo="myrepo")
+
+
+def test_rerun_failed_checks_calls_correct_endpoint(svc):
+    with patch("worktree_manager.github_service.requests.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=201)
+        svc.rerun_failed_checks("suite-42")
+    mock_post.assert_called_once()
+    url = mock_post.call_args[0][0]
+    assert "check-suites/suite-42/rerequest" in url
+
+
+def test_rerun_failed_checks_raises_on_error(svc):
+    with patch("worktree_manager.github_service.requests.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=403, ok=False)
+        mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("403")
+        with pytest.raises(requests.HTTPError):
+            svc.rerun_failed_checks("suite-42")
+```
+
+**Production code (Green):**
+
+In [worktree_manager/github_service.py](worktree-manager/worktree_manager/github_service.py), add:
+```python
+def rerun_failed_checks(self, check_suite_id: str) -> None:
+    resp = requests.post(
+        f"{self._base}/check-suites/{check_suite_id}/rerequest",
+        headers=self._headers,
+    )
+    resp.raise_for_status()
+```
+
+In [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py):
+
+1. Add `_rerun_btn` to the CI checks section header row.
+2. In `_on_pr_detail_updated`, show/hide `_rerun_btn` based on whether any check has `conclusion == "failure"`, and wire it to `rerun_failed_checks` on the first failed check's `check_suite_id`.
+
+```python
+# In __init__, replace "detail_layout.addWidget(QLabel('CI Checks'))" with:
+checks_header = QHBoxLayout()
+checks_header.addWidget(QLabel("CI Checks"))
+checks_header.addStretch(1)
+self._rerun_btn = QPushButton("↺ Re-run")
+self._rerun_btn.setFixedWidth(80)
+self._rerun_btn.hide()
+checks_header.addWidget(self._rerun_btn)
+detail_layout.addLayout(checks_header)
+
+# In _on_pr_detail_updated, after populating _checks_list:
+failed_checks = [c for c in pr.checks if c.conclusion == "failure"]
+if failed_checks:
+    self._rerun_btn.show()
+    suite_id = failed_checks[0].check_suite_id
+    self._rerun_btn.clicked.disconnect()
+    self._rerun_btn.clicked.connect(
+        lambda: self._vm._svc.rerun_failed_checks(suite_id) if self._vm._svc else None
+    )
+else:
+    self._rerun_btn.hide()
+```
+
+**Done when:** Re-run button is hidden when all checks pass; visible and clickable when any check failed; clicking it calls `rerun_failed_checks` with the correct suite ID.
+
+---
+
+### Phase 1.3 — PR event detection in GitHubViewModel
+
+**What it covers:** After each poll, `GitHubViewModel` compares the new PR state to the previous snapshot and emits a `pr_event(pr_number, event_type, message)` signal for `ci_failed`, `ci_passed`, `new_comment`, `review_approved`, `review_changes_requested`.
+
+**Files touched:**
+- [worktree_manager/github_vm.py](worktree-manager/worktree_manager/github_vm.py)
+
+**Tests (Red) — write these first:**
+```python
+# tests/test_github_vm_events.py
+import pytest
+from unittest.mock import MagicMock, patch
+from worktree_manager.github_models import PullRequest, CICheck, Review, PRComment
+from worktree_manager.github_vm import GitHubViewModel, TokenState
+
+
+def _make_pr(number=1, head="feat", base="main", checks=None, reviews=None, comments=None):
+    return PullRequest(
+        number=number, title=f"My Work", body="", html_url=f"http://x/{number}",
+        head_branch=head, base_branch=base, state="open", draft=False, mergeable=True,
+        checks=checks or [], reviews=reviews or [], comments=comments or [],
+    )
+
+
+@pytest.fixture
+def vm(tmp_path):
+    from worktree_manager.config_store import ConfigStore
+    store = ConfigStore(path=tmp_path / "config.json")
+    store.save_github_token("ghp_test")
+    with patch("worktree_manager.github_vm.GitHubService") as MockSvc, \
+         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
+        MockSvc.from_remote_url.return_value = MagicMock()
+        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    return v
+
+
+def test_ci_failed_event_emitted_when_checks_transition_to_failed(vm, qtbot):
+    pr_before = _make_pr(1, checks=[CICheck("build", "in_progress", None)])
+    pr_after  = _make_pr(1, checks=[CICheck("build", "completed", "failure")])
+    vm._pr_snapshots = {1: pr_before}
+
+    events = []
+    vm.pr_event.connect(lambda num, evt, msg: events.append((num, evt, msg)))
+    vm._emit_pr_events([pr_after])
+
+    assert any(e[1] == "ci_failed" for e in events)
+    assert any("My Work" in e[2] for e in events)
+
+
+def test_ci_passed_event_emitted_when_all_checks_pass(vm, qtbot):
+    pr_before = _make_pr(1, checks=[CICheck("build", "in_progress", None)])
+    pr_after  = _make_pr(1, checks=[CICheck("build", "completed", "success")])
+    vm._pr_snapshots = {1: pr_before}
+
+    events = []
+    vm.pr_event.connect(lambda num, evt, msg: events.append((num, evt, msg)))
+    vm._emit_pr_events([pr_after])
+
+    assert any(e[1] == "ci_passed" for e in events)
+
+
+def test_new_comment_event_emitted_when_comment_count_grows(vm, qtbot):
+    pr_before = _make_pr(1, comments=[PRComment(id=1, author="alice", body="hi", created_at="2024-01-01")])
+    pr_after  = _make_pr(1, comments=[
+        PRComment(id=1, author="alice", body="hi", created_at="2024-01-01"),
+        PRComment(id=2, author="bob",   body="yo", created_at="2024-01-02"),
+    ])
+    vm._pr_snapshots = {1: pr_before}
+
+    events = []
+    vm.pr_event.connect(lambda num, evt, msg: events.append((num, evt, msg)))
+    vm._emit_pr_events([pr_after])
+
+    assert any(e[1] == "new_comment" for e in events)
+    assert any("bob" in e[2] for e in events)
+
+
+def test_review_approved_event_emitted(vm, qtbot):
+    pr_before = _make_pr(1, reviews=[])
+    pr_after  = _make_pr(1, reviews=[Review(author="alice", state="APPROVED")])
+    vm._pr_snapshots = {1: pr_before}
+
+    events = []
+    vm.pr_event.connect(lambda num, evt, msg: events.append((num, evt, msg)))
+    vm._emit_pr_events([pr_after])
+
+    assert any(e[1] == "review_approved" for e in events)
+    assert any("alice" in e[2] for e in events)
+
+
+def test_review_changes_requested_event_emitted(vm, qtbot):
+    pr_before = _make_pr(1, reviews=[])
+    pr_after  = _make_pr(1, reviews=[Review(author="bob", state="CHANGES_REQUESTED")])
+    vm._pr_snapshots = {1: pr_before}
+
+    events = []
+    vm.pr_event.connect(lambda num, evt, msg: events.append((num, evt, msg)))
+    vm._emit_pr_events([pr_after])
+
+    assert any(e[1] == "review_changes_requested" for e in events)
+
+
+def test_no_events_when_nothing_changed(vm, qtbot):
+    pr = _make_pr(1, checks=[CICheck("build", "completed", "success")])
+    vm._pr_snapshots = {1: pr}
+
+    events = []
+    vm.pr_event.connect(lambda num, evt, msg: events.append((num, evt, msg)))
+    vm._emit_pr_events([pr])
+
+    assert events == []
+
+
+def test_new_pr_does_not_emit_events_on_first_seen(vm, qtbot):
+    pr = _make_pr(1, checks=[CICheck("build", "completed", "failure")])
+    vm._pr_snapshots = {}
+
+    events = []
+    vm.pr_event.connect(lambda num, evt, msg: events.append((num, evt, msg)))
+    vm._emit_pr_events([pr])
+
+    assert events == []
+
+
+def test_snapshots_updated_after_emit(vm, qtbot):
+    pr = _make_pr(1, checks=[CICheck("build", "completed", "success")])
+    vm._pr_snapshots = {}
+    vm._emit_pr_events([pr])
+    assert 1 in vm._pr_snapshots
+```
+
+**Production code (Green):**
+
+In [worktree_manager/github_vm.py](worktree-manager/worktree_manager/github_vm.py):
+
+```python
+# Add to class signals:
+pr_event = Signal(int, str, str)  # (pr_number, event_type, message)
+
+# Add to __init__:
+self._pr_snapshots: dict[int, PullRequest] = {}
+
+# Add new method:
+def _emit_pr_events(self, new_prs: list[PullRequest]) -> None:
+    for pr in new_prs:
+        prev = self._pr_snapshots.get(pr.number)
+        if prev is None:
+            self._pr_snapshots[pr.number] = pr
+            continue
+
+        prev_ci = prev.ci_status()
+        curr_ci = pr.ci_status()
+        if prev_ci != "failed" and curr_ci == "failed":
+            self.pr_event.emit(pr.number, "ci_failed", f'❌ "{pr.title}" — checks failed')
+        elif prev_ci != "passed" and curr_ci == "passed":
+            self.pr_event.emit(pr.number, "ci_passed", f'✅ "{pr.title}" — all checks passed')
+
+        prev_comment_ids = {c.id for c in prev.comments}
+        for comment in pr.comments:
+            if comment.id not in prev_comment_ids:
+                self.pr_event.emit(pr.number, "new_comment", f'💬 {comment.author} commented on "{pr.title}"')
+
+        prev_review_authors = {(r.author, r.state) for r in prev.reviews}
+        for review in pr.reviews:
+            if (review.author, review.state) not in prev_review_authors:
+                if review.state == "APPROVED":
+                    self.pr_event.emit(pr.number, "review_approved", f'✅ {review.author} approved "{pr.title}"')
+                elif review.state == "CHANGES_REQUESTED":
+                    self.pr_event.emit(pr.number, "review_changes_requested", f'🔄 {review.author} requested changes on "{pr.title}"')
+
+        self._pr_snapshots[pr.number] = pr
+
+# In refresh_prs, after self.prs = self._svc.list_my_open_prs():
+# Add: self._emit_pr_events(self.prs)
+```
+
+**Done when:** `pr_event` signal fires with correct event type and message when PR state changes between polls; no events fire for unchanged PRs or first-seen PRs.
+
+---
+
+### Phase 1.4 — macOS notifications wired in App + mute toggle
+
+**What it covers:** Wire `GitHubViewModel.pr_event` signal into `App._on_pr_event` in [worktree_manager/cli.py](worktree-manager/worktree_manager/cli.py), which calls `_show_notification("Pull Requests", message)` and `QApplication.alert(self, 0)`. Gate on a new `github_notifications_enabled` pref (default `True`). Add a mute toggle button (`[🔔 On]` / `[🔕 Off]`) to `GitHubPanel` header.
+
+**Files touched:**
+- [worktree_manager/cli.py](worktree-manager/worktree_manager/cli.py)
+- [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py)
+- [worktree_manager/config_store.py](worktree-manager/worktree_manager/config_store.py)
+
+**Tests (Red) — write these first:**
+```python
+# tests/test_github_notifications_qt.py
+import pytest
+from unittest.mock import MagicMock, patch
+from worktree_manager.cli import App
+
+
+def _make_app(qtbot, monkeypatch):
+    store = MagicMock()
+    store.get_ui_pref.side_effect = lambda key, default=None: default
+    store.all_repos.return_value = {}
+    store.all_projects.return_value = []
+    store.get_github_token.return_value = None
+    store.get_github_poll_interval.return_value = 30
+    monkeypatch.setattr("worktree_manager.cli.ConfigStore", lambda *a, **kw: store)
+    monkeypatch.setattr("worktree_manager.cli.GitService", lambda *a, **kw: MagicMock())
+    with patch("worktree_manager.main_window_vm.MainWindowViewModel") as MockVM:
+        MockVM.return_value.load_worktrees.return_value = []
+        MockVM.return_value.list_branches_with_checkout_status.return_value = []
+        app = App()
+        qtbot.addWidget(app)
+    return app, store
+
+
+def test_pr_event_notification_fires_when_enabled(qtbot, monkeypatch):
+    app, store = _make_app(qtbot, monkeypatch)
+    store.get_ui_pref.side_effect = lambda key, default=None: True if key == "github_notifications_enabled" else default
+
+    shown = []
+    with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
+        app._on_pr_event(1, "ci_failed", '❌ "My Work" — checks failed')
+
+    assert len(shown) == 1
+    assert shown[0][0] == "Pull Requests"
+    assert "My Work" in shown[0][1]
+
+
+def test_pr_event_notification_suppressed_when_disabled(qtbot, monkeypatch):
+    app, store = _make_app(qtbot, monkeypatch)
+    store.get_ui_pref.side_effect = lambda key, default=None: False if key == "github_notifications_enabled" else default
+
+    shown = []
+    with patch.object(app, "_show_notification", side_effect=lambda t, b: shown.append((t, b))):
+        app._on_pr_event(1, "ci_passed", '✅ "My Work" — all checks passed')
+
+    assert shown == []
+
+
+def test_pr_event_alert_fires_with_notification(qtbot, monkeypatch):
+    app, store = _make_app(qtbot, monkeypatch)
+    store.get_ui_pref.side_effect = lambda key, default=None: True if key == "github_notifications_enabled" else default
+
+    with patch.object(app, "_show_notification"), \
+         patch("worktree_manager.cli.QApplication.alert") as mock_alert:
+        app._on_pr_event(1, "ci_failed", '❌ "My Work" — checks failed')
+
+    mock_alert.assert_called_once()
+
+
+# tests/test_github_panel_mute_qt.py
+import pytest
+from unittest.mock import MagicMock, patch
+from worktree_manager.ui.github_panel import GitHubPanel
+from worktree_manager.github_vm import GitHubViewModel
+
+
+@pytest.fixture
+def configured_panel(tmp_path, qtbot):
+    from worktree_manager.config_store import ConfigStore
+    store = ConfigStore(path=tmp_path / "config.json")
+    store.save_github_token("ghp_test")
+    with patch("worktree_manager.github_vm.GitHubService") as MockSvc, \
+         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
+        MockSvc.from_remote_url.return_value = MagicMock()
+        vm = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    p = GitHubPanel(vm=vm)
+    qtbot.addWidget(p)
+    p.show()
+    return p, vm._store
+
+
+def test_mute_button_exists_in_header(configured_panel, qtbot):
+    panel, store = configured_panel
+    assert hasattr(panel, "_notif_btn")
+
+
+def test_mute_button_initial_state_is_on(configured_panel, qtbot):
+    panel, store = configured_panel
+    assert "🔔" in panel._notif_btn.text() or panel._notif_btn.isChecked()
+
+
+def test_mute_button_toggle_saves_pref(configured_panel, qtbot):
+    panel, store = configured_panel
+    initial = store.get_ui_pref("github_notifications_enabled", True)
+    panel._notif_btn.click()
+    after = store.get_ui_pref("github_notifications_enabled", True)
+    assert after != initial
+
+
+def test_mute_button_text_updates_on_toggle(configured_panel, qtbot):
+    panel, store = configured_panel
+    panel._notif_btn.setChecked(True)
+    panel._update_notif_btn()
+    assert "🔔" in panel._notif_btn.text()
+    panel._notif_btn.setChecked(False)
+    panel._update_notif_btn()
+    assert "🔕" in panel._notif_btn.text()
+```
+
+**Production code (Green):**
+
+In [worktree_manager/config_store.py](worktree-manager/worktree_manager/config_store.py), add:
+```python
+def get_github_notifications_enabled(self) -> bool:
+    return bool(self.get_ui_pref("github_notifications_enabled", True))
+
+def save_github_notifications_enabled(self, enabled: bool) -> None:
+    self.set_ui_pref("github_notifications_enabled", enabled)
+```
+
+In [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py), add to the header controls (before the poll button):
+```python
+self._notif_btn = QPushButton()
+self._notif_btn.setCheckable(True)
+self._notif_btn.setFixedWidth(36)
+enabled = bool(vm._store.get_ui_pref("github_notifications_enabled", True))
+self._notif_btn.setChecked(enabled)
+self._update_notif_btn()
+self._notif_btn.toggled.connect(self._on_notif_toggled)
+ctrl_layout.addWidget(self._notif_btn)
+
+# Add methods:
+def _on_notif_toggled(self, checked: bool) -> None:
+    self._vm._store.set_ui_pref("github_notifications_enabled", bool(checked))
+    self._update_notif_btn()
+
+def _update_notif_btn(self) -> None:
+    on = self._notif_btn.isChecked()
+    self._notif_btn.setText("🔔" if on else "🔕")
+    self._notif_btn.setToolTip(
+        "Notifications: On — click to mute" if on
+        else "Notifications: Off — click to enable"
+    )
+```
+
+In [worktree_manager/cli.py](worktree-manager/worktree_manager/cli.py), add `_on_pr_event` and wire it when creating the GitHub VM:
+```python
+def _on_pr_event(self, pr_number: int, event_type: str, message: str) -> None:
+    if self._store.get_ui_pref("github_notifications_enabled", True):
+        self._show_notification("Pull Requests", message)
+        if not self.isActiveWindow():
+            QApplication.alert(self, 0)
+
+# In _show_github_panel, after creating self._github_vm:
+self._github_vm.pr_event.connect(self._on_pr_event)
+```
+
+**Done when:** `[🔔 On]` / `[🔕 Off]` button appears in panel header; toggling it saves the pref; macOS notification fires via `_show_notification("Pull Requests", …)` when enabled; alert+notification suppressed when disabled.
+
+---
+
+### Phase 1.5 — Unread comment badge on PR list rows
+
+**What it covers:** Track which comment IDs have been seen in `GitHubViewModel`; show a `🔴 N new` badge on list rows for PRs with unseen comments; clear the badge when the detail view is opened for that PR.
+
+**Files touched:**
+- [worktree_manager/github_vm.py](worktree-manager/worktree_manager/github_vm.py)
+- [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py)
+
+**Tests (Red) — write these first:**
+```python
+# tests/test_github_unread_badges_qt.py
+import pytest
+from unittest.mock import MagicMock, patch
+from PySide6.QtCore import Qt
+from worktree_manager.github_models import PullRequest, CICheck, PRComment
+from worktree_manager.github_vm import GitHubViewModel
+from worktree_manager.ui.github_panel import GitHubPanel
+
+
+def _make_pr(number=1, comments=None):
+    return PullRequest(
+        number=number, title=f"PR {number}", body="",
+        html_url=f"https://github.com/o/r/pull/{number}",
+        head_branch="feat", base_branch="main",
+        state="open", draft=False, mergeable=True,
+        checks=[], reviews=[], comments=comments or [],
+    )
+
+
+def _make_comment(cid, author="alice"):
+    return PRComment(id=cid, author=author, body="hi", created_at="2024-01-01")
+
+
+@pytest.fixture
+def vm(tmp_path):
+    from worktree_manager.config_store import ConfigStore
+    store = ConfigStore(path=tmp_path / "config.json")
+    store.save_github_token("ghp_test")
+    with patch("worktree_manager.github_vm.GitHubService") as MockSvc, \
+         patch("worktree_manager.github_vm.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="https://github.com/o/r.git")
+        MockSvc.from_remote_url.return_value = MagicMock()
+        v = GitHubViewModel(store=store, repo_path="/tmp/repo")
+    return v
+
+
+@pytest.fixture
+def panel(vm, qtbot):
+    p = GitHubPanel(vm=vm)
+    qtbot.addWidget(p)
+    p.show()
+    return p
+
+
+def test_unread_count_zero_initially(vm):
+    assert vm.unread_comment_count(1) == 0
+
+
+def test_unread_count_increases_on_new_comments(vm):
+    old_pr = _make_pr(1, comments=[_make_comment(1)])
+    new_pr = _make_pr(1, comments=[_make_comment(1), _make_comment(2)])
+    vm._pr_snapshots = {1: old_pr}
+    vm._seen_comment_ids = {1}
+    vm._emit_pr_events([new_pr])
+    assert vm.unread_comment_count(1) == 1
+
+
+def test_mark_pr_comments_seen_clears_unread(vm):
+    vm._unseen_comment_ids_by_pr = {1: {10, 11}}
+    vm.mark_pr_comments_seen(1)
+    assert vm.unread_comment_count(1) == 0
+
+
+def test_list_row_shows_badge_for_unread_comments(vm, panel, qtbot):
+    pr = _make_pr(1, comments=[_make_comment(1), _make_comment(2)])
+    vm._unseen_comment_ids_by_pr = {1: {2}}
+    vm.prs = [pr]
+    vm.prs_updated.emit()
+
+    items = [panel._pr_list.item(i).text() for i in range(panel._pr_list.count())]
+    assert any("🔴" in text and "new" in text for text in items)
+
+
+def test_list_row_no_badge_when_no_unread(vm, panel, qtbot):
+    pr = _make_pr(1, comments=[_make_comment(1)])
+    vm._unseen_comment_ids_by_pr = {}
+    vm.prs = [pr]
+    vm.prs_updated.emit()
+
+    items = [panel._pr_list.item(i).text() for i in range(panel._pr_list.count())]
+    assert not any("🔴" in text for text in items)
+
+
+def test_opening_detail_clears_badge(vm, panel, qtbot):
+    pr = _make_pr(1, comments=[_make_comment(1)])
+    vm._unseen_comment_ids_by_pr = {1: {1}}
+    vm.selected_pr = pr
+    vm.pr_detail_updated.emit()
+    assert vm.unread_comment_count(1) == 0
+```
+
+**Production code (Green):**
+
+In [worktree_manager/github_vm.py](worktree-manager/worktree_manager/github_vm.py), add to `__init__`:
+```python
+self._seen_comment_ids: set[int] = set()
+self._unseen_comment_ids_by_pr: dict[int, set[int]] = {}
+```
+
+Add methods:
+```python
+def unread_comment_count(self, pr_number: int) -> int:
+    return len(self._unseen_comment_ids_by_pr.get(pr_number, set()))
+
+def mark_pr_comments_seen(self, pr_number: int) -> None:
+    self._unseen_comment_ids_by_pr.pop(pr_number, None)
+```
+
+In `_emit_pr_events`, when a new comment is detected:
+```python
+# After emitting the new_comment pr_event:
+self._unseen_comment_ids_by_pr.setdefault(pr.number, set()).add(comment.id)
+self._seen_comment_ids.add(comment.id)
+```
+
+In `select_pr`, after `self.pr_detail_updated.emit()`:
+```python
+self.mark_pr_comments_seen(pr_number)
+```
+
+In [worktree_manager/ui/github_panel.py](worktree-manager/worktree_manager/ui/github_panel.py), update `_on_prs_updated` to include the badge:
+```python
+def _on_prs_updated(self):
+    self._pr_error_label.hide()
+    self._pr_list.clear()
+    current_branch = _current_git_branch(getattr(self._vm, "_repo_path", ""))
+    for pr in self._vm.prs:
+        status = self._ci_badge(pr)
+        unread = self._vm.unread_comment_count(pr.number)
+        badge = f"🔴 {unread} new  " if unread > 0 else ""
+        label = f"#{pr.number}  {pr.title}   {badge}{status}"
+        if pr.head_branch == current_branch:
+            label += "   ← current branch"
+        item = QListWidgetItem(label)
+        item.setData(Qt.UserRole, pr.number)
+        self._pr_list.addItem(item)
+    self._check_open_pr_tab()
+```
+
+**Done when:** `🔴 N new` badge appears in the list row for PRs with unseen comments; the badge disappears after opening the detail view for that PR.
+
+---
+
+## ✋ Manual Testing Gate — Iteration 1
+
+> STOP. Do not proceed to Iteration 2 until every item below is checked off by the user.
+
+- [ ] Open the PR detail view — `[⧉ Copy URL]` and `[↗ Open]` buttons appear in the detail header next to the PR title
+- [ ] Click `[⧉ Copy URL]` — paste somewhere and confirm the PR's GitHub URL is in the clipboard
+- [ ] Click `[↗ Open]` — the PR opens in your browser
+- [ ] Open a PR detail where at least one CI check has failed — `[↺ Re-run]` button is visible in the CI Checks section header
+- [ ] Open a PR detail where all CI checks passed — `[↺ Re-run]` button is NOT visible
+- [ ] (If safe to do so) Click `[↺ Re-run]` on a failed PR — no crash occurs; GitHub re-queues the check suite
+- [ ] Wait for a PR's CI status to change between polls (or manually trigger a change) — a macOS system notification fires with title "Pull Requests" and the appropriate message
+- [ ] Click `[🔔 On]` in the panel header — button changes to `[🔕 Off]`; subsequent CI/review/comment changes produce no notifications
+- [ ] Click `[🔕 Off]` — button returns to `[🔔 On]`; notifications resume
+- [ ] After a new comment appears on a PR during polling — the list row for that PR shows `🔴 N new` alongside the CI status badge
+- [ ] Click that PR row to open the detail view — the `🔴 N new` badge disappears from the list row on returning to the list
+- [ ] Regression: My PRs tab still lists PRs with correct title, `head → base`, and CI badge
+- [ ] Regression: PR detail still shows CI checks, Reviews, and Comments sections with `← Back` button
+- [ ] Regression: `[↻ 30s]` polling toggle and `[⚿ Token]` inline form still work correctly
+- [ ] Regression: Open PR tab still shows the create-PR form with pre-filled title and base branch dropdown
+
+**How to confirm:** Run the app, perform each action above, and check off each item manually.
+Reply "Iteration 1 confirmed" (or describe any failures) before I write the plan for Iteration 2.

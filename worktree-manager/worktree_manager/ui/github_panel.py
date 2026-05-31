@@ -2,12 +2,13 @@ import subprocess
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QPushButton, QScrollArea,
     QSizePolicy, QStackedWidget, QTabWidget, QTextEdit,
     QVBoxLayout, QWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 
 from worktree_manager.github_vm import GitHubViewModel, TokenState
 from worktree_manager.github_models import PullRequest
@@ -47,6 +48,15 @@ class GitHubPanel(QWidget):
         ctrl_layout = QHBoxLayout(self._header_controls_widget)
         ctrl_layout.setContentsMargins(0, 0, 0, 0)
         ctrl_layout.setSpacing(6)
+
+        self._notif_btn = QPushButton()
+        self._notif_btn.setCheckable(True)
+        self._notif_btn.setFixedWidth(36)
+        enabled = bool(vm._store.get_ui_pref("github_notifications_enabled", True))
+        self._notif_btn.setChecked(enabled)
+        self._update_notif_btn()
+        self._notif_btn.toggled.connect(self._on_notif_toggled)
+        ctrl_layout.addWidget(self._notif_btn)
 
         interval = vm._store.get_github_poll_interval()
         self._poll_btn = QPushButton(f"↻ {interval}s")
@@ -125,6 +135,10 @@ class GitHubPanel(QWidget):
         self._pr_error_label.setWordWrap(True)
         self._pr_error_label.hide()
         pr_list_layout.addWidget(self._pr_error_label)
+        self._loading_label = QLabel("⏳ Loading pull requests…")
+        self._loading_label.setAlignment(Qt.AlignCenter)
+        self._loading_label.hide()
+        pr_list_layout.addWidget(self._loading_label)
         self._pr_list = QListWidget()
         self._pr_list.itemActivated.connect(self._on_pr_row_activated)
         pr_list_layout.addWidget(self._pr_list)
@@ -138,12 +152,27 @@ class GitHubPanel(QWidget):
         self._back_btn.clicked.connect(self._on_back)
         detail_layout.addWidget(self._back_btn)
 
+        detail_header = QHBoxLayout()
         self._detail_title_label = QLabel()
         self._detail_title_label.setStyleSheet("font-weight: bold;")
         self._detail_title_label.setWordWrap(True)
-        detail_layout.addWidget(self._detail_title_label)
+        detail_header.addWidget(self._detail_title_label, 1)
+        self._copy_url_btn = QPushButton("⧉ Copy URL")
+        self._copy_url_btn.setFixedWidth(90)
+        detail_header.addWidget(self._copy_url_btn)
+        self._open_url_btn = QPushButton("↗ Open")
+        self._open_url_btn.setFixedWidth(70)
+        detail_header.addWidget(self._open_url_btn)
+        detail_layout.addLayout(detail_header)
 
-        detail_layout.addWidget(QLabel("CI Checks"))
+        checks_header = QHBoxLayout()
+        checks_header.addWidget(QLabel("CI Checks"))
+        checks_header.addStretch(1)
+        self._rerun_btn = QPushButton("↺ Re-run")
+        self._rerun_btn.setFixedWidth(80)
+        self._rerun_btn.hide()
+        checks_header.addWidget(self._rerun_btn)
+        detail_layout.addLayout(checks_header)
         self._checks_list = QListWidget()
         self._checks_list.setMaximumHeight(120)
         detail_layout.addWidget(self._checks_list)
@@ -223,6 +252,7 @@ class GitHubPanel(QWidget):
         self._tabs.addTab(open_pr_widget, "Open PR")
 
         # ── connect VM signals ──────────────────────────────────────────────
+        vm.loading_started.connect(self._on_loading_started)
         vm.prs_updated.connect(self._on_prs_updated)
         vm.pr_detail_updated.connect(self._on_pr_detail_updated)
         vm.token_state_changed.connect(self._apply_token_state)
@@ -279,19 +309,41 @@ class GitHubPanel(QWidget):
             self._vm.resume_polling()
             self._poll_btn.setText(f"↻ {interval}s")
 
+    def _on_notif_toggled(self, checked: bool) -> None:
+        self._vm._store.set_ui_pref("github_notifications_enabled", bool(checked))
+        self._update_notif_btn()
+
+    def _update_notif_btn(self) -> None:
+        on = self._notif_btn.isChecked()
+        self._notif_btn.setText("🔔" if on else "🔕")
+        self._notif_btn.setToolTip(
+            "Notifications: On — click to mute" if on
+            else "Notifications: Off — click to enable"
+        )
+
     # ── My PRs list ────────────────────────────────────────────────────────────
 
+    def _on_loading_started(self):
+        self._pr_list.hide()
+        self._loading_label.show()
+
     def _on_refresh_error(self, message: str):
+        self._loading_label.hide()
+        self._pr_list.show()
         self._pr_error_label.setText(message)
         self._pr_error_label.show()
 
     def _on_prs_updated(self):
+        self._loading_label.hide()
+        self._pr_list.show()
         self._pr_error_label.hide()
         self._pr_list.clear()
         current_branch = _current_git_branch(getattr(self._vm, "_repo_path", ""))
         for pr in self._vm.prs:
             status = self._ci_badge(pr)
-            label = f"#{pr.number}  {pr.title}   {status}"
+            unread = self._vm.unread_comment_count(pr.number)
+            badge = f"🔴 {unread} new  " if unread > 0 else ""
+            label = f"#{pr.number}  {pr.title}   {badge}{status}"
             if pr.head_branch == current_branch:
                 label += "   ← current branch"
             item = QListWidgetItem(label)
@@ -313,13 +365,43 @@ class GitHubPanel(QWidget):
             self._my_prs_stack.setCurrentWidget(self._pr_list_widget)
             return
         self._my_prs_stack.setCurrentWidget(self._pr_detail_widget)
+        self._vm.mark_pr_comments_seen(pr.number)
         self._detail_title_label.setText(f"#{pr.number}  {pr.title}\n{pr.head_branch} → {pr.base_branch}")
+
+        try:
+            self._copy_url_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        self._copy_url_btn.clicked.connect(
+            lambda: QApplication.clipboard().setText(pr.html_url)
+        )
+        try:
+            self._open_url_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        self._open_url_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(pr.html_url))
+        )
 
         self._checks_list.clear()
         for c in pr.checks:
             conclusion = c.conclusion or "running"
             badge = {"success": "✅", "failure": "❌"}.get(conclusion, "⏳")
             self._checks_list.addItem(f"● {c.name}   {badge} {conclusion}")
+
+        failed_checks = [c for c in pr.checks if c.conclusion == "failure"]
+        if failed_checks:
+            self._rerun_btn.show()
+            suite_id = failed_checks[0].check_suite_id
+            try:
+                self._rerun_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self._rerun_btn.clicked.connect(
+                lambda checked=False, sid=suite_id, p=pr: self._vm._svc.rerun_failed_checks(sid, p) if self._vm._svc else None
+            )
+        else:
+            self._rerun_btn.hide()
 
         self._reviews_list.clear()
         if pr.reviews:
