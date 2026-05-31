@@ -5,6 +5,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from worktree_manager.github_models import PullRequest
 from worktree_manager.github_service import GitHubService
+from worktree_manager.git_service import GitService
 
 log = logging.getLogger(__name__)
 
@@ -150,6 +151,39 @@ class GitHubViewModel(QObject):
         self._svc.merge_pr(pr, squash=squash)
         self.pr_event.emit(pr_number, "pr_merged", f'✅ "{pr.title}" merged')
         self.refresh_prs()
+
+    def list_open_pr_repos(self) -> list[str]:
+        """Return local repo paths known to the app."""
+        return list(self._store.all_repos().keys())
+
+    def list_remote_branches_for_repo(self, repo_path: str) -> list[str]:
+        """Return remote branch names via git branch -r for the given repo path."""
+        try:
+            git = GitService()
+            return git.list_remote_branches(repo_path)
+        except Exception:
+            log.warning("list_remote_branches_for_repo: failed for %r", repo_path)
+            return []
+
+    def list_branches_for_repo(self, repo_path: str) -> list[str]:
+        """Return local branch names for the given repo path."""
+        try:
+            git = GitService()
+            return git.list_local_branches(repo_path)
+        except Exception:
+            log.warning("list_branches_for_repo: failed for %r", repo_path)
+            return []
+
+    def get_parent_branch_for_repo(
+        self, repo_path: str, branch: str, remote_branches: list[str]
+    ) -> str | None:
+        """Return the inferred parent branch if it exists in remote_branches, else None."""
+        try:
+            git = GitService()
+            return git.infer_parent_branch(repo_path, branch, remote_branches)
+        except Exception:
+            log.warning("get_parent_branch_for_repo: failed for %r branch %r", repo_path, branch)
+            return None
 
     def _on_poll(self) -> None:
         self.refresh_prs()

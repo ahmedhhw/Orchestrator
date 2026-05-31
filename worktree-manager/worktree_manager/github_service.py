@@ -125,12 +125,12 @@ class GitHubService:
 
         return detail
 
-    def create_pull_request(self, title: str, body: str, base: str, draft: bool, repo_base_url: str) -> PullRequest:
+    def create_pull_request(self, title: str, body: str, base: str, branch: str, draft: bool, repo_base_url: str) -> PullRequest:
         resp = requests.post(
             f"{repo_base_url}/pulls",
             headers=self._headers,
             json={"title": title, "body": body, "base": base, "draft": draft,
-                  "head": "HEAD"},
+                  "head": branch},
         )
         if resp.status_code not in (200, 201):
             msg = resp.json().get("message", f"HTTP {resp.status_code}")

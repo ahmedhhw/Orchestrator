@@ -1,4 +1,5 @@
 import subprocess
+import time
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -23,8 +24,8 @@ def _current_git_branch(repo_path: str) -> str:
             capture_output=True, text=True,
         )
         return result.stdout.strip() if result.returncode == 0 else ""
-    except Exception:
-        return ""
+    except Exception as e:
+        raise RuntimeError(f"Failed to get current branch: {e}") from e
 
 
 def _github_api_base(repo_path: str) -> str:
@@ -37,8 +38,8 @@ def _github_api_base(repo_path: str) -> str:
             cwd=cwd, capture_output=True, text=True,
         )
         remote = result.stdout.strip() if result.returncode == 0 else ""
-    except Exception:
-        return ""
+    except Exception as e:
+        raise RuntimeError(f"Failed to get git remote URL: {e}") from e
     ssh = re.match(r"git@github\.com:([^/]+)/(.+?)(?:\.git)?$", remote)
     if ssh:
         return f"https://api.github.com/repos/{ssh.group(1)}/{ssh.group(2)}"
@@ -244,12 +245,27 @@ class GitHubPanel(QWidget):
         self._open_pr_stack = QStackedWidget()
 
         # Form page
-        form_widget = QWidget()
-        form_layout = QVBoxLayout(form_widget)
+        form_page = QWidget()
+        form_layout = QVBoxLayout(form_page)
         form_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._branch_label = QLabel()
-        form_layout.addWidget(self._branch_label)
+        form_layout.addWidget(QLabel("Repo:"))
+        self._repo_combo = QComboBox()
+        self._repo_combo.currentIndexChanged.connect(self._on_repo_changed)
+        form_layout.addWidget(self._repo_combo)
+
+        self._open_pr_no_remote_label = QLabel(
+            "⚠ No remote branches found."
+        )
+        self._open_pr_no_remote_label.setStyleSheet("color: red;")
+        self._open_pr_no_remote_label.setWordWrap(True)
+        self._open_pr_no_remote_label.hide()
+        form_layout.addWidget(self._open_pr_no_remote_label)
+
+        form_layout.addWidget(QLabel("Branch:"))
+        self._head_branch_combo = QComboBox()
+        self._head_branch_combo.currentIndexChanged.connect(self._on_head_branch_changed)
+        form_layout.addWidget(self._head_branch_combo)
 
         form_layout.addWidget(QLabel("Title:"))
         self._pr_title_edit = QLineEdit()
@@ -267,7 +283,7 @@ class GitHubPanel(QWidget):
         self._draft_checkbox = QCheckBox("Draft PR")
         form_layout.addWidget(self._draft_checkbox)
 
-        self._push_open_btn = QPushButton("Push & Open PR")
+        self._push_open_btn = QPushButton("Push && Open PR")
         self._push_open_btn.clicked.connect(self._on_push_open_pr)
         form_layout.addWidget(self._push_open_btn)
 
@@ -276,7 +292,7 @@ class GitHubPanel(QWidget):
         self._open_pr_error_label.hide()
         form_layout.addWidget(self._open_pr_error_label)
         form_layout.addStretch(1)
-        self._open_pr_stack.addWidget(form_widget)
+        self._open_pr_stack.addWidget(form_page)
 
         # Existing PR page
         existing_pr_widget = QWidget()
@@ -507,23 +523,100 @@ class GitHubPanel(QWidget):
     # ── Open PR form ───────────────────────────────────────────────────────────
 
     def _populate_open_pr_form(self):
-        repo_path = ""
-        branch = _current_git_branch(repo_path)
-        self._branch_label.setText(f"Current branch: {branch}")
+        # Populate repo dropdown from local repos known to the app
+        repos = self._vm.list_open_pr_repos()
+        self._repo_combo.blockSignals(True)
+        self._repo_combo.clear()
+        for r in repos:
+            self._repo_combo.addItem(r)
+        self._repo_combo.blockSignals(False)
 
-        # Pre-fill title from branch name
+        # Load branches for the first repo (triggers title/base update)
+        if repos:
+            self._load_branches_for_repo(repos[0])
+        else:
+            self._head_branch_combo.clear()
+            self._base_branch_combo.clear()
+            self._pr_title_edit.setText("")
+
+        # Pre-fill description from PR template of the selected repo
+        self._prefill_pr_template()
+        self._check_open_pr_tab()
+
+    def _load_branches_for_repo(self, repo_path: str) -> None:
+        remote_branches = self._vm.list_remote_branches_for_repo(repo_path)
+
+        has_remote = bool(remote_branches)
+        self._open_pr_no_remote_label.setVisible(not has_remote)
+        for w in (
+            self._head_branch_combo,
+            self._pr_title_edit,
+            self._base_branch_combo,
+            self._description_edit,
+            self._draft_checkbox,
+            self._push_open_btn,
+        ):
+            w.setEnabled(has_remote)
+
+        local_branches = self._vm.list_branches_for_repo(repo_path)
+        self._head_branch_combo.blockSignals(True)
+        self._head_branch_combo.clear()
+        for b in local_branches:
+            self._head_branch_combo.addItem(b)
+        self._head_branch_combo.blockSignals(False)
+
+        self._base_branch_combo.clear()
+        for b in remote_branches:
+            self._base_branch_combo.addItem(b)
+
+        initial_branch = local_branches[0] if local_branches else ""
+        self._set_base_branch_for_head(initial_branch, remote_branches)
+
+        if local_branches:
+            self._update_title_from_branch(local_branches[0])
+
+    def _on_repo_changed(self, index: int) -> None:
+        repo_path = self._repo_combo.currentText()
+        if repo_path:
+            self._load_branches_for_repo(repo_path)
+            self._prefill_pr_template()
+
+    def _on_head_branch_changed(self, index: int) -> None:
+        branch = self._head_branch_combo.currentText()
+        if branch:
+            self._update_title_from_branch(branch)
+            remote_branches = [
+                self._base_branch_combo.itemText(i)
+                for i in range(self._base_branch_combo.count())
+            ]
+            repo_path = self._repo_combo.currentText()
+            self._set_base_branch_for_head(branch, remote_branches, repo_path=repo_path)
+
+    def _set_base_branch_for_head(
+        self, branch: str, remote_branches: list[str], repo_path: str | None = None
+    ) -> None:
+        if not repo_path:
+            repo_path = self._repo_combo.currentText()
+        parent = None
+        if branch and repo_path:
+            parent = self._vm.get_parent_branch_for_repo(repo_path, branch, remote_branches)
+        if parent:
+            self._base_branch_combo.setCurrentText(parent)
+        else:
+            preferred = next((b for b in remote_branches if b in ("main", "master")), None)
+            if preferred:
+                self._base_branch_combo.setCurrentText(preferred)
+
+    def _update_title_from_branch(self, branch: str) -> None:
         title = branch.split("/")[-1].replace("-", " ").replace("_", " ").title() if branch else ""
         self._pr_title_edit.setText(title)
 
-        # Pre-fill description from PR template
-        template_path = Path(repo_path) / ".github" / "pull_request_template.md"
-        if template_path.exists():
-            self._description_edit.setPlainText(template_path.read_text())
-
-        # Base branch suggestions
-        self._base_branch_combo.clear()
-        self._base_branch_combo.addItem("main")
-        self._base_branch_combo.addItem("master")
+    def _prefill_pr_template(self) -> None:
+        repo_path = self._repo_combo.currentText()
+        if repo_path:
+            template_path = Path(repo_path) / ".github" / "pull_request_template.md"
+            if template_path.exists():
+                self._description_edit.setPlainText(template_path.read_text())
 
         self._check_open_pr_tab()
 
@@ -545,8 +638,8 @@ class GitHubPanel(QWidget):
         body = self._description_edit.toPlainText()
         base = self._base_branch_combo.currentText()
         draft = self._draft_checkbox.isChecked()
-        repo_path = ""
-        branch = _current_git_branch(repo_path)
+        repo_path = self._repo_combo.currentText()
+        branch = self._head_branch_combo.currentText()
 
         self._open_pr_error_label.hide()
         self._push_open_btn.setEnabled(False)
@@ -556,11 +649,20 @@ class GitHubPanel(QWidget):
             svc = self._vm._svc
             if svc is None:
                 raise RuntimeError("GitHub service not configured")
+            if not repo_path:
+                raise RuntimeError("No repo selected")
+            if not branch:
+                raise RuntimeError("No branch selected")
             repo_base_url = _github_api_base(repo_path)
             if not repo_base_url:
                 raise RuntimeError("Could not detect GitHub remote for this directory")
             svc.push_branch(branch, repo_path=repo_path)
-            svc.create_pull_request(title=title, body=body, base=base, draft=draft, repo_base_url=repo_base_url)
+            svc.create_pull_request(title=title, body=body, base=base, branch=branch, draft=draft, repo_base_url=repo_base_url)
+            delay = 2
+            for remaining in range(delay, 0, -1):
+                self._push_open_btn.setText(f"Sleeping {remaining}s before fetching PRs…")
+                QApplication.processEvents()
+                time.sleep(1)
             self._vm.refresh_prs()
             self._tabs.setCurrentIndex(0)
         except Exception as exc:

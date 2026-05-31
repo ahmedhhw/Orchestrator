@@ -62,6 +62,23 @@ class GitService:
         out = self._run(["git", "branch", "--format=%(refname:short)"], cwd=repo_path)
         return [b for b in out.splitlines() if b]
 
+    def list_remote_branches(self, repo_path: str) -> list[str]:
+        try:
+            out = self._run(["git", "branch", "-r"], cwd=repo_path)
+        except Exception:
+            return []
+        branches = []
+        for line in out.splitlines():
+            name = line.strip()
+            if "->" in name:
+                continue
+            # strip "origin/" prefix
+            if "/" in name:
+                name = name.split("/", 1)[1]
+            if name:
+                branches.append(name)
+        return branches
+
     def list_worktrees(self, repo_path: str, stale_days: int = 30) -> list:
         out = self._run(["git", "worktree", "list", "--porcelain"], cwd=repo_path)
         blocks = [b.strip() for b in out.strip().split("\n\n") if b.strip()]
@@ -473,6 +490,13 @@ class GitService:
         if feature_or_main == parent:
             feature_or_main = None
         return (parent, feature_or_main)
+
+    def infer_parent_branch(
+        self, repo_path: str, branch: str, candidates: list[str]
+    ) -> str | None:
+        """Return the inferred parent of branch if it appears in candidates, else None."""
+        parent, _ = self.infer_branch_suggestions(repo_path, branch)
+        return parent if parent and parent in candidates else None
 
     def rename_worktree(self, repo_path: str, old_path: str, new_path: str) -> None:
         if not os.path.exists(old_path):

@@ -95,3 +95,35 @@ def test_skips_merged_branches(tmp_path):
     # On main with no non-merged non-current parent, falls back to (None, None)
     assert parent is None
     assert feature is None
+
+
+# ── infer_parent_branch ────────────────────────────────────────────────────────
+
+def test_infer_parent_branch_returns_parent_when_in_candidates(tmp_path):
+    git = _make_git()
+    log_output = "HEAD -> feature/child\nfeature/parent\nmain\n"
+    with patch.object(git, "_run", side_effect=_run_two("", log_output)):
+        result = git.infer_parent_branch(
+            str(tmp_path), "feature/child", ["main", "feature/parent", "develop"]
+        )
+    assert result == "feature/parent"
+
+
+def test_infer_parent_branch_returns_none_when_parent_not_in_candidates(tmp_path):
+    git = _make_git()
+    log_output = "HEAD -> feature/child\nfeature/parent\nmain\n"
+    with patch.object(git, "_run", side_effect=_run_two("", log_output)):
+        result = git.infer_parent_branch(
+            str(tmp_path), "feature/child", ["main", "develop"]
+        )
+    assert result is None
+
+
+def test_infer_parent_branch_returns_none_when_no_parent_inferred(tmp_path):
+    git = _make_git()
+    with patch.object(git, "_run", side_effect=_run_two("", "")):
+        # falls back to "main"; "main" is in candidates but branch IS main → (None, None)
+        result = git.infer_parent_branch(
+            str(tmp_path), "main", ["main", "develop"]
+        )
+    assert result is None
