@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QCheckBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QPushButton, QScrollArea,
     QSizePolicy, QStackedWidget, QTabWidget, QTextEdit,
     QVBoxLayout, QWidget,
@@ -13,6 +13,7 @@ from PySide6.QtGui import QDesktopServices
 
 from worktree_manager.github_vm import GitHubViewModel, TokenState
 from worktree_manager.github_models import PullRequest
+from worktree_manager.ui.filterable_combo import FilterableComboBox
 
 
 def _current_git_branch(repo_path: str) -> str:
@@ -250,7 +251,7 @@ class GitHubPanel(QWidget):
         form_layout.setContentsMargins(0, 0, 0, 0)
 
         form_layout.addWidget(QLabel("Repo:"))
-        self._repo_combo = QComboBox()
+        self._repo_combo = FilterableComboBox()
         self._repo_combo.currentIndexChanged.connect(self._on_repo_changed)
         form_layout.addWidget(self._repo_combo)
 
@@ -263,7 +264,7 @@ class GitHubPanel(QWidget):
         form_layout.addWidget(self._open_pr_no_remote_label)
 
         form_layout.addWidget(QLabel("Branch:"))
-        self._head_branch_combo = QComboBox()
+        self._head_branch_combo = FilterableComboBox()
         self._head_branch_combo.currentIndexChanged.connect(self._on_head_branch_changed)
         form_layout.addWidget(self._head_branch_combo)
 
@@ -272,7 +273,7 @@ class GitHubPanel(QWidget):
         form_layout.addWidget(self._pr_title_edit)
 
         form_layout.addWidget(QLabel("Base branch:"))
-        self._base_branch_combo = QComboBox()
+        self._base_branch_combo = FilterableComboBox()
         form_layout.addWidget(self._base_branch_combo)
 
         form_layout.addWidget(QLabel("Description:"))
