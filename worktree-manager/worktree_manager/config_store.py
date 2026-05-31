@@ -172,6 +172,18 @@ class ConfigStore:
     def set_branch_diff_mode(self, mode: str) -> None:
         self.set_ui_pref("branch_diff_mode", mode)
 
+    def get_github_token(self) -> str | None:
+        return self.get_ui_pref("github_token", None)
+
+    def save_github_token(self, token: str) -> None:
+        self.set_ui_pref("github_token", token)
+
+    def get_github_poll_interval(self) -> int:
+        return int(self.get_ui_pref("github_poll_interval_seconds", 30))
+
+    def save_github_poll_interval(self, seconds: int) -> None:
+        self.set_ui_pref("github_poll_interval_seconds", seconds)
+
     def push_mru(self, action_name: str, args: dict, cap: int = 10) -> None:
         entry = {"action": action_name, "args": dict(args)}
         mru: list = self.get_ui_pref("mru", [])

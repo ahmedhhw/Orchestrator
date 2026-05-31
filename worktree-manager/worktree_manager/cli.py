@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import sys
 import threading
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from worktree_manager.branch_mgmt_vm import BranchMgmtViewModel
+from worktree_manager.github_vm import GitHubViewModel
 from worktree_manager.command_center_vm import CommandCenterViewModel
 from worktree_manager.config_store import ConfigStore
 from worktree_manager.git_service import GitService
@@ -95,6 +97,7 @@ class App(QMainWindow):
             on_branch_management=self._show_branch_management,
             on_worktree_management=self._show_worktree_management,
             on_diff=self._show_diff,
+            on_github=self._show_github_panel,
             on_settings=self._handle_settings,
             on_refresh=self._refresh,
             on_hide=self._collapse_sidebar,
@@ -771,6 +774,31 @@ class App(QMainWindow):
         if first_visit:
             panel.show_sync()
 
+    def _show_github_panel(self):
+        repo_path = self._current_repo_path()
+        # Rebuild the VM (and panel) whenever the active repo changes so the
+        # service always points at the right origin remote.
+        cached_vm = getattr(self, "_github_vm", None)
+        if cached_vm is None or cached_vm._repo_path != repo_path:
+            from worktree_manager.ui.github_panel import GitHubPanel
+            if cached_vm is not None:
+                cached_vm.pause_polling()
+            self._github_vm = GitHubViewModel(
+                store=self._store,
+                repo_path=repo_path,
+            )
+            self._panel_cache.pop("github", None)
+        if "github" not in self._panel_cache:
+            from worktree_manager.ui.github_panel import GitHubPanel
+            self._panel_cache["github"] = GitHubPanel(vm=self._github_vm)
+        panel = self._panel_cache["github"]
+        self._set_panel(panel)
+        self._sidebar.set_active_tab("github")
+        panel.show()
+
+    def _current_repo_path(self) -> str:
+        return self._active_repo_path or ""
+
     def _show_diff(self):
         if "diff" not in self._panel_cache:
             from worktree_manager.ui.diff_panel import DiffPanel
@@ -1003,6 +1031,10 @@ class App(QMainWindow):
 
 
 def main():
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
     args = parse_args(sys.argv[1:])
     git = GitService()
     repo_path = resolve_repo_path(args.repo_path, git)

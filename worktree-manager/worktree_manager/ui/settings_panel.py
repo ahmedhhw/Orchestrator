@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+    QComboBox, QDialog, QHBoxLayout, QLabel,
     QPushButton, QSpinBox, QVBoxLayout,
 )
 
@@ -23,17 +23,6 @@ class SettingsDialog(QDialog):
         title = QLabel("Settings")
         title.setStyleSheet("font-weight: bold; font-size: 16px;")
         outer.addWidget(title)
-
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Worktree storage:"))
-        self._storage_entry = QLineEdit(vm.worktree_storage)
-        self._storage_entry.setMinimumWidth(240)
-        row1.addWidget(self._storage_entry, 1)
-        browse = QPushButton("Browse")
-        browse.setFixedWidth(80)
-        browse.clicked.connect(self._browse)
-        row1.addWidget(browse)
-        outer.addLayout(row1)
 
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Stale threshold:"))
@@ -80,28 +69,35 @@ class SettingsDialog(QDialog):
         row5.addStretch(1)
         outer.addLayout(row5)
 
+        row6 = QHBoxLayout()
+        row6.addWidget(QLabel("GitHub polling:"))
+        self._github_poll_spin = QSpinBox()
+        self._github_poll_spin.setRange(5, 3600)
+        current_poll = store.get_github_poll_interval() if store else 30
+        self._github_poll_spin.setValue(current_poll)
+        row6.addWidget(self._github_poll_spin)
+        row6.addWidget(QLabel("seconds"))
+        row6.addStretch(1)
+        outer.addLayout(row6)
+
         btns = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
         btns.addWidget(cancel)
         btns.addStretch(1)
-        save = QPushButton("Save")
-        save.clicked.connect(self._save)
-        btns.addWidget(save)
+        self._save_btn = QPushButton("Save")
+        self._save_btn.clicked.connect(self._save)
+        btns.addWidget(self._save_btn)
         outer.addLayout(btns)
-
-    def _browse(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose worktree storage")
-        if path:
-            self._storage_entry.setText(path)
 
     def _save(self):
         self._vm.save(
-            worktree_storage=self._storage_entry.text(),
+            worktree_storage=self._vm.worktree_storage,
             stale_days=int(self._stale_spin.value()),
         )
         if self._store:
             self._store.set_ui_pref("shell", self._shell_combo.currentText())
             self._store.set_ui_pref("editor", self._editor_combo.currentData())
             self._store.set_branch_diff_mode(self._branch_diff_combo.currentData())
+            self._store.save_github_poll_interval(int(self._github_poll_spin.value()))
         self.accept()
