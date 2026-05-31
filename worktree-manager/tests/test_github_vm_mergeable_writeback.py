@@ -24,18 +24,19 @@ def store(tmp_path):
 
 @pytest.fixture
 def vm(store, qtbot):
-    from PySide6.QtWidgets import QApplication
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         svc = MagicMock()
         svc.get_authenticated_user.return_value = "me"
         svc.discover_open_pr_repos.return_value = set()
         svc.list_prs_for_repo.return_value = []
         svc.fetch_check_runs.return_value = []
+        svc.fetch_mergeable.return_value = None
         MockSvc.return_value = svc
         from worktree_manager.github_vm import GitHubViewModel
         v = GitHubViewModel(store=store)
         v._timer.stop()
-    QApplication.processEvents()
+    with qtbot.waitSignal(v.prs_updated, timeout=2000):
+        pass
     v._svc.get_pr_detail.reset_mock()
     return v
 
@@ -76,7 +77,8 @@ def test_refresh_prs_preserves_known_mergeable_when_fetch_returns_none(vm, qtbot
     vm._svc.fetch_check_runs.return_value = []
     vm._svc.fetch_mergeable.return_value = None  # GitHub still computing
 
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
 
     assert vm.prs[0].mergeable is True
 

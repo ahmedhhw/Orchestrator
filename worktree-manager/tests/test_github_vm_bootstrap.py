@@ -31,16 +31,19 @@ def vm(store, qtbot):
         svc.discover_open_pr_repos.return_value = set()
         svc.list_prs_for_repo.return_value = []
         svc.fetch_check_runs.return_value = []
+        svc.fetch_mergeable.return_value = None
         MockSvc.return_value = svc
         v = GitHubViewModel(store=store)
         # Stop the poll timer immediately so it never fires
         v._timer.stop()
     # Drain the singleShot so the initial auto-refresh completes
-    QApplication.processEvents()
+    with qtbot.waitSignal(v.prs_updated, timeout=2000):
+        pass
     # Reset all mock call counts so tests start clean
     v._svc.discover_open_pr_repos.reset_mock()
     v._svc.list_prs_for_repo.reset_mock()
     v._svc.fetch_check_runs.reset_mock()
+    v._svc.fetch_mergeable.reset_mock()
     v._svc.get_authenticated_user.reset_mock()
     # Reset VM state so each test controls bootstrap from scratch
     v._known_repos = set()
@@ -54,7 +57,8 @@ def test_refresh_prs_calls_discover_on_first_run(vm, qtbot):
     vm._svc.discover_open_pr_repos.return_value = {("myorg", "myrepo")}
     vm._svc.list_prs_for_repo.return_value = []
     vm._login = "me"
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     vm._svc.discover_open_pr_repos.assert_called_once_with("me")
 
 
@@ -63,7 +67,8 @@ def test_refresh_prs_skips_discover_on_subsequent_runs(vm, qtbot):
     vm._login = "me"
     vm._svc.list_prs_for_repo.return_value = []
     vm._svc.fetch_check_runs.return_value = []
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     vm._svc.discover_open_pr_repos.assert_not_called()
 
 
@@ -71,7 +76,8 @@ def test_refresh_prs_populates_known_repos_after_bootstrap(vm, qtbot):
     vm._svc.discover_open_pr_repos.return_value = {("myorg", "api"), ("myorg", "frontend")}
     vm._svc.list_prs_for_repo.return_value = []
     vm._login = "me"
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     assert ("myorg", "api") in vm._known_repos
     assert ("myorg", "frontend") in vm._known_repos
 
@@ -83,7 +89,8 @@ def test_refresh_prs_merges_prs_from_all_known_repos(vm, qtbot):
     pr2 = _make_pr(2, "myorg", "frontend")
     vm._svc.list_prs_for_repo.side_effect = lambda o, r, l: [pr1] if r == "api" else [pr2]
     vm._svc.fetch_check_runs.return_value = []
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     assert len(vm.prs) == 2
     assert {p.number for p in vm.prs} == {1, 2}
 
@@ -95,7 +102,8 @@ def test_refresh_prs_attaches_check_runs_to_each_pr(vm, qtbot):
     vm._svc.list_prs_for_repo.return_value = [pr]
     checks = [CICheck("build", "completed", "success")]
     vm._svc.fetch_check_runs.return_value = checks
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     assert vm.prs[0].checks == checks
     vm._svc.fetch_check_runs.assert_called_once_with("myorg", "myrepo", "deadbeef")
 
@@ -117,7 +125,8 @@ def test_fetch_status_changed_emits_scanning_during_bootstrap(vm, qtbot):
     vm._login = "me"
     statuses = []
     vm.fetch_status_changed.connect(statuses.append)
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     assert any("Scanning" in s for s in statuses)
 
 
@@ -128,18 +137,22 @@ def test_fetch_status_changed_emits_tracking_when_idle(vm, qtbot):
     vm._svc.fetch_check_runs.return_value = []
     statuses = []
     vm.fetch_status_changed.connect(statuses.append)
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     assert any("Tracking" in s for s in statuses)
 
 
 def test_fetch_status_changed_includes_repo_names_in_tracking(vm, qtbot):
+    from PySide6.QtWidgets import QApplication
     vm._known_repos = {("myorg", "api"), ("myorg", "frontend")}
     vm._login = "me"
     vm._svc.list_prs_for_repo.return_value = []
     vm._svc.fetch_check_runs.return_value = []
     statuses = []
     vm.fetch_status_changed.connect(statuses.append)
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
+    QApplication.processEvents()
     idle = next(s for s in statuses if "Tracking" in s)
     assert "myorg/api" in idle or "myorg/frontend" in idle
 
@@ -150,7 +163,8 @@ def test_fetch_status_changed_emits_no_repos_when_none_tracked(vm, qtbot):
     vm._svc.discover_open_pr_repos.return_value = set()
     statuses = []
     vm.fetch_status_changed.connect(statuses.append)
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
     assert any("Tracking" in s or "No repos" in s for s in statuses)
 
 
@@ -166,7 +180,8 @@ def test_refresh_prs_populates_mergeable_for_each_pr(vm, qtbot):
     vm._svc.fetch_check_runs.return_value = []
     vm._svc.fetch_mergeable.return_value = True
 
-    vm.refresh_prs()
+    with qtbot.waitSignal(vm.prs_updated, timeout=2000):
+        vm.refresh_prs()
 
     assert vm.prs[0].mergeable is True
     vm._svc.fetch_mergeable.assert_called_once_with("myorg", "myrepo", 1)

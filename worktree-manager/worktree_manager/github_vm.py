@@ -1,5 +1,6 @@
 import concurrent.futures
 import logging
+import threading
 from enum import Enum, auto
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -114,6 +115,9 @@ class GitHubViewModel(QObject):
             log.debug("refresh_prs: no service, skipping")
             return
         self.loading_started.emit()
+        threading.Thread(target=self._do_refresh_prs, daemon=True).start()
+
+    def _do_refresh_prs(self) -> None:
         try:
             if not self._login:
                 self._login = self._svc.get_authenticated_user()
