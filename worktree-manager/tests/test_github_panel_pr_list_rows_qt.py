@@ -116,7 +116,10 @@ def test_badge_shows_checks_failed(vm, panel, qtbot):
     assert "checks failed" in _row_label_text(panel, 0)
 
 
-def test_badge_shows_ready_to_merge(vm, panel, qtbot):
+def test_ci_badge_reports_only_ci_never_merge_verdict_when_mergeable(vm, panel, qtbot):
+    # A mergeable PR with passing checks must show CI state ("checks passed"),
+    # not the deprecated "ready to merge" verdict — merge-readiness is the
+    # mergeability badge's job, not the CI badge's.
     vm.prs = [_make_pr(
         1,
         checks=[CICheck("build", "completed", "success")],
@@ -124,13 +127,17 @@ def test_badge_shows_ready_to_merge(vm, panel, qtbot):
         mergeable=True,
     )]
     vm.prs_updated.emit()
-    assert "ready to merge" in _row_label_text(panel, 0)
+    text = _row_label_text(panel, 0)
+    assert "checks passed" in text
+    assert "ready to merge" not in text
 
 
 def test_badge_shows_checks_passed_when_not_mergeable(vm, panel, qtbot):
     vm.prs = [_make_pr(1, checks=[CICheck("build", "completed", "success")], mergeable=False)]
     vm.prs_updated.emit()
-    assert "checks passed" in _row_label_text(panel, 0)
+    text = _row_label_text(panel, 0)
+    assert "checks passed" in text
+    assert "ready to merge" not in text
 
 
 def test_badge_shows_no_checks(vm, panel, qtbot):

@@ -450,7 +450,7 @@ class GitHubPanel(QWidget):
         if s == "failed":
             return "❌ checks failed"
         if s == "passed":
-            return "✅ ready to merge" if pr.is_ready_to_merge() else "✅ checks passed"
+            return "✅ checks passed"
         return "– no checks"
 
     def _on_pr_list_context_menu(self, pos) -> None:

@@ -1,344 +1,272 @@
 # Autobot — Iterative TDD Feature Builder
 
-Given a feature description, autobot guides you through design, iteration planning, and iterative TDD implementation with mandatory manual testing gates between every iteration.
+Given a feature description, autobot guides design → iteration planning → iterative TDD implementation, with a mandatory manual testing gate between every iteration.
+
+When invoked, announce **"I am using autobot."** before anything else.
 
 ## How to invoke
 
 ```
 /autobot <feature description>
 /autobot <ADO work item URL or ID>
-/autobot <path-to-autobot-file.md>
+/autobot <path-to-autobot-file.md>     # resume an existing run
 ```
 
-When invoked, immediately announce: "I am using autobot." before doing anything else.
+If no argument is given, ask for a feature description or an ADO work item URL/ID before proceeding.
 
-If no argument is given, ask the user for either a feature description or an ADO work item URL/ID before proceeding.
+---
 
-### Resume Detection
+## Conventions (apply everywhere)
 
-The user may provide an autobot document to resume explicitly:
+- **Link existing repo references.** Any time you name an existing file, function, class, method, or call site — in prose, diagrams, scope bullets, or `Files touched` — link it with markdown **relative to the autobot document's own location**: `[path/from/root.ext](rel/path.ext)` for files, `[file.ext:42](rel/path.ext#L42)` for a line. Example: doc in `docs/`, file at `worktree_manager/cli.py` → `[worktree_manager/cli.py](../worktree_manager/cli.py)`. New files the feature introduces: name their intended path, do **not** link (they don't exist yet).
+- **Strict TDD.** Never write production code before a failing test for it exists — regardless of which implementation mode the user picks.
+- **Test names describe behaviour, never planning structure.** Never put `phase`, `iter`, `iteration`, or a number from the plan into a test or file name (no `test_phase_0_1`, `test_iter0`).
+- **Complete code only.** Everything in a plan must be copy-pasteable — no pseudocode, no `// ...`.
+- **Stored-data guardrail.** If a change writes to persisted/stored data (config files, DBs, caches, serialized state, on-disk formats, migrations), surface a before→after diff to the user and get acknowledgement before applying it. Never silently mutate stored data.
+- **No silent exceptions.** Never `except X: pass` / swallow errors. Surface to the user or logs; fix the root cause.
+- **Sign-off required.** Never advance a stage without explicit user approval.
+
+---
+
+## Document status block (read first, update on every transition)
+
+The autobot document **starts with** a machine-readable status block. It is the single source of truth for where a run is — resume reads it first, before inspecting sections.
 
 ```
-/autobot <path-to-autobot-file.md>
+<!-- autobot-status
+stage: 1            # current stage number
+iteration: -        # current iteration number, or - before planning
+gate: none          # none | pending | confirmed  (state of the current iteration's gate)
+mode: -             # plan | contract | direct  (chosen implementation mode)
+updated: <date>
+-->
 ```
 
-If the argument looks like a file path (ends in `.md` or contains `/`), treat it as a resume target — read that file directly instead of searching for one.
+Update this block at every state change. The gate moves to `confirmed` **only** when you record the user's confirmation (see Stage 5).
 
-Otherwise, before starting Stage 1, check whether an `autobot-*.md` file already exists in the repo (check `docs/` first, then the repo root). If one is found:
+---
 
-1. Read the document and determine the furthest completed stage:
-   - All iterations have confirmed manual testing gates and the final test suite has passed → feature is complete; tell the user and stop.
-   - Has at least one **Manual Testing Gate** marked confirmed by the user → resume at Stage 6 for the next unplanned iteration.
-   - Has a **Manual Testing Gate** section but not yet confirmed → resume at Stage 5 (remind the user to complete the gate before planning the next iteration).
-   - Has an **Iteration Plan** section but no TDD phases written yet → resume at Stage 3.
-   - Has a **Design** section but no **Iteration Plan** → resume at Stage 2.
-   - Has only partial content → resume at the earliest incomplete stage.
+## Resume
 
-2. Tell the user exactly where you are resuming from, e.g.:
-   > "I found `autobot-my-feature.md`. It looks like Iteration 0 is planned but the manual testing gate hasn't been confirmed yet. Resuming at Stage 5."
+If the argument is a file path (ends `.md` or contains `/`), read that file as the resume target. Otherwise, before Stage 1, look for an `autobot-*.md` in `docs/` then the repo root.
 
-3. Continue from that point — do not re-run completed stages.
+When a document is found, **read its status block** and resume from `stage`/`iteration`/`gate`:
 
-If multiple `autobot-*.md` files exist, list them and ask the user which one to resume.
+- `gate: confirmed` on the **last** planned iteration **and** final suite passed → feature complete; tell the user and stop.
+- `gate: confirmed` (not the last iteration) → resume at **Stage 6** to plan the next iteration.
+- `gate: pending` → resume at **Stage 5**; remind the user to complete and confirm the gate first.
+- iteration plan exists, no gate yet → resume at **Stage 3**.
+- design exists, no iteration plan → resume at **Stage 2**.
+
+If a doc has no status block (older format), reconstruct state from its sections, **add a status block**, then continue. If multiple `autobot-*.md` exist, list them and ask which to resume. Tell the user exactly where you're resuming, e.g. *"Resuming `autobot-x.md` at Stage 5 — Iteration 1's gate is pending."* Never re-run completed stages.
 
 ---
 
 ## Stage 1 — Design
 
-**Goal:** Gather feature context (from description or ADO), then produce a `autobot-<feature-slug>.md` design document before writing a single line of code.
+**Goal:** Gather context, then write `autobot-<feature-slug>.md` before any code.
 
-### Step 1a — Gather feature context
+### 1a — Gather context
 
-Determine whether the user provided a plain description or an ADO reference:
-
-**If the argument looks like an ADO work item** (a numeric ID, a URL containing `dev.azure.com` or `visualstudio.com`, or the user says "ADO ticket #N"):
-
-1. **Try the ADO MCP first** — check whether an ADO MCP server is available in the current session. If it is, use it to fetch the work item (title, description, acceptance criteria, comments).
-
-2. **Fallback — REST API with PAT** — if no ADO MCP is available, ask the user for:
-   - Their ADO organisation URL (e.g. `https://dev.azure.com/myorg`)
-   - A Personal Access Token with `Work Items (Read)` scope
-
-   Then fetch via the ADO REST API:
-   - Work item details: `GET https://dev.azure.com/{org}/{project}/_apis/wit/workitems/{id}?$expand=all&api-version=7.1`
-   - Comments: `GET https://dev.azure.com/{org}/{project}/_apis/wit/workitems/{id}/comments?api-version=7.1-preview.3`
+**ADO work item** (numeric ID, a `dev.azure.com`/`visualstudio.com` URL, or "ADO ticket #N"):
+1. Use the ADO MCP server if one is available in the session.
+2. Otherwise, ask for the org URL and a PAT with `Work Items (Read)`, then fetch via REST:
+   - Item: `GET https://dev.azure.com/{org}/{project}/_apis/wit/workitems/{id}?$expand=all&api-version=7.1`
+   - Comments: `GET .../workitems/{id}/comments?api-version=7.1-preview.3`
    - Auth: `Authorization: Basic <base64(":" + PAT)>`
+3. Extract Title (`System.Title`), Description (`System.Description`), Acceptance Criteria (`Microsoft.VSTS.Common.AcceptanceCriteria`), Comments (each `text`) — strip HTML.
+4. Show the extracted content and confirm it's correct before continuing.
 
-3. Extract from whichever source was used:
-   - **Title** (`fields["System.Title"]`)
-   - **Description** (`fields["System.Description"]` — strip HTML tags)
-   - **Acceptance Criteria** (`fields["Microsoft.VSTS.Common.AcceptanceCriteria"]` — strip HTML tags)
-   - **Comments** (each comment's `text` field — strip HTML tags)
+**Plain description:** use it directly.
 
-4. Present the extracted content to the user and confirm it looks correct before continuing
+### 1b — Write the design document
 
-**If the argument is a plain description:** use it directly as the feature context.
-
-### Step 1b — Design document
-
-Steps:
-1. Clarify scope with the user if the feature context is ambiguous
-2. Determine where to create `autobot-<feature-slug>.md`: check if a `docs/` folder exists at the repo root — if it does, place the file there; otherwise place it at the repo root
-3. Write the document with these sections:
+Place it in `docs/` if that folder exists at the repo root, else at the root. Start the file with the **status block** (`stage: 1`), then:
 
 ```
 # <Feature Name>
 
 ## Overview
-One paragraph describing what this feature does and why.
+One paragraph: what this does and why.
 
 ## UI / Flow
-ASCII mockup(s) of every screen or state the user will see.
-Label each mockup (e.g. "Empty state", "Loaded state", "Error state").
+ASCII mockup of every screen/state. Label each (Empty / Loaded / Error …).
 
 ## Architecture
-Mermaid diagram(s) showing:
-- Data flow (sequence diagram if async, component diagram if structural)
-- New models, services, or view models and how they relate
+Mermaid diagram(s): data flow (sequence if async, component if structural) and any new models/services/view-models and their relationships.
 
-Whenever you reference an existing file, function, class, or method in the prose, diagrams, or bullet lists of this section (or anywhere else in the document), link to it with markdown: `[path/from/repo/root.ext](relative/path/from/doc.ext)` for files, `[file.ext:42](relative/path/from/doc.ext#L42)` for specific lines. **Link paths must be relative to the location of the autobot document itself** (e.g. if the doc is in `docs/`, a file at `worktree_manager/cli.py` is linked as `../worktree_manager/cli.py`). New files being introduced by the feature should be named with their intended path but not linked (they don't exist yet).
+## API Surface          # include ONLY if the feature touches any API
+List every external or internal API the feature calls: endpoint/method/signature, the exact params used, and a link to the official documentation for each.
 
 ## Open Questions
-Bullet list of any ambiguities or decisions still to make.
+Bullet list of unresolved ambiguities/decisions.
 ```
 
-4. Show the document to the user and **stop**.
+### 1c — API verification gate (only if an API is involved)
 
-   - If the **Open Questions** section is non-empty, ask each question explicitly and **refuse to proceed to Stage 2** until every question has been answered by the user. Once answered, update the design doc to reflect the decisions and remove the resolved questions from the list.
-   - Only when Open Questions is empty, ask:
-     > "Does this design look right? Any changes before I move to Stage 2?"
+If the feature touches **any** API (external service, library, or internal endpoint), before leaving Stage 1 you must:
+1. **Verify every param against official documentation** — names, types, required/optional, defaults. Do not rely on memory; fetch and cite the docs. Correct anything that doesn't match.
+2. **Prove the API behaves as expected** — write and run minimal tests/probes against the real (or sandbox) API confirming each call returns what the design assumes. Surface the results.
 
-Do not proceed to Stage 2 until the user explicitly approves AND there are no remaining open questions.
+If no API is involved, skip this silently.
+
+### 1d — Approve
+
+Show the document and **stop**.
+- If **Open Questions** is non-empty: ask each one, refuse to proceed until all are answered, then update the doc and remove the resolved questions.
+- Only when Open Questions is empty (and the API gate, if any, passed), ask: *"Does this design look right? Any changes before Stage 2?"*
+
+Do not enter Stage 2 until the user approves **and** there are no open questions **and** any API gate has passed. Set `stage: 2` on approval.
 
 ---
 
 ## Stage 2 — Iteration Plan
 
-**Goal:** Slice the feature into a walking skeleton (Iteration 0) plus a small number of subsequent iterations, each adding one layer of user-visible behaviour. No code yet.
+**Goal:** Slice the feature into Iteration 0 (walking skeleton) + a few iterations, each adding one layer of user-visible behaviour. No code.
 
-Steps:
-1. Read the approved design document
-2. Identify **Iteration 0 — the walking skeleton**: the absolute minimum that can be built, run, and manually touched end-to-end. It must be functional enough to verify with real hands-on interaction, even if incomplete, unstyled, or missing edge-case handling. If you cannot describe what a human would click or observe to confirm it works, the skeleton is too thin — make it thicker.
-3. Identify **Iteration 1…N**: each subsequent iteration adds exactly one cohesive layer of user-visible behaviour on top of the previous. Do not plan more than is needed to deliver the full feature. Aim for 2–5 iterations total including the skeleton.
-4. Append a new section to `autobot-<feature-slug>.md`:
+1. **Iteration 0 — walking skeleton:** the minimum that can be built, run, and touched end-to-end by a human. If you can't describe what a person would click or observe to confirm it, it's too thin — thicken it.
+2. **Iterations 1…N:** each adds exactly one cohesive layer of visible behaviour. Aim for **2–5 total** including the skeleton; plan no more than the feature needs.
+3. Append:
 
 ```
 ## Iteration Plan
 
 ### Iteration 0 — Walking Skeleton
-**Delivers:** One sentence — what a human can see and touch after this iteration.
-**Scope:** Bullet list of what is included. When any item mentions an existing file, class, function, or method, link to it with markdown (`[path/from/repo/root.ext](relative/path/from/doc.ext)` or `[file.ext:42](relative/path/from/doc.ext#L42)`). **Paths must be relative to the autobot document's location.** Name new files with their intended path but do not link them.
-**Explicitly out of scope:** Bullet list of what is intentionally deferred.
-
-### Iteration 1 — <Short Name>
-**Delivers:** One sentence.
-**Scope:** Bullet list.
-**Builds on:** Iteration 0.
+**Delivers:** One sentence — what a human can see/touch after this.
+**Scope:** Bullets (link existing references).
+**Out of scope:** Bullets — what's deferred.
 
 ### Iteration N — <Short Name>
-...
+**Delivers:** One sentence.
+**Scope:** Bullets.
+**Builds on:** Iteration N-1.
 ```
 
-5. Show the updated document to the user and **stop**. Ask:
-   > "Does this iteration plan look right? Is the walking skeleton thin enough to build fast but thick enough to actually run? Any changes before we move on to Iteration 0?"
-
-Do not proceed to Stage 3 until the user explicitly approves or asks for changes.
+4. Show the doc and **stop**: *"Does this plan look right? Is the skeleton thin enough to build fast but thick enough to actually run? Any changes before Iteration 0?"* Set `stage: 2, iteration: 0` and wait for approval.
 
 ---
 
-## Stage 3 — TDD Plan for Iteration 0 (Walking Skeleton)
+## Stage 3 — Plan/Build Iteration 0
 
-**Goal:** Ask the user whether they want a full written TDD plan or prefer the agent to implement directly in a TDD fashion. Then follow the chosen path for Iteration 0 only. Do not plan future iterations yet — they will be planned just-in-time after each manual testing gate.
+Pick up here for Iteration 0; **Stage 6 is identical for Iteration N** — both use the choices and shared blocks below.
 
-**Ask the user:**
+### Choose an implementation mode
 
-> "Should I show you the full TDD plan (tests + production code) before implementing, or should I implement the feature in a TDD fashion on my own?
-> - **Show me the plan first** — I'll write the complete TDD plan to `autobot-<feature-slug>.md`, you review it, then implementation happens phase by phase.
-> - **Implement on your own** — I'll use the iteration scope as my guide and do TDD directly, without writing out the full plan first."
+Ask the user (record the answer in `mode:`):
 
-Wait for the user's answer before continuing.
+> "How should I build this iteration?
+> - **Plan first** — I write the full TDD plan (tests + production code) to the doc, you review, then implement phase by phase.
+> - **Behavioral contract** — I write **end-to-end behavioral tests** that assert observable behaviour (not implementation details), you review and approve them, then I implement freely to make them pass. The approved tests are the contract.
+> - **Implement on your own** — I do strict TDD directly against the iteration scope, no upfront plan document."
 
-- **If the user wants to see the plan:** follow the full steps below (Steps 1–6) — write the TDD plan, show it, and stop before implementing.
-- **If the user wants direct implementation:** skip writing out the phase-by-phase plan document and implement directly using strict TDD (failing test before every piece of production code). **However, you MUST still append the Manual Testing Gate section (Step 5) to `autobot-<feature-slug>.md` before beginning implementation — the gate is always written to the file regardless of which path is chosen.**
+**Regardless of mode, always append the Manual Testing Gate (below) to the doc before any implementation.** The gate is never skipped or omitted.
 
-Steps:
-1. Read the approved Iteration 0 scope
-2. Detect the project's primary language by reading existing source files — use that language's conventions, idioms, and test framework in all generated code
-3. Break Iteration 0 into the **smallest meaningful implementation phases** — each independently testable
-4. For each phase, append to `autobot-<feature-slug>.md`:
+Before writing any plan, detect the project's primary language from existing source and use its conventions and test framework throughout.
 
-```
-## Iteration 0 — Walking Skeleton
+### Mode: Plan first
 
-### Phase 0.N — <Short Phase Name>
-**What it covers:** One sentence.
-
-**Files touched:** Bullet list of the files this phase modifies or creates. Link existing files with markdown (`[path/from/repo/root.ext](relative/path/from/doc.ext)`); name new files with their intended path but do not link them. If the phase references existing functions, classes, or call sites, link them with line anchors (`[file.ext:42](relative/path/from/doc.ext#L42)`). **All paths must be relative to the autobot document's location.**
-
-**Tests (Red) — write these first:**
-\`\`\`
-// Full test code here — complete, copy-pasteable
-\`\`\`
-
-**Production code (Green):**
-\`\`\`
-// Full implementation code here — complete, copy-pasteable
-\`\`\`
-
-**Done when:** Observable acceptance criteria (not just "tests pass").
-```
-
-5. After all Iteration 0 phases, append the manual testing gate for this iteration:
+Break the iteration into the **smallest independently-testable phases**. For each, append the **Phase block**:
 
 ```
-## ✋ Manual Testing Gate — Iteration 0
-
-> STOP. Do not proceed to Iteration 1 until every item below is checked off by the user.
-
-- [ ] <Specific action to perform — e.g. "Launch the app and navigate to X screen">
-- [ ] <Observable result to confirm — e.g. "The list shows Y items with Z format">
-- [ ] <Edge case to verify — e.g. "Tap X with no data — empty state appears, not a crash">
-- [ ] <Any other concrete, observable behaviour that proves this iteration works end-to-end>
-
-**How to confirm:** Run the app, perform each action above, and check off each item manually. 
-Reply "Iteration 0 confirmed" (or describe any failures) before I write the plan for Iteration 1.
-```
-
-The manual testing gate checklist must be:
-- **Specific**: each item names the exact action and the exact expected result
-- **Observable**: verifiable by a human without reading code or test output
-- **Complete**: covers every behaviour delivered in this iteration, including error/empty states
-
-6. Show the full updated document to the user and **stop**. Do not implement anything.
-
----
-
-## Stage 4 — Hand Off for Iteration 0
-
-**Goal:** Give the user clear instructions for implementing Iteration 0, then wait for the manual testing gate confirmation before continuing.
-
-Tell the user:
-
-> "Iteration 0 is planned. Implement it one phase at a time:
->
-> - 'Implement Phase 0.1'
-> - 'Implement Phase 0.2'
-> - ...
->
-> Each phase has full test and production code in `autobot-<feature-slug>.md`.
->
-> **When all phases are done, you must complete the Manual Testing Gate before we plan Iteration 1.** Run the app and work through every checklist item. Reply 'Iteration 0 confirmed' when done, or describe what didn't work so we can fix it first."
-
-Before handing off, **run the full test suite** and confirm it passes with no failures. This establishes a clean baseline before any feature code is written. If tests are already failing, surface them to the user and do not proceed until they are resolved.
-
-Then **stop** and wait. Do not plan Iteration 1 until the user explicitly confirms the manual testing gate is complete.
-
----
-
-## Stage 5 — Manual Testing Gate Review (repeat for every iteration)
-
-**Goal:** Validate the user's manual testing gate response before unlocking the next iteration's plan.
-
-When the user replies after completing a manual testing gate:
-
-- **If all items are confirmed:** congratulate briefly, then immediately proceed to plan the next iteration (go to Stage 6).
-- **If any item failed or was skipped:**
-  1. **STOP. Do not plan the next iteration.**
-  2. Acknowledge the failure clearly.
-  3. Help the user diagnose and fix the issue.
-  4. Once fixed, ask the user to re-run the failed checklist items and re-confirm before proceeding.
-
-> **This gate is mandatory and cannot be skipped.** If the user tries to move to the next iteration without completing the manual testing gate, refuse and redirect them back to it. The only way forward is through the gate.
-
----
-
-## Stage 6 — TDD Plan for Iteration N (repeat for each subsequent iteration)
-
-**Goal:** Ask the user whether they want a full written TDD plan or prefer the agent to implement directly in a TDD fashion. Then follow the chosen path for the next iteration, just-in-time, now that the previous iteration is verified working.
-
-**Ask the user:**
-
-> "Should I show you the full TDD plan for Iteration N before implementing, or should I implement it in a TDD fashion on my own?"
-
-- **If the user wants to see the plan:** follow the full steps below — write the plan, show it, stop before implementing.
-- **If the user wants direct implementation:** skip writing out the phase-by-phase plan document and implement directly using strict TDD (failing test before every piece of production code). **However, you MUST still append the Manual Testing Gate section (Step 5) to `autobot-<feature-slug>.md` before beginning implementation — the gate is always written to the file regardless of which path is chosen.**
-
-Steps:
-1. Recall the approved Iteration Plan from Stage 2
-2. Identify the next unplanned iteration
-3. Break it into the **smallest meaningful implementation phases** — each independently testable
-4. For each phase, append to `autobot-<feature-slug>.md`:
-
-```
-## Iteration N — <Short Name>
-
 ### Phase N.M — <Short Phase Name>
 **What it covers:** One sentence.
-
-**Files touched:** Bullet list of the files this phase modifies or creates. Link existing files with markdown (`[path/from/repo/root.ext](relative/path/from/doc.ext)`); name new files with their intended path but do not link them. If the phase references existing functions, classes, or call sites, link them with line anchors (`[file.ext:42](relative/path/from/doc.ext#L42)`). **All paths must be relative to the autobot document's location.**
-
-**Tests (Red) — write these first:**
+**Files touched:** Bullets — link existing files; name new files unlinked; link existing call sites with line anchors.
+**Tests (Red) — write first:**
 \`\`\`
-// Full test code here — complete, copy-pasteable
+<complete, copy-pasteable test code>
 \`\`\`
-
 **Production code (Green):**
 \`\`\`
-// Full implementation code here — complete, copy-pasteable
+<complete, copy-pasteable implementation>
 \`\`\`
-
-**Done when:** Observable acceptance criteria (not just "tests pass").
+**Done when:** Observable acceptance criteria (not "tests pass").
 ```
 
-5. After all phases for this iteration, append its manual testing gate:
+Show the doc and **stop** — implement nothing yet.
+
+### Mode: Behavioral contract
+
+1. Write **end-to-end behavioral tests** for the iteration — each asserts an observable, user-facing behaviour from the outside (inputs → observable outputs/state), **never** internal structure. Append them under:
+
+```
+### Behavioral Contract — Iteration N
+\`\`\`
+<complete, copy-pasteable end-to-end behavioral tests>
+\`\`\`
+```
+
+2. Show them and **stop**: *"These behavioral tests are the contract for this iteration. Approve them and I'll implement freely to make them pass."*
+3. Once approved, the contract is **locked** — implement freely to satisfy it, but if implementation reveals a test must change, **stop and get re-approval** before editing it. Never silently weaken the contract.
+
+### Mode: Implement on your own
+
+Implement directly with strict TDD (failing test before every piece of production code). Keep a one-line-per-phase ledger in the doc so the discipline leaves evidence:
+
+```
+### Implementation Ledger — Iteration N
+- <behavioral test name>: red → green ✓
+```
+
+### Manual Testing Gate (append for every iteration, all modes)
 
 ```
 ## ✋ Manual Testing Gate — Iteration N
 
-> STOP. Do not proceed to Iteration N+1 until every item below is checked off by the user.
+> STOP. Do not proceed to Iteration N+1 until every item is confirmed by the user.
 
-- [ ] <Specific action and expected result>
-- [ ] <Specific action and expected result>
-- [ ] <Regression check — confirm Iteration 0..N-1 behaviour still works>
+- [ ] <Specific action — exact thing to do>
+- [ ] <Observable result — exact thing to see>
+- [ ] <Edge/error/empty case to verify>
+- [ ] <Regression: confirm Iteration 0..N-1 behaviour still works>   # required from Iteration 1 on
 
-**How to confirm:** Run the app, perform each action above, and check off each item manually.
-Reply "Iteration N confirmed" (or describe any failures) before I write the plan for Iteration N+1.
+**Confirmed by user:** —
+**How to confirm:** Perform each action, check each box. Reply "Iteration N confirmed" (or describe failures) before I plan the next iteration.
 ```
 
-The regression check items are mandatory — every gate must verify that previously confirmed behaviour has not broken.
-
-6. Show the updated document to the user and **stop**.
-7. Hand off in the same way as Stage 4: tell the user to implement phase by phase, then complete the gate before the next iteration is planned.
-8. Repeat Stages 5 and 6 for every remaining iteration until all iterations in the plan are complete.
+Gate items must be **specific** (exact action + exact result), **observable** (no reading code/test output), and **complete** (every behaviour delivered, including error/empty states). From Iteration 1 on, **derive regression items from the prior gates' observable-result lines** so coverage is mechanical, not re-invented.
 
 ---
 
-## Stage 7 — Feature Complete
+## Stage 4 — Hand off Iteration 0
 
-**Goal:** Confirm the full feature is done once the final iteration's manual testing gate is confirmed.
-
-When the user confirms the last iteration's manual testing gate:
-
-1. **Run the full test suite** and confirm it passes with no failures or regressions introduced by the feature work.
-2. Declare the feature done.
+1. **Run the full test suite once** to establish a clean baseline. If anything fails, surface it and stop until resolved.
+2. Tell the user how to proceed by mode:
+   - *Plan first:* "Implement one phase at a time — 'Implement Phase 0.1', etc. Full code is in the doc."
+   - *Behavioral contract:* "Tests are approved; I'll implement to satisfy them."
+   - *Implement on your own:* "I'll TDD this directly."
+3. In all cases: *"When implementation is done, complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
+4. **Stop and wait.** Do not plan Iteration 1 until the gate is confirmed.
 
 ---
 
-## Rules
+## Stage 5 — Gate review (every iteration)
 
-- **Always link to existing repo files when referencing them in the autobot document.** Use markdown link syntax with **paths relative to the autobot document's own location** (not the repo root): `[path/to/file.ext](relative/path/from/doc.ext)` for files, `[file.ext:42](relative/path/from/doc.ext#L42)` for specific lines or symbols. For example, if the autobot doc lives in `docs/` and the file is at `worktree_manager/cli.py`, the link path is `../worktree_manager/cli.py`. Apply this everywhere — design prose, architecture diagrams, iteration scope bullets, phase `Files touched` lists, and any inline mention of an existing function/class/method. The goal is two-fold: a human reading the doc can click straight into the code for deeper context, and a downstream agent implementing a phase does not have to re-discover where things live. New files being introduced by the feature should be named with their intended path but not linked (they don't exist yet).
-- Never write production code before a failing test for it exists — this applies whether or not the user chose to see the TDD plan upfront
-- **Always append the Manual Testing Gate to `autobot-<feature-slug>.md` before starting implementation** — this is mandatory regardless of whether the user chose "show me the plan" or "implement on your own". The gate is never skipped and never omitted from the file.
-- Never advance to the next stage without user sign-off
-- **Do NOT move to Stage 2 if there are any open questions or ambiguities — resolve every one of them with the user first**
-- **Do NOT plan Iteration N+1 until the user has explicitly confirmed Iteration N's manual testing gate — no exceptions, no skipping, no shortcuts**
-- **If the user attempts to skip a manual testing gate, refuse clearly and redirect them back to it**
-- Plan iterations just-in-time — only write the TDD plan for the current iteration, not future ones
-- All code in the plan must be complete and copy-pasteable — no pseudocode, no `// ...` ellipsis
-- Keep phases small — one cohesive behaviour at a time
-- Test file names and test method/function names must reflect the behaviour being tested, not the planning structure — never include words like "phase", "iter", "iteration", or iteration numbers (e.g. `test_phase_0_1_...`, `test_iter0_...`) in any test name or file name
-- If a phase turns out larger than expected during implementation, split it and re-present the updated plan
-- Manual testing gate checklists must use specific actions and observable results — never vague items like "verify it works" or "check the feature"
-- Every gate from Iteration 1 onwards must include regression checks for previously confirmed behaviour
-- Run the full test suite exactly twice: once at the start of Stage 4 (baseline before any feature code exists) and once at the end of Stage 7 (clean finish after the final gate is confirmed)
-- **NEVER run the full test suite between iterations or during implementation** — doing so wastes time and obscures signal. During implementation, run only the specific tests you added for the current phase to verify red→green. The full suite is only for the two bookend checkpoints above.
+When the user replies after a gate:
+
+- **All items confirmed:** edit the doc — tick the gate's boxes to `[x]`, set `**Confirmed by user:** <date>`, and set `gate: confirmed` in the status block. **Then** proceed to Stage 6.
+- **Any item failed/skipped:**
+  1. **STOP — do not plan the next iteration.** Leave `gate: pending`.
+  2. Acknowledge the failure; help diagnose and fix.
+  3. Ask the user to re-run the failed items and re-confirm.
+
+**This gate is mandatory.** If the user tries to skip it, refuse and redirect. Recording the confirmation in the file (boxes + date + `gate: confirmed`) is what makes resume reliable — never treat a gate as passed without writing it.
+
+---
+
+## Stage 6 — Plan/Build Iteration N
+
+Just-in-time, after the previous gate is confirmed. Identical to Stage 3: choose a mode, write the chosen artifact (Phase blocks / Behavioral Contract / Ledger), append the Manual Testing Gate (with derived regression items), show, **stop**, then hand off as in Stage 4. Repeat Stages 5–6 until every planned iteration is confirmed.
+
+---
+
+## Stage 7 — Feature complete
+
+When the last iteration's gate is confirmed:
+1. **Run the full test suite once** — confirm no failures or regressions.
+2. Set `stage: 7, gate: confirmed`; declare the feature done.
+
+---
+
+## Suite-running policy
+
+Run the **full** suite exactly twice: the Stage 4 baseline and the Stage 7 finish. **Never** run the full suite between iterations or mid-implementation. During implementation, before each gate, run only the **current iteration's tests plus the test files for any modules this iteration touched** — enough to catch a broken sibling, not the whole suite. (The API verification probes in Stage 1c are separate and expected.)
