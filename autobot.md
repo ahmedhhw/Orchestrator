@@ -125,7 +125,10 @@ Do not enter Stage 2 until the user approves **and** there are no open questions
 **Goal:** Slice the feature into Iteration 0 (walking skeleton) + as many iterations as the feature genuinely needs, each adding one layer of user-visible behaviour. No code.
 
 1. **Iteration 0 — walking skeleton:** the minimum that can be built, run, and touched end-to-end by a human. If you can't describe what a person would click or observe to confirm it, it's too thin — thicken it.
-2. **Iterations 1…N:** each adds exactly one cohesive layer of visible behaviour. Small features may need only **2–5 total** including the skeleton; large features can legitimately run **up to 15** — don't artificially cap a big feature. Plan as many as the feature genuinely needs and no more.
+2. **Iterations 1…N:** each adds exactly one cohesive layer of visible behaviour. Size the plan to the feature, and plan no more than it genuinely needs:
+   - **Small** — **1 iteration**: the walking skeleton alone delivers the whole feature.
+   - **Medium** — **2–5 iterations** including the skeleton: a few cohesive layers on top.
+   - **Large** — **up to 15 iterations**: don't artificially cap a big feature; give each layer its own iteration.
 3. Append:
 
 ```
@@ -136,7 +139,7 @@ Do not enter Stage 2 until the user approves **and** there are no open questions
 **Scope:** Bullets (link existing references).
 **Out of scope:** Bullets — what's deferred.
 
-### Iteration N — <Short Name>
+### Iteration N — <Short Name>      # repeat zero or more times; omit entirely for a Small (1-iteration) feature
 **Delivers:** One sentence.
 **Scope:** Bullets.
 **Builds on:** Iteration N-1.
