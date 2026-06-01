@@ -122,10 +122,10 @@ Do not enter Stage 2 until the user approves **and** there are no open questions
 
 ## Stage 2 — Iteration Plan
 
-**Goal:** Slice the feature into Iteration 0 (walking skeleton) + a few iterations, each adding one layer of user-visible behaviour. No code.
+**Goal:** Slice the feature into Iteration 0 (walking skeleton) + as many iterations as the feature genuinely needs, each adding one layer of user-visible behaviour. No code.
 
 1. **Iteration 0 — walking skeleton:** the minimum that can be built, run, and touched end-to-end by a human. If you can't describe what a person would click or observe to confirm it, it's too thin — thicken it.
-2. **Iterations 1…N:** each adds exactly one cohesive layer of visible behaviour. Aim for **2–5 total** including the skeleton; plan no more than the feature needs.
+2. **Iterations 1…N:** each adds exactly one cohesive layer of visible behaviour. Small features may need only **2–5 total** including the skeleton; large features can legitimately run **up to 15** — don't artificially cap a big feature. Plan as many as the feature genuinely needs and no more.
 3. Append:
 
 ```
