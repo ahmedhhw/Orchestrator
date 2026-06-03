@@ -210,6 +210,7 @@ def test_create_worktree_panel_adds_to_entries_on_success(qtbot):
     )
     create_btn.click()
 
+    qtbot.waitUntil(lambda: "/r/fix-auth" in d.get_entries(), timeout=3000)
     assert "/r/fix-auth" in d.get_entries()
 
 
@@ -231,6 +232,7 @@ def test_create_worktree_panel_collapses_after_success(qtbot):
     )
     create_btn.click()
 
+    qtbot.waitUntil(lambda: not d._create_wt_panel.isVisibleTo(d), timeout=3000)
     assert not d._create_wt_panel.isVisibleTo(d)
 
 
@@ -254,12 +256,11 @@ def test_create_worktree_panel_shows_inline_error_on_failure(qtbot):
     )
     create_btn.click()
 
-    # Panel must still be visible (no collapse on error)
+    # Wait for error to appear (async), then check panel stays open and error shown
+    qtbot.waitUntil(lambda: bool(d._create_wt_error.text()), timeout=3000)
     assert d._create_wt_panel.isVisibleTo(d)
-    # An inline error label must appear inside the panel
-    error_labels = [lbl for lbl in d._create_wt_panel.findChildren(QLabel) if lbl.text()]
-    assert any("error" in lbl.text().lower() or "branch already exists" in lbl.text().lower()
-               for lbl in error_labels), f"Error labels: {[l.text() for l in error_labels]}"
+    err_text = d._create_wt_error.text().lower()
+    assert "error" in err_text or "branch already exists" in err_text
 
 
 # ── [New branch here…] placeholder button ────────────────────────────────────

@@ -44,7 +44,8 @@ class BranchManagementPanel(QWidget):
         self._last_fetch_label: QLabel | None = None
         self._last_fetch_ts: int | None = None
         self._sync_loading: bool = False
-        self._action_running: bool = False
+        self._action_running: bool = False   # gates header Fetch all / Sync all only
+        self._inflight_syncs: set = set()    # (repo_path, branch) keys mid per-row sync
         self._fetch_btn: QPushButton | None = None
         self._sync_all_btn: QPushButton | None = None
         self._sync_body_layout: QVBoxLayout | None = None
@@ -367,10 +368,12 @@ class BranchManagementPanel(QWidget):
         self._apply_sync_results(results)
 
     def _trigger_sync_one(self, repo_path: str, branch: str, worktree_path):
-        if self._vm is None or self._action_running:
-            return
-        self._action_running = True
         key = (repo_path, branch)
+        # Per-row syncs run concurrently; only ignore a repeat click on a row
+        # that is already syncing. (Header Fetch/Sync-all use _action_running.)
+        if self._vm is None or key in self._inflight_syncs:
+            return
+        self._inflight_syncs.add(key)
         btn = self._sync_row_btns.get(key)
         if btn is not None:
             btn.setEnabled(False)
@@ -390,28 +393,36 @@ class BranchManagementPanel(QWidget):
 
         job = BackgroundJob(self)
         job.finished.connect(
-            lambda result, b=btn, mb=mini_bar, sl=status_lbl:
-                self._on_sync_one_done(result, b, mb, sl)
+            lambda result, k=key, b=btn, mb=mini_bar, sl=status_lbl:
+                self._on_sync_one_done(result, k, b, mb, sl)
         )
-        job.failed.connect(lambda exc: self._on_action_error(exc, btn=btn))
+        job.failed.connect(
+            lambda exc, k=key, b=btn, mb=mini_bar, sl=status_lbl:
+                self._on_sync_one_error(exc, k, b, mb, sl)
+        )
         job.start(self._vm.sync_one, repo_path=repo_path, branch=branch,
                   worktree_path=worktree_path)
 
-    def _on_sync_one_done(self, result, btn, mini_bar, status_lbl) -> None:
-        self._action_running = False
+    def _clear_row_sync(self, key, btn, mini_bar, status_lbl) -> None:
+        self._inflight_syncs.discard(key)
         if mini_bar is not None:
             mini_bar.deleteLater()
         if status_lbl is not None:
             status_lbl.setVisible(True)
         if btn is not None:
             btn.setEnabled(True)
+
+    def _on_sync_one_done(self, result, key, btn, mini_bar, status_lbl) -> None:
+        self._clear_row_sync(key, btn, mini_bar, status_lbl)
         self._apply_sync_results([result])
 
-    def _on_action_error(self, exc: Exception, btn=None) -> None:
+    def _on_sync_one_error(self, exc, key, btn, mini_bar, status_lbl) -> None:
+        self._clear_row_sync(key, btn, mini_bar, status_lbl)
+
+    def _on_action_error(self, exc: Exception) -> None:
+        # Header Fetch all / Sync all failure: clear the gate, re-enable header buttons.
         self._action_running = False
         self._set_sync_action_buttons_enabled(True)
-        if btn is not None:
-            btn.setEnabled(True)
 
     def _apply_sync_results(self, results):
         _badge = {
@@ -646,8 +657,17 @@ class BranchManagementPanel(QWidget):
         line.setStyleSheet("color: gray;")
         self._list_layout.addWidget(line)
 
+    def _repo_suffix(self, c) -> str:
+        """`  · <repo>` when viewing all repos, else empty. Disambiguates rows
+        whose branches come from different repos in the 'all repos' view."""
+        if self._repo_combo.currentData() is not None:
+            return ""
+        if not getattr(c, "repo_path", None):
+            return ""
+        return f"  · {os.path.basename(c.repo_path.rstrip('/'))}"
+
     def _add_checkbox(self, c, default_checked: bool):
-        cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
+        cb = QCheckBox(f"{c.branch}  ({_reason(c)}){self._repo_suffix(c)}")
         cb.setChecked(default_checked)
         cb.toggled.connect(lambda _=False: self._refresh_button_labels())
         self._add_indented_row(cb)
@@ -711,7 +731,7 @@ class BranchManagementPanel(QWidget):
         self._add_divider()
         self._add_section_label("Protected:")
         for c in protected:
-            cb = QCheckBox(f"{c.branch}  ({_reason(c)})")
+            cb = QCheckBox(f"{c.branch}  ({_reason(c)}){self._repo_suffix(c)}")
             cb.setEnabled(False)
             tag = QLabel("⚠ main" if c.branch == "main" else "⚠ feature")
             tag.setStyleSheet("color: orange;")
@@ -724,7 +744,7 @@ class BranchManagementPanel(QWidget):
         self._add_divider()
         self._add_section_label("Cannot delete:")
         for c in unoperable:
-            txt = QLabel(f"—   {c.branch}  ({_reason(c)})")
+            txt = QLabel(f"—   {c.branch}  ({_reason(c)}){self._repo_suffix(c)}")
             txt.setStyleSheet("color: gray;")
             tag = QLabel("⚠ uncommitted" if c.has_uncommitted else "⚠ checked out")
             tag.setStyleSheet("color: orange;")

@@ -34,6 +34,8 @@ class WorkspaceProjectsPanel(QWidget):
         self._entry_rows: list[QWidget] = []
         self._loading: bool = False
         self._load_job: BackgroundJob | None = None
+        self._entry_map: dict | None = None
+        self._projects_cache: list = []
         self._build()
         self.refresh()
 
@@ -78,6 +80,8 @@ class WorkspaceProjectsPanel(QWidget):
         self._vm._store.set_ui_pref("projects_editor", name)
 
     def refresh(self):
+        self._entry_map = None
+        self._projects_cache = []
         self._entry_rows.clear()
         while self._scroll_layout.count():
             item = self._scroll_layout.takeAt(0)
@@ -86,6 +90,7 @@ class WorkspaceProjectsPanel(QWidget):
                 w.setParent(None)
 
         projects = self._vm.load_projects()
+        self._projects_cache = projects
         if not projects:
             empty = QLabel("No projects yet.\nClick [+ New] to create one.")
             empty.setAlignment(Qt.AlignCenter)
@@ -115,15 +120,22 @@ class WorkspaceProjectsPanel(QWidget):
 
     def _on_entries_loaded(self, projects: list, entries: list) -> None:
         self._loading = False
+        self._entry_map = {e["worktree_path"]: e for e in entries}
+        self._projects_cache = projects
+        self._rerender_from_cache()
+
+    def _rerender_from_cache(self) -> None:
+        if self._entry_map is None:
+            self.refresh()
+            return
+        self._entry_rows.clear()
         while self._scroll_layout.count():
             item = self._scroll_layout.takeAt(0)
             w = item.widget()
             if w is not None:
                 w.setParent(None)
-
-        entry_map = {e["worktree_path"]: e for e in entries}
-        for project in projects:
-            self._add_project_row(project, entry_map)
+        for project in self._projects_cache:
+            self._add_project_row(project, self._entry_map)
         self._scroll_layout.addStretch(1)
 
     def _on_entries_failed(self, exc: Exception) -> None:
@@ -287,7 +299,7 @@ class WorkspaceProjectsPanel(QWidget):
         else:
             self._collapsed.add(name)
         self._vm._store.set_ui_pref("projects_collapsed", list(self._collapsed))
-        self.refresh()
+        self._rerender_from_cache()
 
     def open_project(self, name: str) -> None:
         self._vm.open_project(name, self._editor)

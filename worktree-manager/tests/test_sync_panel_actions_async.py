@@ -248,7 +248,7 @@ def test_per_row_sync_runs_async_calls_vm(qtbot):
     panel, mock_vm = _make_panel(qtbot)
     sync_row_btn = next(b for b in _buttons(panel) if b.text() == "Sync")
     sync_row_btn.click()
-    _wait_action(qtbot, panel)
+    qtbot.waitUntil(lambda: mock_vm.sync_one.called, timeout=3000)
     mock_vm.sync_one.assert_called_once()
 
 
@@ -275,7 +275,8 @@ def test_per_row_sync_button_re_enabled_after_completion(qtbot):
     panel, mock_vm = _make_panel(qtbot)
     sync_row_btn = next(b for b in _buttons(panel) if b.text() == "Sync")
     sync_row_btn.click()
-    _wait_action(qtbot, panel)
+    # per-row syncs are tracked individually, not by _action_running
+    qtbot.waitUntil(lambda: sync_row_btn.isEnabled(), timeout=3000)
     assert sync_row_btn.isEnabled()
 
 
@@ -286,7 +287,7 @@ def test_per_row_sync_updates_status_label(qtbot):
     )
     sync_row_btn = next(b for b in _buttons(panel) if b.text() == "Sync")
     sync_row_btn.click()
-    _wait_action(qtbot, panel)
+    qtbot.waitUntil(lambda: sync_row_btn.isEnabled(), timeout=3000)
 
     assert any("pulled" in t.lower() for t in _label_texts(panel))
 

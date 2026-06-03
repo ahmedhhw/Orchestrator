@@ -38,8 +38,6 @@ class BranchMgmtViewModel:
     def __init__(self, config_store: ConfigStore, git_service: GitService):
         self._store = config_store
         self._git = git_service
-        # Maps candidate branch name → repo_path; populated during load_cleanup_candidates.
-        self._candidate_repo: dict[str, str] = {}
 
     def list_repos(self) -> list[str]:
         return list(self._store.all_repos().keys())
@@ -54,14 +52,18 @@ class BranchMgmtViewModel:
         return vm
 
     def load_cleanup_candidates(self, repo_path: str | None, on_progress=None) -> list:
-        """Return cleanup candidates for one repo (repo_path) or all repos (None)."""
-        self._candidate_repo = {}
+        """Return cleanup candidates for one repo (repo_path) or all repos (None).
+
+        Each returned candidate carries its source repo in ``repo_path`` so the UI
+        can label it and deletes can route to the correct repo even when two repos
+        share a branch name.
+        """
         if repo_path is not None:
             candidates = self._repo_vm(repo_path).all_cleanup_candidates(
                 on_progress=on_progress
             )
             for c in candidates:
-                self._candidate_repo[c.branch] = repo_path
+                c.repo_path = repo_path
             return candidates
         repos = self.list_repos()
         total_repos = len(repos)
@@ -81,7 +83,7 @@ class BranchMgmtViewModel:
             if on_progress:
                 on_progress(done, total_repos, path)
             for c in candidates:
-                self._candidate_repo[c.branch] = path
+                c.repo_path = path
             all_candidates.extend(candidates)
         return all_candidates
 
@@ -92,10 +94,10 @@ class BranchMgmtViewModel:
                 candidates, also_delete_branches=True
             )
             return
-        # Group by repo using the mapping built during the last load.
+        # Route each candidate to its own repo via repo_path (set at load time).
         by_repo: dict[str, list] = {}
         for c in candidates:
-            r = self._candidate_repo.get(c.branch)
+            r = c.repo_path
             if r is None:
                 continue
             by_repo.setdefault(r, []).append(c)

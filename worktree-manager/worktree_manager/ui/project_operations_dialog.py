@@ -7,8 +7,9 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QRadioButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from worktree_manager.ui.background_job import BackgroundJob
 from worktree_manager.ui.filterable_combo import FilterableComboBox
-
+from worktree_manager.ui.inline_progress import InlineProgress
 from worktree_manager.models import WorkspaceEntry
 
 
@@ -185,14 +186,26 @@ class ProjectOperationsDialog(QDialog):
         nb_layout.setSpacing(2)
 
         nb_layout.addWidget(QLabel("Worktree name:"))
+        wt_row = QHBoxLayout()
         self._new_wt_name_le = QLineEdit()
         self._new_wt_name_le.setPlaceholderText("fix-auth")
-        nb_layout.addWidget(self._new_wt_name_le)
+        wt_row.addWidget(self._new_wt_name_le)
+        copy_b2w = QPushButton("← copy from branch")
+        copy_b2w.setFixedWidth(150)
+        copy_b2w.clicked.connect(self._copy_new_branch_to_wt)
+        wt_row.addWidget(copy_b2w)
+        nb_layout.addLayout(wt_row)
 
         nb_layout.addWidget(QLabel("Branch name:"))
+        br_row = QHBoxLayout()
         self._new_branch_le = QLineEdit()
         self._new_branch_le.setPlaceholderText("fix/auth")
-        nb_layout.addWidget(self._new_branch_le)
+        br_row.addWidget(self._new_branch_le)
+        copy_w2b = QPushButton("← copy from worktree")
+        copy_w2b.setFixedWidth(150)
+        copy_w2b.clicked.connect(self._copy_new_wt_to_branch)
+        br_row.addWidget(copy_w2b)
+        nb_layout.addLayout(br_row)
 
         nb_layout.addWidget(QLabel("Base branch:"))
         self._new_base_combo = FilterableComboBox()
@@ -212,9 +225,15 @@ class ProjectOperationsDialog(QDialog):
         ex_layout.addWidget(self._existing_branch_combo)
 
         ex_layout.addWidget(QLabel("Worktree name:"))
+        ex_wt_row = QHBoxLayout()
         self._existing_wt_name_le = QLineEdit()
         self._existing_wt_name_le.setPlaceholderText("fix-auth")
-        ex_layout.addWidget(self._existing_wt_name_le)
+        ex_wt_row.addWidget(self._existing_wt_name_le)
+        copy_ex = QPushButton("← copy from branch")
+        copy_ex.setFixedWidth(150)
+        copy_ex.clicked.connect(self._copy_existing_branch_to_wt)
+        ex_wt_row.addWidget(copy_ex)
+        ex_layout.addLayout(ex_wt_row)
 
         layout.addWidget(self._existing_branch_frame)
         self._existing_branch_frame.setVisible(False)
@@ -225,15 +244,22 @@ class ProjectOperationsDialog(QDialog):
         self._create_wt_error.setWordWrap(True)
         layout.addWidget(self._create_wt_error)
 
+        # Progress slot (holds InlineProgress while creation is in flight)
+        self._create_wt_progress_slot = QWidget()
+        self._create_wt_progress_slot.setVisible(False)
+        self._create_wt_progress_layout = QVBoxLayout(self._create_wt_progress_slot)
+        self._create_wt_progress_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._create_wt_progress_slot)
+
         # Buttons
         btn_row = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self._cancel_create_wt)
         btn_row.addWidget(cancel)
         btn_row.addStretch(1)
-        create = QPushButton("Create + Add")
-        create.clicked.connect(self._submit_create_wt)
-        btn_row.addWidget(create)
+        self._create_wt_submit_btn = QPushButton("Create + Add")
+        self._create_wt_submit_btn.clicked.connect(self._submit_create_wt)
+        btn_row.addWidget(self._create_wt_submit_btn)
         layout.addLayout(btn_row)
 
         return frame
@@ -431,6 +457,17 @@ class ProjectOperationsDialog(QDialog):
         self._create_wt_panel.setVisible(False)
         self._create_wt_error.setText("")
 
+    def _copy_new_branch_to_wt(self):
+        self._new_wt_name_le.setText(self._new_branch_le.text().replace("/", "-"))
+
+    def _copy_new_wt_to_branch(self):
+        self._new_branch_le.setText(self._new_wt_name_le.text().replace("-", "/", 1))
+
+    def _copy_existing_branch_to_wt(self):
+        self._existing_wt_name_le.setText(
+            self._existing_branch_combo.currentText().replace("/", "-")
+        )
+
     def _submit_create_wt(self):
         self._create_wt_error.setText("")
         repo_label = self._repo_combo.currentText()
@@ -454,16 +491,47 @@ class ProjectOperationsDialog(QDialog):
             wt_path = str(Path(repo_path).parent / wt_name) if repo_path else f"/{wt_name}"
             spec = {"mode": "existing", "worktree_path": wt_path, "branch": branch}
 
-        try:
-            status = self._vm.create_worktree_for_project(repo_path, spec)
-        except Exception as e:
-            stderr = getattr(e, "stderr", None) or str(e)
-            self._create_wt_error.setText(f"Error: {stderr.strip()}")
-            return
+        self._set_create_wt_loading(True)
 
+        job = BackgroundJob(self)
+        job.finished.connect(
+            lambda status, rp=repo_path: self._on_create_wt_done(status, rp)
+        )
+        job.failed.connect(self._on_create_wt_failed)
+        job.start(self._vm.create_worktree_for_project, repo_path, spec)
+
+    def _set_create_wt_loading(self, loading: bool) -> None:
+        self._create_wt_submit_btn.setEnabled(not loading)
+        self._new_branch_frame.setEnabled(not loading)
+        self._existing_branch_frame.setEnabled(not loading)
+        if loading:
+            bar = InlineProgress()
+            bar.start_indeterminate("Creating worktree…")
+            while self._create_wt_progress_layout.count():
+                item = self._create_wt_progress_layout.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.deleteLater()
+            self._create_wt_progress_layout.addWidget(bar)
+            self._create_wt_progress_slot.setVisible(True)
+        else:
+            self._create_wt_progress_slot.setVisible(False)
+            while self._create_wt_progress_layout.count():
+                item = self._create_wt_progress_layout.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.deleteLater()
+
+    def _on_create_wt_done(self, status, repo_path: str) -> None:
+        self._set_create_wt_loading(False)
         self.trigger_add_entry(status.path)
         self._create_wt_panel.setVisible(False)
         self._refresh_worktrees(repo_path)
+
+    def _on_create_wt_failed(self, exc: Exception) -> None:
+        self._set_create_wt_loading(False)
+        stderr = getattr(exc, "stderr", None) or str(exc)
+        self._create_wt_error.setText(f"Error: {stderr.strip()}")
 
     def _on_repo_changed(self, display_name: str) -> None:
         path = self._repo_label_map.get(display_name, "")

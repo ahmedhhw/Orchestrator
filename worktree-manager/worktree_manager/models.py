@@ -22,6 +22,7 @@ class CleanupCandidate:
     has_uncommitted: bool = False
     is_checked_out: bool = False
     is_protected: bool = False
+    repo_path: str | None = None
 
 
 @dataclass

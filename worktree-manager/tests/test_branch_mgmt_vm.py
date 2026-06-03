@@ -175,22 +175,21 @@ def test_delete_all_repos_routes_each_candidate_to_its_repo():
     )
 
 
-def test_delete_all_repos_skips_candidates_not_in_map():
-    """Candidates whose branch isn't in the map (no prior load) are silently skipped."""
+def test_delete_all_repos_skips_candidates_without_repo_path():
+    """Candidates with no repo_path (e.g. never loaded) are silently skipped."""
     vm, store, git = _make_vm()
-    unknown = _candidate("unknown-branch")
+    unknown = _candidate("unknown-branch")  # repo_path defaults to None
 
     with patch("worktree_manager.branch_mgmt_vm.MainWindowViewModel") as MockVM:
         mock_repo_vm = MagicMock()
         MockVM.return_value = mock_repo_vm
-        # delete without a prior load — _candidate_repo is empty
         vm.delete_cleanup_selection(repo_path=None, candidates=[unknown])
 
     mock_repo_vm.delete_cleanup_candidates.assert_not_called()
 
 
-def test_load_single_repo_populates_candidate_repo_map():
-    """After loading a single repo, _candidate_repo maps the branch to that repo."""
+def test_load_single_repo_tags_candidate_with_repo_path():
+    """After loading a single repo, each candidate carries that repo in repo_path."""
     vm, store, git = _make_vm()
     c = _candidate("fix/thing", is_merged=True, merged_into="main")
 
@@ -199,26 +198,6 @@ def test_load_single_repo_populates_candidate_repo_map():
         m.load_worktrees.return_value = []
         m.all_cleanup_candidates.return_value = [c]
         MockVM.return_value = m
-        vm.load_cleanup_candidates(repo_path="/repo/a")
+        result = vm.load_cleanup_candidates(repo_path="/repo/a")
 
-    assert vm._candidate_repo.get("fix/thing") == "/repo/a"
-
-
-def test_load_clears_stale_candidate_repo_map_on_reload():
-    """Each load_cleanup_candidates call resets the map so stale entries don't persist."""
-    vm, store, git = _make_vm()
-    old = _candidate("old/branch")
-    new = _candidate("new/branch", is_stale=True)
-
-    with patch("worktree_manager.branch_mgmt_vm.MainWindowViewModel") as MockVM:
-        m = MagicMock()
-        m.load_worktrees.return_value = []
-        m.all_cleanup_candidates.return_value = [old]
-        MockVM.return_value = m
-        vm.load_cleanup_candidates(repo_path="/repo/a")
-
-        m.all_cleanup_candidates.return_value = [new]
-        vm.load_cleanup_candidates(repo_path="/repo/a")
-
-    assert "old/branch" not in vm._candidate_repo
-    assert vm._candidate_repo.get("new/branch") == "/repo/a"
+    assert result[0].repo_path == "/repo/a"
