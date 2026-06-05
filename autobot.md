@@ -218,8 +218,8 @@ Pick up here for Iteration 0. **Stage 6 is identical for Iteration N.**
 Ask the user:
 
 > "How should I build this iteration?
-> - **Plan first** — I write the full TDD plan (tests + production code) to the doc, you review, then implement phase by phase.
-> - **Implement on your own** — I TDD this directly, no upfront plan."
+> - **Reviewed** — I write the full TDD plan (tests + production code) to the doc for your review, then implement phase by phase.
+> - **Autonomous** — I TDD this directly without an upfront plan."
 
 Record the answer in `mode:`.
 
@@ -229,7 +229,7 @@ Before writing anything, detect the project's primary language and test framewor
 
 ---
 
-### Mode: Plan first
+### Mode: Reviewed
 
 Break the iteration into the smallest independently-testable phases. For each append:
 
@@ -239,20 +239,20 @@ Break the iteration into the smallest independently-testable phases. For each ap
 **Files touched:** Bullets — link existing; name new unlinked.
 **Tests (Red):**
 \`\`\`
-<complete, copy-pasteable test code>
+<complete test code for review>
 \`\`\`
 **Production code (Green):**
 \`\`\`
-<complete, copy-pasteable implementation>
+<complete implementation for review>
 \`\`\`
 **Done when:** Observable acceptance criteria.
 ```
 
-Show and stop — implement nothing yet.
+Show and stop — implement nothing until the user approves the plan.
 
 ---
 
-### Mode: Implement on your own
+### Mode: Autonomous
 
 Implement directly with strict TDD. Keep a ledger in the doc as evidence:
 
@@ -287,8 +287,8 @@ Gate items must be specific, observable, and complete. From Iteration 1 on, deri
 
 1. Run the full test suite once to establish a clean baseline. Surface any failures and stop until resolved.
 2. Tell the user how to proceed:
-   - *Plan first:* "Implement one phase at a time — say 'Implement Phase 0.1', etc."
-   - *Implement on your own:* "I'll TDD this directly."
+   - *Reviewed:* "Implement one phase at a time — say 'Implement Phase 0.1', etc."
+   - *Autonomous:* "I'll TDD this directly."
 3. *"When done, complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
 4. Stop and wait. Do not plan Iteration 1 until the gate is confirmed.
 
