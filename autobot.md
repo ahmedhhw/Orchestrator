@@ -166,11 +166,13 @@ If the feature has both frontend and backend, interleave them within each iterat
 
 Ask: *"Does this slice look right? You can ask me to add, remove, combine, or split iterations — or propose your own set entirely."* Wait for approval or changes before Step 2.
 
+On approval, append the final agreed titles to the autobot doc before proceeding.
+
 ---
 
 ### Step 2 — Detail each iteration (after title approval)
 
-For each iteration append:
+For each iteration append full detail followed immediately by its Manual Testing Gate:
 
 ```
 ### Iteration N — <Title>
@@ -195,6 +197,18 @@ For each iteration append:
 
 #### `path/to/other_file.py`
 ...
+
+## ✋ Manual Testing Gate — Iteration N
+
+> STOP. Do not proceed to Iteration N+1 until every item is confirmed.
+
+- [ ] <Exact action to take>
+- [ ] <Exact thing to observe>
+- [ ] <Edge / error / empty case>
+- [ ] <Regression: prior iteration behaviour still works>   # required from Iteration 1 on
+
+**Confirmed by user:** —
+**How to confirm:** Check every box, then reply "Iteration N confirmed" or describe what failed.
 ```
 
 Rules:
@@ -202,8 +216,9 @@ Rules:
 - Pseudocode is high-level. No implementation detail, no complete code.
 - Mermaid diagrams are small and focused. Many small ones, never one large one.
 - Frontend and backend files interleaved naturally — no sub-headings separating them.
+- Gate items must be specific, observable, and complete. From Iteration 1 on, derive regression items mechanically from prior gates' observable-result lines.
 
-Show all iteration details at once after title approval. Stop and ask: *"Does this plan look right? Any changes before we start Iteration 0?"*
+Show all iteration details (with gates) at once after title approval. Stop and ask: *"Does this plan look right? Any changes before we start Iteration 0?"*
 
 Set `stage: 2, iteration: 0` on approval.
 
@@ -224,8 +239,6 @@ Ask the user:
 Record the answer in `mode:`.
 
 Before writing anything, detect the project's primary language and test framework from existing source.
-
-**Always append the Manual Testing Gate before any implementation begins.**
 
 ---
 
@@ -263,24 +276,6 @@ Implement directly with strict TDD. Keep a ledger in the doc as evidence:
 
 ---
 
-### Manual Testing Gate (append for every iteration, every mode)
-
-```
-## ✋ Manual Testing Gate — Iteration N
-
-> STOP. Do not proceed to Iteration N+1 until every item is confirmed.
-
-- [ ] <Exact action to take>
-- [ ] <Exact thing to observe>
-- [ ] <Edge / error / empty case>
-- [ ] <Regression: prior iteration behaviour still works>   # required from Iteration 1 on
-
-**Confirmed by user:** —
-**How to confirm:** Check every box, then reply "Iteration N confirmed" or describe what failed.
-```
-
-Gate items must be specific, observable, and complete. From Iteration 1 on, derive regression items mechanically from prior gates' observable-result lines.
-
 ---
 
 ## Stage 4 — Hand off Iteration 0
@@ -298,7 +293,7 @@ Gate items must be specific, observable, and complete. From Iteration 1 on, deri
 
 When the user replies after a gate:
 
-- **All confirmed:** tick boxes to `[x]`, set `**Confirmed by user:** <date>`, set `gate: confirmed`. Proceed to Stage 6.
+- **All confirmed:** tick boxes to `[x]`, set `**Confirmed by user:** <date>`, set `gate: confirmed`. Then propose a concise commit message (one imperative sentence, ≤72 chars, no title/body split) and ask: *"Commit this? I'll run `git commit -m \"<message>\"` for you."* Run it only if the user says yes. Proceed to Stage 6.
 - **Any failed:** leave `gate: pending`, acknowledge, help fix, ask user to re-run and re-confirm.
 
 This gate is mandatory. If the user tries to skip it, refuse and redirect. Never treat a gate as passed without writing it to the file.
@@ -307,7 +302,7 @@ This gate is mandatory. If the user tries to skip it, refuse and redirect. Never
 
 ## Stage 6 — Build Iteration N
 
-After the previous gate is confirmed. Identical to Stage 3: ask mode, write the chosen artifact, append the Manual Testing Gate with derived regression items, show, stop, hand off. Repeat Stages 5–6 until every iteration is confirmed.
+After the previous gate is confirmed. Identical to Stage 3: ask mode, write the chosen artifact, then reference the gate already written in the plan (do not duplicate it), show, stop, hand off. Repeat Stages 5–6 until every iteration is confirmed.
 
 ---
 
@@ -316,6 +311,7 @@ After the previous gate is confirmed. Identical to Stage 3: ask mode, write the 
 When the last iteration's gate is confirmed:
 1. Run the full test suite — confirm no failures or regressions.
 2. Set `stage: 7, gate: confirmed` and declare the feature done.
+3. Propose a commit message and ask permission — same as Stage 5. Run it only if the user says yes.
 
 ---
 

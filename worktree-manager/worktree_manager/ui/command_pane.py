@@ -4,8 +4,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
     QAbstractScrollArea, QApplication, QComboBox, QHBoxLayout, QLabel,
-    QLineEdit, QMenu, QMessageBox, QPushButton, QStyle, QTextEdit, QVBoxLayout,
-    QWidget,
+    QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QStyle,
+    QTextEdit, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.ui.filterable_combo import FilterableComboBox
@@ -191,7 +191,9 @@ class CommandPane(QWidget):
     def __init__(self, parent, handle: RunHandle, on_maximize, on_stop,
                  on_restart, on_remove=None, show_popout_btn=True, on_nickname=None,
                  on_change_worktree=None, worktrees=None, on_send=None,
-                 on_unmaximize=None, confirm_fn=None):
+                 on_unmaximize=None, confirm_fn=None,
+                 on_run_with_command=None, on_save_command=None,
+                 on_revert=None, is_one_off=False):
         super().__init__(parent)
         self._handle = handle
         self._run_id = handle.run_id
@@ -208,6 +210,12 @@ class CommandPane(QWidget):
         self._on_send = on_send
         self._maximized = False
         self._confirm_fn = confirm_fn
+        self._on_run_with_command = on_run_with_command
+        self._on_save_command = on_save_command
+        self._on_revert = on_revert
+        self._is_one_off = is_one_off
+        self._edit_command: str = ""
+        self._edit_snapshot: str = ""
         self._find_matches: list[int] = []
         self._find_cursor = 0
         self._find_query_len = 0
@@ -245,8 +253,9 @@ class CommandPane(QWidget):
             self._maximize_btn = self._mk_icon_btn(
                 QStyle.SP_TitleBarMaxButton, "Maximize", self.trigger_maximize)
             header.addWidget(self._maximize_btn)
-        header.addWidget(self._mk_icon_btn(
-            QStyle.SP_BrowserReload, "Restart", self.trigger_restart))
+        self._restart_btn = self._mk_icon_btn(
+            QStyle.SP_BrowserReload, "Restart", self.trigger_restart)
+        header.addWidget(self._restart_btn)
         header.addWidget(self._mk_icon_btn(
             QStyle.SP_MediaStop, "Stop", self.trigger_stop))
         header.addWidget(self._mk_text_btn("Copy", "Copy output", self.trigger_copy))
@@ -254,6 +263,48 @@ class CommandPane(QWidget):
         header.addWidget(self._mk_icon_btn(
             QStyle.SP_TitleBarCloseButton, "Remove", self.trigger_remove))
         outer.addLayout(header)
+
+        # command display / edit bar
+        cmd_bar = QHBoxLayout()
+        cmd_bar.setContentsMargins(0, 0, 0, 0)
+        self._cmd_label = QLabel("")
+        self._cmd_label.setStyleSheet("color: gray; font-family: monospace;")
+        cmd_bar.addWidget(self._cmd_label, 1)
+        self._revert_note = QLabel("Command reverted — hit restart to run reverted command")
+        self._revert_note.setStyleSheet("color: orange; font-style: italic;")
+        self._revert_note.setVisible(False)
+        cmd_bar.addWidget(self._revert_note)
+        self._btn_edit = QPushButton("Edit ✎")
+        self._btn_edit.setToolTip("Edit command")
+        self._btn_edit.clicked.connect(lambda _checked=False: self.enter_edit_mode())
+        cmd_bar.addWidget(self._btn_edit)
+        outer.addLayout(cmd_bar)
+
+        self._cmd_edit = QPlainTextEdit()
+        self._cmd_edit.setVisible(False)
+        font = self._cmd_edit.font()
+        font.setStyleHint(QFont.Monospace)
+        self._cmd_edit.setFont(font)
+        self._cmd_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._cmd_edit.document().contentsChanged.connect(self._on_cmd_edit_changed)
+        outer.addWidget(self._cmd_edit)
+
+        edit_actions = QHBoxLayout()
+        edit_actions.setContentsMargins(0, 0, 0, 0)
+        edit_actions.addStretch(1)
+        self._btn_run = QPushButton("Run ▶")
+        self._btn_run.setVisible(False)
+        self._btn_run.clicked.connect(lambda _checked=False: self._on_run_clicked())
+        edit_actions.addWidget(self._btn_run)
+        self._btn_save = QPushButton("Save")
+        self._btn_save.setVisible(False)
+        self._btn_save.clicked.connect(lambda _checked=False: self._on_save_clicked())
+        edit_actions.addWidget(self._btn_save)
+        self._btn_revert = QPushButton("Revert")
+        self._btn_revert.setVisible(False)
+        self._btn_revert.clicked.connect(lambda _checked=False: self._on_revert_clicked())
+        edit_actions.addWidget(self._btn_revert)
+        outer.addLayout(edit_actions)
 
         self._find_bar = QWidget()
         find_layout = QHBoxLayout(self._find_bar)
@@ -349,6 +400,58 @@ class CommandPane(QWidget):
         if new_path and new_path != self._handle.worktree_path:
             self._on_change_worktree(new_path)
 
+    # --- command edit bar ---
+
+    def set_edit_command(self, text: str) -> None:
+        self._edit_command = text
+        self._cmd_label.setText(text)
+
+    def enter_edit_mode(self) -> None:
+        self._revert_note.setVisible(False)
+        self._edit_snapshot = self._edit_command
+        self._cmd_edit.setPlainText(self._edit_snapshot)
+        self._cmd_label.setVisible(False)
+        self._btn_edit.setVisible(False)
+        self._cmd_edit.setVisible(True)
+        self._btn_run.setVisible(True)
+        self._btn_revert.setVisible(True)
+        if not self._is_one_off:
+            self._btn_save.setVisible(True)
+        self._restart_btn.setEnabled(False)
+        self._on_cmd_edit_changed()
+
+    def exit_edit_mode(self) -> None:
+        self._cmd_edit.setVisible(False)
+        self._btn_run.setVisible(False)
+        self._btn_save.setVisible(False)
+        self._btn_revert.setVisible(False)
+        self._cmd_label.setVisible(True)
+        self._btn_edit.setVisible(True)
+        self._restart_btn.setEnabled(True)
+
+    def _on_cmd_edit_changed(self) -> None:
+        metrics = self._cmd_edit.fontMetrics()
+        line_height = metrics.lineSpacing()
+        lines = min(self._cmd_edit.document().lineCount(), 5)
+        margins = self._cmd_edit.contentsMargins()
+        extra = margins.top() + margins.bottom() + 4
+        self._cmd_edit.setFixedHeight(lines * line_height + extra)
+
+    def _on_revert_clicked(self) -> None:
+        self.set_edit_command(self._edit_snapshot)
+        if self._on_revert:
+            self._on_revert(self._edit_snapshot)
+        self.exit_edit_mode()
+        self._revert_note.setVisible(True)
+
+    def _on_run_clicked(self) -> None:
+        if self._on_run_with_command:
+            self._on_run_with_command(self._cmd_edit.toPlainText())
+
+    def _on_save_clicked(self) -> None:
+        if self._on_save_command:
+            self._on_save_command(self._cmd_edit.toPlainText())
+
     # --- public API ---
 
     def header_text(self) -> str:
@@ -382,11 +485,19 @@ class CommandPane(QWidget):
     def update_run_id(self, run_id: str) -> None:
         self._run_id = run_id
 
-    def update_callbacks(self, on_stop, on_restart, on_remove=None) -> None:
+    def update_callbacks(self, on_stop, on_restart, on_remove=None,
+                         on_run_with_command=None, on_save_command=None,
+                         on_revert=None) -> None:
         self._on_stop = on_stop
         self._on_restart = on_restart
         if on_remove is not None:
             self._on_remove = on_remove
+        if on_run_with_command is not None:
+            self._on_run_with_command = on_run_with_command
+        if on_save_command is not None:
+            self._on_save_command = on_save_command
+        if on_revert is not None:
+            self._on_revert = on_revert
 
     def _confirm(self, message: str) -> bool:
         if self._confirm_fn is not None:
@@ -407,6 +518,7 @@ class CommandPane(QWidget):
         self._on_stop()
 
     def trigger_restart(self) -> None:
+        self._revert_note.setVisible(False)
         self._on_restart()
 
     def trigger_maximize(self) -> None:

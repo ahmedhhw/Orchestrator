@@ -5,6 +5,10 @@ from worktree_manager.models import SavedCommand
 from worktree_manager.git_service import GitService
 
 
+def _norm_path(p: str) -> str:
+    return str(Path(p).resolve())
+
+
 class DuplicateRunError(Exception):
     """Raised when the same command is already running for the same repo+worktree."""
     def __init__(self, run_id: str):
@@ -65,7 +69,7 @@ class CommandCenterViewModel:
                 handle.status == RunStatus.RUNNING
                 and handle.cmd_name == cmd_name
                 and handle.repo_path == repo_path
-                and handle.worktree_path == worktree_path
+                and _norm_path(handle.worktree_path) == _norm_path(worktree_path)
             ):
                 raise DuplicateRunError(handle.run_id)
 
@@ -128,7 +132,7 @@ class CommandCenterViewModel:
             if (
                 handle.cmd_name == cmd_name
                 and handle.repo_path == repo_path
-                and handle.worktree_path == worktree_path
+                and _norm_path(handle.worktree_path) == _norm_path(worktree_path)
             ):
                 return handle
         return None

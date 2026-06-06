@@ -111,6 +111,8 @@ class CommandCenterPanel(QWidget):
             worktrees = self._vm.list_worktrees(handle.repo_path)
         except Exception:
             worktrees = []
+        run_id = handle.run_id
+        meta = self._vm._run_meta.get(run_id, {})
         pane = CommandPane(
             parent=self._scroll_container, handle=handle,
             on_maximize=lambda p: self.maximize_pane(p._run_id),
@@ -122,7 +124,15 @@ class CommandCenterPanel(QWidget):
             on_change_worktree=lambda new_path, h=handle: self._change_worktree(h, new_path),
             worktrees=worktrees,
             on_send=lambda text, rid=handle.run_id: self._vm._runner.send_input(rid, text),
+            on_run_with_command=lambda text, rid=run_id: self._do_run_with_command(rid, text),
+            on_save_command=lambda text, rid=run_id: self._do_save_command(rid, text),
+            on_revert=lambda text, rid=run_id: self._do_revert_command(rid, text),
+            is_one_off=handle.cmd_name == "[one-off]",
         )
+        cmd_str = meta.get("command_str") or handle.command or ""
+        if not isinstance(cmd_str, str):
+            cmd_str = " ".join(cmd_str)
+        pane.set_edit_command(cmd_str)
         self._panes[handle.run_id] = pane
         self._pane_shown[handle.run_id] = True
         for line in handle.output_lines:
@@ -159,6 +169,9 @@ class CommandCenterPanel(QWidget):
                 on_stop=lambda: self._vm.stop(new_id),
                 on_restart=lambda: self._do_restart(new_id),
                 on_remove=lambda: self.remove_pane(new_id),
+                on_run_with_command=lambda text, rid=new_id: self._do_run_with_command(rid, text),
+                on_save_command=lambda text, rid=new_id: self._do_save_command(rid, text),
+                on_revert=lambda text, rid=new_id: self._do_revert_command(rid, text),
             )
             new_handle = self._vm.get_run(new_id)
             if new_handle:
@@ -193,6 +206,26 @@ class CommandCenterPanel(QWidget):
             popout.clear_output()
             popout.set_status(RunStatus.RUNNING)
         self._vm.restart(run_id)
+
+    def _do_run_with_command(self, run_id: str, new_text: str) -> None:
+        self._vm._run_meta[run_id]["command_str"] = new_text
+        pane = self._panes.get(run_id)
+        if pane:
+            pane.set_edit_command(new_text)
+        self._do_restart(run_id)
+
+    def _do_revert_command(self, run_id: str, original_text: str) -> None:
+        self._vm._run_meta[run_id]["command_str"] = original_text
+
+    def _do_save_command(self, run_id: str, new_text: str) -> None:
+        meta = self._vm._run_meta[run_id]
+        self._vm.save_command(
+            meta["repo_path"], meta["cmd_name"], new_text, meta.get("startup_pattern")
+        )
+        pane = self._panes.get(run_id)
+        if pane:
+            pane.set_edit_command(new_text)
+            pane.exit_edit_mode()
 
     def route_output(self, run_id: str, line: str) -> None:
         pane = self._panes.get(run_id)

@@ -303,3 +303,49 @@ def test_remove_run_removes_meta(vm, tmp_path):
     )
     vm.remove_run(run_id)
     assert run_id not in vm._run_meta
+
+
+# --- path normalisation tests ---
+
+def test_find_existing_run_matches_with_trailing_slash(vm, tmp_path):
+    vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    # lookup with trailing slash should still find the run
+    found = vm.find_existing_run("sleep", "/repos/proj", str(tmp_path) + "/")
+    assert found is not None
+
+
+def test_find_existing_run_matches_stored_trailing_slash(vm, tmp_path):
+    vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path) + "/",
+    )
+    # stored path had trailing slash; lookup without should still match
+    found = vm.find_existing_run("sleep", "/repos/proj", str(tmp_path))
+    assert found is not None
+
+
+def test_duplicate_launch_raises_when_running_trailing_slash(vm, tmp_path):
+    vm.launch(
+        repo_path="/repos/proj",
+        repo_name="proj",
+        cmd_name="sleep",
+        command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+        worktree_path=str(tmp_path),
+    )
+    with pytest.raises(DuplicateRunError):
+        vm.launch(
+            repo_path="/repos/proj",
+            repo_name="proj",
+            cmd_name="sleep",
+            command_str=f"{sys.executable} -c \"import time; time.sleep(60)\"",
+            worktree_path=str(tmp_path) + "/",
+        )

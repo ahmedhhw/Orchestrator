@@ -390,3 +390,191 @@ def test_output_area_has_no_horizontal_scrollbar(qtbot):
     p = _pane(qtbot)
     text_edit = p.findChildren(QTextEdit)[0]
     assert text_edit.horizontalScrollBarPolicy() == _Qt.ScrollBarAlwaysOff
+
+
+# ── command edit bar ──────────────────────────────────────────────────────────
+
+def _pane_with_cmd(qtbot, cmd="npm run dev", is_one_off=False,
+                   on_run_with_command=None, on_save_command=None,
+                   on_restart=None):
+    p = CommandPane(
+        parent=None, handle=_handle(),
+        on_maximize=lambda x: None, on_stop=lambda: None,
+        on_restart=on_restart or (lambda: None), on_remove=lambda: None,
+        confirm_fn=lambda msg: True,
+        on_run_with_command=on_run_with_command,
+        on_save_command=on_save_command,
+        is_one_off=is_one_off,
+    )
+    p.set_edit_command(cmd)
+    qtbot.addWidget(p)
+    return p
+
+
+def test_command_bar_shows_command_text_in_view_mode(qtbot):
+    p = _pane_with_cmd(qtbot, cmd="npm run dev")
+    assert p._cmd_label.text() == "npm run dev"
+    assert not p._cmd_label.isHidden()
+
+
+def test_edit_button_visible_in_view_mode(qtbot):
+    p = _pane_with_cmd(qtbot)
+    assert not p._btn_edit.isHidden()
+
+
+def test_edit_mode_widgets_hidden_in_view_mode(qtbot):
+    p = _pane_with_cmd(qtbot)
+    assert p._cmd_edit.isHidden()
+    assert p._btn_run.isHidden()
+    assert p._btn_revert.isHidden()
+
+
+def test_enter_edit_mode_shows_edit_widgets_hides_label(qtbot):
+    p = _pane_with_cmd(qtbot, cmd="npm run dev")
+    p.enter_edit_mode()
+    assert not p._cmd_edit.isHidden()
+    assert not p._btn_run.isHidden()
+    assert not p._btn_revert.isHidden()
+    assert p._cmd_label.isHidden()
+    assert p._btn_edit.isHidden()
+
+
+def test_enter_edit_mode_populates_edit_with_current_command(qtbot):
+    p = _pane_with_cmd(qtbot, cmd="npm run dev")
+    p.enter_edit_mode()
+    assert p._cmd_edit.toPlainText() == "npm run dev"
+
+
+def test_enter_edit_mode_disables_restart_button(qtbot):
+    p = _pane_with_cmd(qtbot)
+    restart_btn = next(b for b in p.findChildren(QPushButton) if b.toolTip() == "Restart")
+    p.enter_edit_mode()
+    assert not restart_btn.isEnabled()
+
+
+def test_exit_edit_mode_restores_view_mode(qtbot):
+    p = _pane_with_cmd(qtbot)
+    p.enter_edit_mode()
+    p.exit_edit_mode()
+    assert not p._cmd_label.isHidden()
+    assert not p._btn_edit.isHidden()
+    assert p._cmd_edit.isHidden()
+    assert p._btn_run.isHidden()
+    assert p._btn_revert.isHidden()
+
+
+def test_exit_edit_mode_reenables_restart_button(qtbot):
+    p = _pane_with_cmd(qtbot)
+    restart_btn = next(b for b in p.findChildren(QPushButton) if b.toolTip() == "Restart")
+    p.enter_edit_mode()
+    p.exit_edit_mode()
+    assert restart_btn.isEnabled()
+
+
+def test_revert_restores_original_text_and_exits_edit_mode(qtbot):
+    p = _pane_with_cmd(qtbot, cmd="npm run dev")
+    p.enter_edit_mode()
+    p._cmd_edit.setPlainText("something else")
+    p._btn_revert.click()
+    assert p._cmd_edit.isHidden()
+    assert p._cmd_label.text() == "npm run dev"
+
+
+def test_save_hidden_for_one_off_command(qtbot):
+    p = _pane_with_cmd(qtbot, is_one_off=True)
+    p.enter_edit_mode()
+    assert p._btn_save.isHidden()
+
+
+def test_save_visible_for_saved_command(qtbot):
+    p = _pane_with_cmd(qtbot, is_one_off=False)
+    p.enter_edit_mode()
+    assert not p._btn_save.isHidden()
+
+
+def test_run_button_calls_on_run_with_command_and_stays_in_edit_mode(qtbot):
+    called = []
+    p = _pane_with_cmd(qtbot, cmd="npm run dev",
+                        on_run_with_command=lambda t: called.append(t))
+    p.enter_edit_mode()
+    p._cmd_edit.setPlainText("npm run build")
+    p._btn_run.click()
+    assert called == ["npm run build"]
+    assert not p._cmd_edit.isHidden()
+
+
+def test_save_button_calls_on_save_command(qtbot):
+    called = []
+    p = _pane_with_cmd(qtbot, cmd="npm run dev",
+                        on_save_command=lambda t: called.append(t))
+    p.enter_edit_mode()
+    p._cmd_edit.setPlainText("npm run build")
+    p._btn_save.click()
+    assert called == ["npm run build"]
+
+
+def test_revert_after_run_restores_snapshot_from_edit_entry(qtbot):
+    # enter edit, type new text, simulate Run ▶ (panel calls set_edit_command),
+    # then Revert — should restore the text from when Edit ✎ was first clicked
+    p = _pane_with_cmd(qtbot, cmd="npm run dev")
+    p.enter_edit_mode()
+    p._cmd_edit.setPlainText("npm run build")
+    # simulate what the panel does after _do_run_with_command (updates label only)
+    p.set_edit_command("npm run build")
+    # Revert — should restore "npm run dev" (the snapshot from edit entry)
+    p._btn_revert.click()
+    assert p._cmd_label.text() == "npm run dev"
+
+
+def test_auto_height_grows_with_line_count(qtbot):
+    p = _pane_with_cmd(qtbot)
+    p.enter_edit_mode()
+    h1 = p._cmd_edit.height()
+    p._cmd_edit.setPlainText("line1\nline2\nline3")
+    h3 = p._cmd_edit.height()
+    assert h3 > h1
+
+
+def test_auto_height_capped_at_five_lines(qtbot):
+    p = _pane_with_cmd(qtbot)
+    p.enter_edit_mode()
+    five_lines = "\n".join(f"line{i}" for i in range(5))
+    six_lines = five_lines + "\nline6"
+    p._cmd_edit.setPlainText(five_lines)
+    h5 = p._cmd_edit.height()
+    p._cmd_edit.setPlainText(six_lines)
+    h6 = p._cmd_edit.height()
+    assert h5 == h6
+
+
+# ── revert pending note ───────────────────────────────────────────────────────
+
+def test_revert_note_hidden_by_default(qtbot):
+    p = _pane_with_cmd(qtbot)
+    assert p._revert_note.isHidden()
+
+
+def test_revert_note_shown_after_revert(qtbot):
+    p = _pane_with_cmd(qtbot, cmd="npm run dev")
+    p.enter_edit_mode()
+    p._btn_revert.click()
+    assert not p._revert_note.isHidden()
+
+
+def test_revert_note_hidden_after_restart(qtbot):
+    calls = []
+    p = _pane_with_cmd(qtbot, cmd="npm run dev",
+                        on_restart=lambda: calls.append("restart"))
+    p.enter_edit_mode()
+    p._btn_revert.click()
+    assert not p._revert_note.isHidden()
+    p.trigger_restart()
+    assert p._revert_note.isHidden()
+
+
+def test_revert_note_hidden_again_after_new_edit_entry(qtbot):
+    p = _pane_with_cmd(qtbot, cmd="npm run dev")
+    p.enter_edit_mode()
+    p._btn_revert.click()
+    p.enter_edit_mode()
+    assert p._revert_note.isHidden()

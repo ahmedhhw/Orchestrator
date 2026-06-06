@@ -23,6 +23,7 @@ def _vm(runs=None):
     vm.get_run.side_effect = lambda rid: next(
         (h for h in (runs or []) if h.run_id == rid), None,
     )
+    vm._run_meta = {}
     return vm
 
 
@@ -219,3 +220,81 @@ def test_no_popout_button_in_pane_added_by_panel(qtbot):
     p.add_pane(_handle(run_id="r1"))
     pane = p.get_pane("r1")
     assert not any(b.toolTip() == "Pop out" for b in pane.findChildren(QPushButton))
+
+
+# ── command edit bar — panel wiring ──────────────────────────────────────────
+
+def _vm_with_meta(run_id="r1", cmd_name="build", repo_path="/r/proj",
+                  command_str="npm run dev", startup_pattern=None):
+    vm = _vm()
+    vm._run_meta = {
+        run_id: {
+            "repo_path": repo_path,
+            "repo_name": "proj",
+            "cmd_name": cmd_name,
+            "command_str": command_str,
+            "worktree_path": "/r/proj",
+            "startup_pattern": startup_pattern,
+        }
+    }
+    vm._runner.get_handle.return_value = _handle(run_id=run_id, cmd_name=cmd_name)
+    return vm
+
+
+def test_add_pane_sets_initial_command_text_on_pane(qtbot):
+    vm = _vm_with_meta(command_str="npm run dev")
+    p = _panel(qtbot, vm=vm)
+    p.add_pane(_handle())
+    pane = p.get_pane("r1")
+    assert pane._cmd_label.text() == "npm run dev"
+
+
+def test_add_pane_marks_one_off_pane_correctly(qtbot):
+    vm = _vm_with_meta(cmd_name="[one-off]")
+    p = _panel(qtbot, vm=vm)
+    h = _handle(cmd_name="[one-off]")
+    p.add_pane(h)
+    pane = p.get_pane("r1")
+    assert pane._is_one_off is True
+
+
+def test_do_run_with_command_updates_meta_and_calls_restart(qtbot):
+    vm = _vm_with_meta(command_str="npm run dev")
+    p = _panel(qtbot, vm=vm)
+    p.add_pane(_handle())
+    p._do_run_with_command("r1", "npm run build")
+    assert vm._run_meta["r1"]["command_str"] == "npm run build"
+    vm.restart.assert_called_once_with("r1")
+
+
+def test_do_save_command_calls_vm_save_command(qtbot):
+    vm = _vm_with_meta(command_str="npm run dev", startup_pattern=None)
+    p = _panel(qtbot, vm=vm)
+    p.add_pane(_handle())
+    p._do_save_command("r1", "npm run build")
+    vm.save_command.assert_called_once_with("/r/proj", "build", "npm run build", None)
+
+
+def test_do_save_command_updates_pane_label_and_exits_edit_mode(qtbot):
+    vm = _vm_with_meta(command_str="npm run dev")
+    p = _panel(qtbot, vm=vm)
+    p.add_pane(_handle())
+    pane = p.get_pane("r1")
+    pane.enter_edit_mode()
+    p._do_save_command("r1", "npm run build")
+    assert pane._cmd_label.text() == "npm run build"
+    assert pane._cmd_edit.isHidden()
+
+
+def test_revert_resets_run_meta_command_str_to_snapshot(qtbot):
+    # After Run ▶ mutates _run_meta, clicking Revert must roll it back
+    # so the next ↺ restart uses the original command, not the edited one.
+    vm = _vm_with_meta(command_str="npm run dev")
+    p = _panel(qtbot, vm=vm)
+    p.add_pane(_handle())
+    pane = p.get_pane("r1")
+    pane.enter_edit_mode()
+    p._do_run_with_command("r1", "npm run build")
+    # _run_meta now has "npm run build"; pane is still in edit mode
+    pane._btn_revert.click()
+    assert vm._run_meta["r1"]["command_str"] == "npm run dev"
