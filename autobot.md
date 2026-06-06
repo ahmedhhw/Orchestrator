@@ -183,8 +183,12 @@ For each iteration append full detail followed immediately by its Manual Testing
 ...
 
 **Files:**
-- `path/to/file.py` (new | existing)
-...
+- `repo-name/` (omit if single-repo)
+  - `path/to/file.py` (new | existing)
+  - ...
+- `other-repo/` (omit if single-repo)
+  - `path/to/file.py` (new | existing)
+  - ...
 
 ---
 
@@ -215,7 +219,7 @@ Rules:
 - Tests section comes first — it tells the user what this iteration proves before showing how.
 - Pseudocode is high-level. No implementation detail, no complete code.
 - Mermaid diagrams are small and focused. Many small ones, never one large one.
-- Frontend and backend files interleaved naturally — no sub-headings separating them.
+- In single-repo features, frontend and backend files are interleaved naturally with no sub-headings. In multi-repo features, group files under their repo name — but still interleave front/back within each repo group.
 - Gate items must be specific, observable, and complete. From Iteration 1 on, derive regression items mechanically from prior gates' observable-result lines.
 
 Show all iteration details (with gates) at once after title approval. Stop and ask: *"Does this plan look right? Any changes before we start Iteration 0?"*
