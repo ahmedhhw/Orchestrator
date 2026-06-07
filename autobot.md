@@ -18,7 +18,7 @@ If no argument is given, ask for a feature description or ADO work item URL/ID b
 
 ## Conventions (apply everywhere)
 
-- **Link existing repo references.** Any time you name an existing file, function, class, or method — in prose, scope bullets, or file lists — link it with markdown relative to the autobot document's own location. New files: name their intended path, do not link.
+- **ALWAYS LINK EXISTING REPO REFERENCES — NO EXCEPTIONS.** Any time you name an existing file, function, class, or method — in prose, scope bullets, or file lists — you MUST link it with markdown relative to the autobot document's own location. Example: instead of `TodoViewModel.swift`, write `[TodoViewModel.swift](../TimeControl/ViewModels/TodoViewModel.swift)`. New files that do not yet exist: name their intended path only, do not link. **Before outputting any section, scan it and verify every existing reference is linked.**
 - **Strict TDD.** Never write production code before a failing test exists for it.
 - **Test names describe behaviour.** Plain readable English — no `phase`, `iter`, `iteration`, or numbers from the plan in test or file names.
 - **No silent exceptions.** Never `except X: pass`. Surface errors to the user or logs.
@@ -107,6 +107,8 @@ Write to the autobot doc:
 ...
 ```
 
+Before writing to the doc, scan every file/function/class reference in the section and confirm each existing one is linked.
+
 Stop and ask: *"Does this look right? Any screens missing or wrong before we design the backend?"*
 
 Do not proceed to Stage 1b until the user approves. Set `stage: 1` (part 2 pending) on approval.
@@ -137,6 +139,8 @@ Write to the autobot doc:
 
 1. Verify every param against official docs — fetch and cite, never rely on memory.
 2. Run minimal probes against the real API confirming each call behaves as the design assumes. Surface results.
+
+Before writing to the doc, scan every file/function/class reference in the section and confirm each existing one is linked.
 
 Stop and ask: *"Does this logic look right before we plan iterations?"*
 
@@ -222,6 +226,8 @@ Rules:
 - In single-repo features, frontend and backend files are interleaved naturally with no sub-headings. In multi-repo features, group files under their repo name — but still interleave front/back within each repo group.
 - Gate items must be specific, observable, and complete. From Iteration 1 on, derive regression items mechanically from prior gates' observable-result lines.
 
+Before writing to the doc, scan every file/function/class reference in the iteration details and confirm each existing one is linked.
+
 Show all iteration details (with gates) at once after title approval. Stop and ask: *"Does this plan look right? Any changes before we start Iteration 0?"*
 
 Set `stage: 2, iteration: 0` on approval.
@@ -264,6 +270,8 @@ Break the iteration into the smallest independently-testable phases. For each ap
 \`\`\`
 **Done when:** Observable acceptance criteria.
 ```
+
+Before writing the phase plan to the doc, scan every file/function/class reference and confirm each existing one is linked.
 
 Show and stop — implement nothing until the user approves the plan.
 
