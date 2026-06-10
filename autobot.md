@@ -4,6 +4,8 @@ Given a feature description, autobot guides frontend design → backend design �
 
 When invoked, announce **"I am using autobot."** before anything else.
 
+Immediately after the announcement, recommend the user run on **Opus High** for the design and planning stages (it is the strongest agent for this work) and wait for them to confirm before proceeding. Later, at the implementation boundary (Stage 4 / first phase implementation), prompt the user to switch to **Sonnet** to use tokens efficiently and wait for confirmation — see [Model policy](#model-policy).
+
 ## How to invoke
 
 ```
@@ -25,6 +27,25 @@ If no argument is given, ask for a feature description or ADO work item URL/ID b
 - **Stored-data guardrail.** If a change writes to persisted data (config files, DBs, caches, on-disk formats), show a before→after diff and get acknowledgement before applying.
 - **Sign-off required.** Never advance a stage without explicit user approval.
 - **Small mermaid diagrams only.** Each diagram covers one concept, 3–5 nodes max. Use many small diagrams rather than one large one. Only use mermaid when it adds something pseudocode cannot.
+- **Reviewed plans live in their own files.** Never write a Reviewed-mode TDD plan inline in the main autobot document. Write each plan to its own file (see [Reviewed mode](#mode-reviewed)) and link to it from the iteration. This keeps the main doc navigable and the context lean.
+
+---
+
+## Model policy
+
+- **Design & planning (Stages 1–2):** Opus High. Recommend it at invocation and wait for confirmation.
+- **Implementation (Stages 3–4 onward, once files are actually being modified):** prompt the user to switch to **Sonnet** for token efficiency, and wait for their confirmation before continuing. Do this once, at the first real implementation step (when leaving planning to touch production/test files) — not at every phase.
+- If the user declines a switch, respect it and continue.
+
+---
+
+## Keeping context lean
+
+Long autobot runs accumulate context. Apply these throughout:
+
+- **Reviewed plans in separate files** — see the Conventions rule on plan files.
+- **Switch to Sonnet for implementation** (see Model policy).
+- **Read narrowly.** When you only need one function, read its line range — not the whole file. Prefer search over speculative full-file reads.
 
 ---
 
@@ -254,7 +275,14 @@ Before writing anything, detect the project's primary language and test framewor
 
 ### Mode: Reviewed
 
-Break the iteration into the smallest independently-testable phases. For each append:
+Write the plan to **its own file**, not the main autobot doc. Name it next to the autobot document, e.g. `autobot-<feature>-plan-iter-N.md`. Then add a link to it under the iteration in the main doc:
+
+```
+### Iteration N — <Title>
+**Reviewed plan:** [Iteration N plan](autobot-<feature>-plan-iter-N.md)
+```
+
+Break the iteration into the smallest independently-testable phases. In the **plan file**, for each phase append:
 
 ```
 ### Phase N.M — <Name>
@@ -271,9 +299,9 @@ Break the iteration into the smallest independently-testable phases. For each ap
 **Done when:** Observable acceptance criteria.
 ```
 
-Before writing the phase plan to the doc, scan every file/function/class reference and confirm each existing one is linked.
+Before writing the phase plan to the file, scan every file/function/class reference and confirm each existing one is linked (relative to the plan file's location).
 
-Show and stop — implement nothing until the user approves the plan.
+Show and stop — implement nothing until the user approves the plan. Once approved and the user is ready to implement, apply the [Model policy](#model-policy): prompt to switch to Sonnet before touching files.
 
 ---
 
@@ -293,11 +321,12 @@ Implement directly with strict TDD. Keep a ledger in the doc as evidence:
 ## Stage 4 — Hand off Iteration 0
 
 1. Run the full test suite once to establish a clean baseline. Surface any failures and stop until resolved.
-2. Tell the user how to proceed:
-   - *Reviewed:* "Implement one phase at a time — say 'Implement Phase 0.1', etc."
+2. Apply the [Model policy](#model-policy): this is the implementation boundary — prompt the user to switch to Sonnet for token efficiency and wait for confirmation (once per run).
+3. Tell the user how to proceed:
+   - *Reviewed:* "Implement one phase at a time — say 'Implement Phase 0.1', etc." (phases are in the linked plan file).
    - *Autonomous:* "I'll TDD this directly."
-3. *"When done, complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
-4. Stop and wait. Do not plan Iteration 1 until the gate is confirmed.
+4. *"When done, complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
+5. Stop and wait. Do not plan Iteration 1 until the gate is confirmed.
 
 ---
 
