@@ -9,7 +9,7 @@ log = logging.getLogger(__name__)
 _pkg_root = str(Path(__file__).resolve().parent.parent)
 if _pkg_root not in sys.path:
     sys.path.insert(0,_pkg_root)
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QHBoxLayout, QMainWindow, QMessageBox,
     QWidget,
@@ -1026,6 +1026,11 @@ class App(QMainWindow):
         self.show_toast(f"✅ Project \"{name}\" {action}")
 
 
+def force_light_mode(app):
+    """Force the QApplication to render in light mode regardless of OS setting."""
+    app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+
+
 def main():
     logging.basicConfig(
         level=logging.DEBUG,
@@ -1036,6 +1041,7 @@ def main():
     repo_path = resolve_repo_path(args.repo_path, git)
 
     qt_app = QApplication.instance() or QApplication(sys.argv)
+    force_light_mode(qt_app)
     window = App(repo_path=repo_path)
     window.show()
     sys.exit(qt_app.exec())
