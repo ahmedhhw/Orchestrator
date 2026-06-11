@@ -1,9 +1,12 @@
+import logging
+
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout,
     QWidget,
 )
 
+from worktree_manager.command_center_vm import DuplicateRunError
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.ui.command_pane import CommandPane
 from worktree_manager.ui.launch_dialog import LaunchDialog
@@ -27,6 +30,7 @@ class CommandCenterPanel(QWidget):
         self._pane_shown: dict[str, bool] = {}
         self._popouts: dict[str, object] = {}
         self._maximized_id: str | None = None
+        self._switching: set[str] = set()
 
         self._bridge = _VMBridge()
         self._bridge.run_added.connect(self.add_pane)
@@ -183,9 +187,11 @@ class CommandCenterPanel(QWidget):
 
     def _change_worktree(self, handle: RunHandle, new_worktree_path: str) -> None:
         run_id = handle.run_id
-        meta = self._vm._runner._handles.get(run_id)
-        self.remove_pane(run_id)
+        if run_id in self._switching:
+            return
+        self._switching.add(run_id)
         try:
+            self.remove_pane(run_id)
             self._vm.launch(
                 repo_path=handle.repo_path,
                 repo_name=handle.repo_name,
@@ -193,8 +199,12 @@ class CommandCenterPanel(QWidget):
                 command_str=handle.command,
                 worktree_path=new_worktree_path,
             )
-        except Exception:
-            pass
+        except DuplicateRunError:
+            logging.warning(
+                "worktree switch: run already exists for %s", new_worktree_path
+            )
+        finally:
+            self._switching.discard(run_id)
 
     def _do_restart(self, run_id: str) -> None:
         pane = self._panes.get(run_id)

@@ -15,6 +15,7 @@ class FilterableComboBox(QComboBox):
         super().__init__(parent)
         self._committed_index = 0
         self._in_edit = False
+        self._index_before_edit = 0
 
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)
@@ -32,14 +33,22 @@ class FilterableComboBox(QComboBox):
     def _on_text_edited(self, _text):
         if not self._in_edit:
             self._in_edit = True
+            self._index_before_edit = self.currentIndex()
             self.blockSignals(True)
 
     def _commit_from_completer(self, text):
         idx = self.findText(text, Qt.MatchExactly)
+        before = self._index_before_edit
         self._end_edit()
         if idx >= 0:
             self._committed_index = idx
-            if self.currentIndex() != idx:
+            if self.currentIndex() == idx:
+                # Index already moved to the target while signals were blocked, so
+                # the change signal was lost; re-emit it once — but only if this is
+                # a real change from where the edit started.
+                if idx != before:
+                    self.currentIndexChanged.emit(idx)
+            else:
                 self.setCurrentIndex(idx)
 
     def _on_editing_finished(self):
