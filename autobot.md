@@ -28,6 +28,7 @@ If no argument is given, ask for a feature description or ADO work item URL/ID b
 - **Sign-off required.** Never advance a stage without explicit user approval.
 - **Small mermaid diagrams only.** Each diagram covers one concept, 3–5 nodes max. Use many small diagrams rather than one large one. Only use mermaid when it adds something pseudocode cannot.
 - **Reviewed plans live in their own files.** Never write a Reviewed-mode TDD plan inline in the main autobot document. Write each plan to its own file (see [Reviewed mode](#mode-reviewed)) and link to it from the iteration. This keeps the main doc navigable and the context lean.
+- **Iteration context files are always generated.** Before handing off any iteration to an implementer agent (both Reviewed and Autonomous modes), write a lean `autobot-<feature>-ctx-iter-N.md` file. See [Iteration context files](#iteration-context-files). These are deleted at Stage 7.
 
 ---
 
@@ -44,8 +45,52 @@ If no argument is given, ask for a feature description or ADO work item URL/ID b
 Long autobot runs accumulate context. Apply these throughout:
 
 - **Reviewed plans in separate files** — see the Conventions rule on plan files.
+- **Iteration context files** — implementer agents read the lean context file for the current iteration instead of the full autobot doc. See [Iteration context files](#iteration-context-files).
 - **Switch to Sonnet for implementation** (see Model policy).
 - **Read narrowly.** When you only need one function, read its line range — not the whole file. Prefer search over speculative full-file reads.
+
+---
+
+## Iteration context files
+
+Before handing off any iteration to an implementer agent, write a lean file named `autobot-<feature>-ctx-iter-N.md` next to the autobot document. This file is the **only context** the implementer needs — it must be self-contained.
+
+Template:
+
+```markdown
+# Context: Iteration N — <Title>
+
+## Goal
+<1–3 sentences: what this iteration builds and why it matters to the feature>
+
+## Tests to write
+- <plain-English test name>: <one-line description of what it proves>
+- ...
+
+## Files to touch
+- [existing-file.swift](../relative/path/to/file.swift) — <what changes here, one line>
+- `NewFile.swift` (new) — <what goes in here, one line>
+
+## Relevant existing code
+<Only the function signatures / type definitions this iteration actually calls or modifies. Paste snippets — do not ask the implementer to go hunt for them.>
+
+## Constraints / invariants
+<Any non-obvious rules from the backend design or prior iterations that apply here.>
+
+## Done when (gate items)
+- [ ] <exact gate item from the Manual Testing Gate for this iteration>
+- [ ] ...
+
+## TDD mode: <Reviewed | Autonomous>
+<Reviewed: "Implement phase by phase — Phase N.1, N.2, … See [plan file](autobot-<feature>-plan-iter-N.md)."
+Autonomous: "TDD directly. Keep the ledger below as you go.">
+```
+
+Rules:
+- Paste the relevant code snippets directly into the file — the implementer must not need to open other files just to understand the context.
+- Link every existing file/function reference (relative to this context file's location).
+- Keep it short. If a section is empty, omit it.
+- After writing, add a link to it in the autobot doc under the iteration: `**Context file:** [Iteration N context](autobot-<feature>-ctx-iter-N.md)`
 
 ---
 
@@ -303,16 +348,44 @@ Before writing the phase plan to the file, scan every file/function/class refere
 
 Show and stop — implement nothing until the user approves the plan. Once approved and the user is ready to implement, apply the [Model policy](#model-policy): prompt to switch to Sonnet before touching files.
 
+When the user says **"Implement Phase N.M"**, spawn a Sonnet subagent for that phase only. The subagent's entire prompt is:
+
+```
+Read <path-to-ctx-iter-N.md> for iteration context. Then read Phase N.M in <path-to-plan-iter-N.md>. Implement that phase only — write the tests (Red), make them pass (Green), refactor if needed. Run only this phase's test file (plus test files for any modules touched) after each step. When done, report back: every test written and its final pass/fail status.
+```
+
+Do not include any other context in the spawn prompt — the context file + plan file are sufficient.
+
+When the subagent returns, append its results to the ledger in the autobot doc:
+
+```
+### Implementation Ledger — Iteration N
+- Phase N.M — <Name>
+  - <test name>: red → green ✓
+```
+
+Then wait for the user to say which phase to implement next. Never spawn the next phase automatically.
+
 ---
 
 ### Mode: Autonomous
 
-Implement directly with strict TDD. Keep a ledger in the doc as evidence:
+Write the iteration context file (per [Iteration context files](#iteration-context-files)), then spawn a **Sonnet subagent** to do the TDD work. The subagent's entire prompt is:
+
+```
+Read <path-to-ctx-iter-N.md> for full context. TDD the iteration described there — strict red/green/refactor, one test at a time. Run only this iteration's tests (plus any test files for modules you touch) after each green. When all tests pass, report back a one-line summary of every test written and its final status.
+```
+
+Do not include any other context in the spawn prompt — the context file is sufficient.
+
+When the subagent returns, copy its test ledger into the autobot doc:
 
 ```
 ### Implementation Ledger — Iteration N
 - <test name>: red → green ✓
 ```
+
+Then present the ledger to the user and ask them to complete the Manual Testing Gate.
 
 ---
 
@@ -322,11 +395,12 @@ Implement directly with strict TDD. Keep a ledger in the doc as evidence:
 
 1. Run the full test suite once to establish a clean baseline. Surface any failures and stop until resolved.
 2. Apply the [Model policy](#model-policy): this is the implementation boundary — prompt the user to switch to Sonnet for token efficiency and wait for confirmation (once per run).
-3. Tell the user how to proceed:
-   - *Reviewed:* "Implement one phase at a time — say 'Implement Phase 0.1', etc." (phases are in the linked plan file).
-   - *Autonomous:* "I'll TDD this directly."
-4. *"When done, complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
-5. Stop and wait. Do not plan Iteration 1 until the gate is confirmed.
+3. **Write the iteration context file** — generate `autobot-<feature>-ctx-iter-0.md` per the [Iteration context files](#iteration-context-files) spec. Add the link to the autobot doc before handing off.
+4. Proceed by mode:
+   - *Reviewed:* Tell the user "Say 'Implement Phase 0.1' (or whichever phase) and I'll spawn a subagent for it. One phase at a time." Stop and wait — do not spawn until the user names a phase.
+   - *Autonomous:* Spawn the subagent immediately per the [Autonomous mode](#mode-autonomous) spec. No user action needed — report back when done, then ask the user to complete the gate.
+5. *"When done, complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
+6. Do not plan Iteration 1 until the gate is confirmed.
 
 ---
 
@@ -343,7 +417,7 @@ This gate is mandatory. If the user tries to skip it, refuse and redirect. Never
 
 ## Stage 6 — Build Iteration N
 
-After the previous gate is confirmed. Identical to Stage 3: ask mode, write the chosen artifact, then reference the gate already written in the plan (do not duplicate it), show, stop, hand off. Repeat Stages 5–6 until every iteration is confirmed.
+After the previous gate is confirmed. Identical to Stage 3 + Stage 4: ask mode, write the context file, write any Reviewed plan, then hand off — Reviewed mode stops and waits, Autonomous mode spawns a subagent immediately. Repeat Stages 5–6 until every iteration is confirmed.
 
 ---
 
@@ -352,7 +426,8 @@ After the previous gate is confirmed. Identical to Stage 3: ask mode, write the 
 When the last iteration's gate is confirmed:
 1. Run the full test suite — confirm no failures or regressions.
 2. Set `stage: 7, gate: confirmed` and declare the feature done.
-3. Propose a commit message and ask permission — same as Stage 5. Run it only if the user says yes.
+3. Delete all `autobot-<feature>-ctx-iter-*.md` files for this run — they were temporary scaffolding.
+4. Propose a commit message and ask permission — same as Stage 5. Run it only if the user says yes.
 
 ---
 
