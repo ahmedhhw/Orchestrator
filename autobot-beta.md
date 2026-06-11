@@ -401,12 +401,12 @@ Do not include any other context in the spawn prompt — the context file is suf
 
 When the subagent returns, add the plan-file link to the iteration block in the main doc (the `**Reviewed plan:**` line above) if not already present, and tell the user the plan is ready for review at the plan file.
 
-Show and stop — implement nothing until the user approves the plan. If the user requests small changes, apply them inline (Sonnet); only re-spawn an Opus subagent for a substantial re-design (see [Model policy](#model-policy)). Handoff happens at [Stage 4](#stage-4--hand-off-iteration-0); the user drives it one phase at a time.
+Show and stop — implement nothing until the user approves the plan. If the user requests small changes, apply them inline (Sonnet); only re-spawn an Opus subagent for a substantial re-design (see [Model policy](#model-policy)). Handoff happens at [Stage 4](#stage-4--hand-off-iteration-0).
 
-**Spawning a phase** (Stage 4 directs you here when the user says "Implement Phase N.M"). If the Agent tool is available (Claude Code), call it with these exact parameters — do NOT omit `model`:
+**Spawning all phases** (default — Stage 4 directs you here). Spawn one subagent that implements every phase in sequence. If the Agent tool is available (Claude Code), call it with these exact parameters — do NOT omit `model`:
 ```
 Agent(
-  description: "Implement Phase N.M — <phase name>",
+  description: "Implement all phases — Iteration N — <title>",
   model: "sonnet",
   prompt: "<the prompt below>"
 )
@@ -415,7 +415,7 @@ Otherwise, spawn a subagent using whatever mechanism is available, preferring So
 
 The subagent prompt is:
 ```
-Read <path-to-ctx-iter-N.md> for iteration context. Then read Phase N.M in <path-to-plan-iter-N.md>. Implement that phase only — write the tests (Red), make them pass (Green), refactor if needed. Run only this phase's test file (plus test files for any modules touched) after each step. When done, report back: every test written and its final pass/fail status.
+Read <path-to-ctx-iter-N.md> for iteration context. Then read <path-to-plan-iter-N.md> for the full phase plan. Implement every phase in order — for each phase: write the tests (Red), make them pass (Green), refactor if needed, then move to the next phase. Run only the affected test files after each green. When all phases are done, report back: every test written per phase and its final pass/fail status.
 ```
 
 Do not include any other context in the spawn prompt — the context file + plan file are sufficient.
@@ -428,7 +428,15 @@ When the subagent returns, append its results to the ledger in the autobot doc:
   - <test name>: red → green ✓
 ```
 
-Then wait for the user to say which phase to implement next. Never spawn the next phase automatically.
+**Per-phase spawning** (only when the user explicitly asks to implement one phase at a time). Spawn a subagent for the named phase only:
+```
+Agent(
+  description: "Implement Phase N.M — <phase name>",
+  model: "sonnet",
+  prompt: "Read <path-to-ctx-iter-N.md> for iteration context. Then read Phase N.M in <path-to-plan-iter-N.md>. Implement that phase only — write the tests (Red), make them pass (Green), refactor if needed. Run only this phase's test file (plus test files for any modules touched) after each step. When done, report back: every test written and its final pass/fail status."
+)
+```
+After each per-phase subagent returns, append to the ledger and wait for the user to name the next phase.
 
 ---
 
@@ -469,7 +477,7 @@ Then present the ledger to the user and ask them to complete the Manual Testing 
 1. Run the full test suite once to establish a clean baseline. Surface any failures and stop until resolved.
 2. Set the iteration context file's `## TDD mode` line to the mode just chosen (the file already exists from Stage 2). If Reviewed, also link the plan file there.
 3. Hand off by mode:
-   - *Reviewed:* Tell the user "Say 'Implement Phase 0.1' (or whichever phase) and I'll spawn a subagent for it. One phase at a time." Stop and wait — do not spawn until the user names a phase. When they do, spawn per [Reviewed mode](#mode-reviewed).
+   - *Reviewed:* Spawn one subagent for all phases immediately per [Reviewed mode](#mode-reviewed) (default). If the user explicitly asked to go phase-by-phase, instead tell them "Say 'Implement Phase 0.1' (or whichever phase) and I'll spawn a subagent for it." and wait.
    - *Autonomous:* Spawn the subagent immediately per [Autonomous mode](#mode-autonomous). No user action needed.
 4. When the work returns, present the ledger and say: *"Complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
 5. Do not plan Iteration 1 until the gate is confirmed.
