@@ -131,3 +131,27 @@ def test_set_hunks_empty_list_shows_no_headers(qtbot):
     labels = view.findChildren(QLabel)
     texts = [l.text() for l in labels]
     assert not any("@@" in t for t in texts)
+
+
+# ── word-wrap (iteration 2) ────────────────────────────────────────────────────
+
+def test_diff_line_labels_have_word_wrap_enabled(qtbot):
+    """All diff-line labels must have wordWrap() True after rendering hunks."""
+    view = _make_view(qtbot)
+    hunks = [_make_hunk(lines=[" context", "-removed", "+added"])]
+    view.set_hunks("src/foo.py", hunks, live_mode=False)
+    diff_labels = [l for l in view.findChildren(QLabel) if l.objectName() == "diff_line"]
+    assert len(diff_labels) > 0, "expected at least one diff_line label"
+    assert all(lbl.wordWrap() for lbl in diff_labels)
+
+
+def test_word_wrap_does_not_remove_added_or_removed_styling(qtbot):
+    """Enabling word wrap must not strip the +/- background-colour styles."""
+    view = _make_view(qtbot)
+    hunks = [_make_hunk(lines=["-removed_line", "+added_line", " context"])]
+    view.set_hunks("src/foo.py", hunks, live_mode=False)
+    diff_labels = [l for l in view.findChildren(QLabel) if l.objectName() == "diff_line"]
+    by_text = {lbl.text(): lbl.styleSheet() for lbl in diff_labels}
+
+    assert "#3d0000" in by_text["-removed_line"], "removed line must keep red background"
+    assert "#003d00" in by_text["+added_line"], "added line must keep green background"

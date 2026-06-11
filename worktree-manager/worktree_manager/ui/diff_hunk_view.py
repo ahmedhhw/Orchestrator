@@ -161,6 +161,7 @@ class DiffHunkView(QWidget):
             lbl.setObjectName("diff_line")
             lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
             lbl.setFont(self._monospace_font())
+            lbl.setWordWrap(True)
             if line.startswith("-"):
                 lbl.setStyleSheet(f"background-color: {_REMOVED_BG}; color: #ff8080; padding: 0 4px;")
             elif line.startswith("+"):
