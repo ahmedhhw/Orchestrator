@@ -66,12 +66,6 @@ def test_panel_still_has_add_repo_button(qtbot):
     assert any("Add Repo" in t for t in texts)
 
 
-def test_panel_still_has_refresh_button(qtbot):
-    panel = _make_panel(qtbot)
-    texts = [b.text() for b in panel.findChildren(QPushButton)]
-    assert any("Refresh" in t for t in texts)
-
-
 def test_selecting_repo_shows_worktree_view(qtbot):
     vm = _make_vm(repos=["/repos/proj"])
 

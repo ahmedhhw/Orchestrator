@@ -1,7 +1,7 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QLineEdit, QPushButton, QSpinBox
+from PySide6.QtWidgets import QDialog, QPushButton, QSpinBox
 
 from worktree_manager.setup_settings_vm import SettingsViewModel
 from worktree_manager.ui.settings_panel import SettingsDialog
@@ -20,25 +20,24 @@ def test_settings_dialog_is_qdialog(qtbot):
     assert isinstance(d, QDialog)
 
 
-def test_settings_dialog_prefills_storage_and_stale_days(qtbot):
+def test_settings_dialog_prefills_stale_days(qtbot):
     vm = _make_vm(storage="/x/y", stale_days=14)
     d = SettingsDialog(parent=None, vm=vm)
     qtbot.addWidget(d)
-    entry = d.findChild(QLineEdit)
-    assert entry.text() == "/x/y"
     spin = d.findChild(QSpinBox)
     assert spin.value() == 14
 
 
 def test_settings_dialog_save_calls_vm_with_current_values(qtbot):
-    vm = _make_vm()
+    # Worktree storage is now configured per-repo in the project operations
+    # dialog, so Settings saves the storage unchanged from the view model.
+    vm = _make_vm(storage="/orig")
     d = SettingsDialog(parent=None, vm=vm)
     qtbot.addWidget(d)
-    d.findChild(QLineEdit).setText("/new/storage")
     d.findChild(QSpinBox).setValue(7)
     save = next(b for b in d.findChildren(QPushButton) if b.text() == "Save")
     qtbot.mouseClick(save, Qt.LeftButton)
-    vm.save.assert_called_once_with(worktree_storage="/new/storage", stale_days=7)
+    vm.save.assert_called_once_with(worktree_storage="/orig", stale_days=7)
 
 
 def test_settings_dialog_cancel_does_not_call_vm(qtbot):
@@ -50,12 +49,3 @@ def test_settings_dialog_cancel_does_not_call_vm(qtbot):
     vm.save.assert_not_called()
 
 
-def test_settings_dialog_browse_updates_entry(qtbot):
-    vm = _make_vm(storage="/orig")
-    d = SettingsDialog(parent=None, vm=vm)
-    qtbot.addWidget(d)
-    browse = next(b for b in d.findChildren(QPushButton) if b.text() == "Browse")
-    with patch("PySide6.QtWidgets.QFileDialog.getExistingDirectory",
-               return_value="/chosen"):
-        qtbot.mouseClick(browse, Qt.LeftButton)
-    assert d.findChild(QLineEdit).text() == "/chosen"

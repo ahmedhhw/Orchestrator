@@ -47,11 +47,6 @@ def test_panel_has_add_repo_button(qtbot):
     assert any("Add Repo" in t for t in _button_texts(panel))
 
 
-def test_panel_has_refresh_button(qtbot):
-    panel = _make_panel(qtbot)
-    assert any("Refresh" in t for t in _button_texts(panel))
-
-
 def test_panel_shows_empty_state_when_no_repo_selected(qtbot):
     panel = _make_panel(qtbot)
     texts = _label_texts(panel)
@@ -83,14 +78,6 @@ def test_add_repo_button_invokes_callback(qtbot):
     triggered: list = []
     panel = _make_panel(qtbot, on_add_repo=lambda: triggered.append(1))
     btn = next(b for b in panel.findChildren(QPushButton) if "Add Repo" in b.text())
-    qtbot.mouseClick(btn, Qt.LeftButton)
-    assert triggered == [1]
-
-
-def test_refresh_button_invokes_callback(qtbot):
-    triggered: list = []
-    panel = _make_panel(qtbot, on_refresh=lambda: triggered.append(1))
-    btn = next(b for b in panel.findChildren(QPushButton) if "Refresh" in b.text())
     qtbot.mouseClick(btn, Qt.LeftButton)
     assert triggered == [1]
 

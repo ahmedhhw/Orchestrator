@@ -144,8 +144,10 @@ def test_successful_add_repo_calls_store_save(qtbot, tmp_path):
     (repo_path / ".git").mkdir()
     storage_path = tmp_path / "my-repo-worktrees"
 
-    store = _store(repos={str(repo_path): MagicMock()})
-    d = _dlg(qtbot, config_store=store, repos={str(repo_path): MagicMock()})
+    # Repo is not yet registered; it appears in all_repos() only after save_repo.
+    store = _store(repos={})
+    store.all_repos.side_effect = [{}, {str(repo_path): MagicMock()}]
+    d = _dlg(qtbot, config_store=store, repos={})
 
     btn = next(b for b in d.findChildren(QPushButton) if "Add repo" in b.text())
     btn.click()
@@ -167,8 +169,9 @@ def test_successful_add_repo_closes_panel(qtbot, tmp_path):
     (repo_path / ".git").mkdir()
     storage_path = tmp_path / "my-repo-worktrees"
 
-    store = _store(repos={str(repo_path): MagicMock()})
-    d = _dlg(qtbot, config_store=store, repos={str(repo_path): MagicMock()})
+    store = _store(repos={})
+    store.all_repos.side_effect = [{}, {str(repo_path): MagicMock()}]
+    d = _dlg(qtbot, config_store=store, repos={})
 
     btn = next(b for b in d.findChildren(QPushButton) if "Add repo" in b.text())
     btn.click()
@@ -193,8 +196,9 @@ def test_successful_add_repo_adds_to_combo(qtbot, tmp_path):
     existing_repos = {"/repos/existing": MagicMock()}
     new_repos = {"/repos/existing": MagicMock(), str(repo_path): MagicMock()}
     store = _store(repos=existing_repos)
-    # all_repos() is called once inside _submit_add_repo after save_repo
-    store.all_repos.return_value = new_repos
+    # all_repos() is called twice in _submit_add_repo: the duplicate check sees
+    # the existing repos; the post-save rebuild sees the new repo included.
+    store.all_repos.side_effect = [existing_repos, new_repos]
 
     d = _dlg(qtbot, config_store=store, repos=existing_repos)
 
@@ -222,7 +226,7 @@ def test_successful_add_repo_selects_new_repo_in_combo(qtbot, tmp_path):
     existing_repos = {"/repos/existing": MagicMock()}
     new_repos = {"/repos/existing": MagicMock(), str(repo_path): MagicMock()}
     store = _store(repos=existing_repos)
-    store.all_repos.return_value = new_repos
+    store.all_repos.side_effect = [existing_repos, new_repos]
 
     d = _dlg(qtbot, config_store=store, repos=existing_repos)
 
@@ -246,8 +250,9 @@ def test_successful_add_repo_re_enables_button(qtbot, tmp_path):
     (repo_path / ".git").mkdir()
     storage_path = tmp_path / "my-repo-worktrees"
 
-    store = _store(repos={str(repo_path): MagicMock()})
-    d = _dlg(qtbot, config_store=store, repos={str(repo_path): MagicMock()})
+    store = _store(repos={})
+    store.all_repos.side_effect = [{}, {str(repo_path): MagicMock()}]
+    d = _dlg(qtbot, config_store=store, repos={})
 
     btn = next(b for b in d.findChildren(QPushButton) if "Add repo" in b.text())
     btn.click()

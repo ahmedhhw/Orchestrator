@@ -17,6 +17,16 @@ def _vm(projects=None, editor="cursor", collapsed=None,
     vm._store.all_repos.return_value = {"/r/proj": MagicMock()}
     vm.list_branches_for_worktree.return_value = list(branches)
     vm._git.checked_out_branch.return_value = current_branch
+
+    def _load_project_entries(projs, on_progress=None):
+        return [
+            {"worktree_path": e.worktree_path,
+             "current_branch": current_branch,
+             "branches": list(branches)}
+            for proj in projs for e in proj.entries
+        ]
+
+    vm.load_project_entries.side_effect = _load_project_entries
     return vm
 
 
@@ -27,6 +37,7 @@ def _panel(qtbot, vm=None, on_close=None, confirm=True):
         confirm_fn=lambda msg: confirm,
     )
     qtbot.addWidget(p)
+    qtbot.waitUntil(lambda: p._loading is False, timeout=3000)
     return p
 
 

@@ -249,13 +249,14 @@ def test_create_pull_request_posts_and_returns_pr(service):
     }
     with patch("requests.post", return_value=fake_response) as mock_post:
         pr = service.create_pull_request(
-            title="New PR", body="body", base="main", draft=False,
+            title="New PR", body="body", base="main", branch="feat", draft=False,
             repo_base_url="https://api.github.com/repos/myorg/myrepo",
         )
     assert pr.number == 99
     call_kwargs = mock_post.call_args[1]["json"]
     assert call_kwargs["title"] == "New PR"
     assert call_kwargs["base"] == "main"
+    assert call_kwargs["head"] == "feat"
     assert call_kwargs["draft"] is False
 
 
@@ -265,7 +266,7 @@ def test_create_pull_request_raises_on_422(service):
     with patch("requests.post", return_value=fake_response):
         with pytest.raises(RuntimeError, match="Validation Failed"):
             service.create_pull_request(
-                title="X", body="", base="main", draft=False,
+                title="X", body="", base="main", branch="feat", draft=False,
                 repo_base_url="https://api.github.com/repos/myorg/myrepo",
             )
 

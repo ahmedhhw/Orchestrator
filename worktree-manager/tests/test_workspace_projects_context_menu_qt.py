@@ -16,6 +16,16 @@ def _vm(projects=None):
     vm._store.all_repos.return_value = {}
     vm.list_branches_for_worktree.return_value = ["main"]
     vm._git.checked_out_branch.return_value = "main"
+
+    def _load_project_entries(projs, on_progress=None):
+        return [
+            {"worktree_path": e.worktree_path,
+             "current_branch": "main",
+             "branches": ["main"]}
+            for proj in projs for e in proj.entries
+        ]
+
+    vm.load_project_entries.side_effect = _load_project_entries
     return vm
 
 
@@ -35,6 +45,7 @@ def _panel(qtbot, vm=None, on_generate_project=None, on_run_command=None):
         on_run_command=on_run_command or (lambda path: None),
     )
     qtbot.addWidget(p)
+    qtbot.waitUntil(lambda: p._loading is False, timeout=3000)
     return p
 
 

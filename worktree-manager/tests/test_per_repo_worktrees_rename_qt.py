@@ -43,7 +43,7 @@ def _make_view(qtbot, on_rename=None, worktrees=None):
 
 def test_rename_button_shown_for_non_main_worktree(qtbot):
     view, _ = _make_view(qtbot)
-    rename_btns = [b for b in view.findChildren(QPushButton) if b.text() == "✏"]
+    rename_btns = [b for b in view.findChildren(QPushButton) if b.text() == "🖊"]
     assert len(rename_btns) == 1
 
 
@@ -54,20 +54,20 @@ def test_rename_button_not_shown_for_main_worktree(qtbot):
                       last_commit_ts=now, is_merged=False, is_stale=False),
     ]
     view, _ = _make_view(qtbot, worktrees=worktrees)
-    rename_btns = [b for b in view.findChildren(QPushButton) if b.text() == "✏"]
+    rename_btns = [b for b in view.findChildren(QPushButton) if b.text() == "🖊"]
     assert len(rename_btns) == 0
 
 
 def test_clicking_rename_button_shows_inline_panel(qtbot):
     view, _ = _make_view(qtbot)
-    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "✏")
+    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "🖊")
     qtbot.mouseClick(rename_btn, Qt.LeftButton)
     assert view._active_rename_panel is not None
 
 
 def test_rename_panel_prefills_current_folder_name(qtbot):
     view, _ = _make_view(qtbot)
-    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "✏")
+    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "🖊")
     qtbot.mouseClick(rename_btn, Qt.LeftButton)
     assert view._active_rename_panel is not None
     inputs = view._active_rename_panel.findChildren(QLineEdit)
@@ -76,7 +76,7 @@ def test_rename_panel_prefills_current_folder_name(qtbot):
 
 def test_cancel_rename_hides_panel(qtbot):
     view, _ = _make_view(qtbot)
-    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "✏")
+    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "🖊")
     qtbot.mouseClick(rename_btn, Qt.LeftButton)
     assert view._active_rename_panel is not None
     cancel_btn = next(
@@ -91,7 +91,7 @@ def test_confirm_rename_calls_on_rename(qtbot):
     on_rename = MagicMock()
     view, _ = _make_view(qtbot, on_rename=on_rename)
 
-    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "✏")
+    rename_btn = next(b for b in view.findChildren(QPushButton) if b.text() == "🖊")
     qtbot.mouseClick(rename_btn, Qt.LeftButton)
     assert view._active_rename_panel is not None
 

@@ -233,9 +233,9 @@ def test_create_branch_updates_row_label(qtbot):
     le.setText("new-feat")
     create_btn = next(b for b in panel.findChildren(QPushButton) if "Create" in b.text())
     create_btn.click()
-    # row label should now show the new branch name
-    labels = [lbl.text() for lbl in d._wt_list_widget.findChildren(QLabel)]
-    assert any("new-feat" in t for t in labels)
+    # the row's branch combo should now show the new branch name
+    combos = d._wt_list_widget.findChildren(QComboBox)
+    assert any(c.currentText() == "new-feat" for c in combos)
 
 
 def test_create_branch_collapses_form_on_success(qtbot):
