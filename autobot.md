@@ -348,8 +348,20 @@ Before writing the phase plan to the file, scan every file/function/class refere
 
 Show and stop — implement nothing until the user approves the plan. Once approved and the user is ready to implement, apply the [Model policy](#model-policy): prompt to switch to Sonnet before touching files.
 
-When the user says **"Implement Phase N.M"**, spawn a Sonnet subagent for that phase only. The subagent's entire prompt is:
+When the user says **"Implement Phase N.M"**, spawn a subagent for that phase only.
 
+**If the Agent tool is available (Claude Code):** call it with these exact parameters — do NOT omit `model`:
+```
+Agent(
+  description: "Implement Phase N.M — <phase name>",
+  model: "sonnet",
+  prompt: "<the prompt below>"
+)
+```
+
+**Otherwise:** spawn a subagent using whatever mechanism is available, preferring Sonnet 4.6 if the model can be specified.
+
+The subagent prompt is:
 ```
 Read <path-to-ctx-iter-N.md> for iteration context. Then read Phase N.M in <path-to-plan-iter-N.md>. Implement that phase only — write the tests (Red), make them pass (Green), refactor if needed. Run only this phase's test file (plus test files for any modules touched) after each step. When done, report back: every test written and its final pass/fail status.
 ```
@@ -370,8 +382,20 @@ Then wait for the user to say which phase to implement next. Never spawn the nex
 
 ### Mode: Autonomous
 
-Write the iteration context file (per [Iteration context files](#iteration-context-files)), then spawn a **Sonnet subagent** to do the TDD work. The subagent's entire prompt is:
+Write the iteration context file (per [Iteration context files](#iteration-context-files)), then spawn a subagent to do the TDD work.
 
+**If the Agent tool is available (Claude Code):** call it with these exact parameters — do NOT omit `model`:
+```
+Agent(
+  description: "TDD Iteration N — <title>",
+  model: "sonnet",
+  prompt: "<the prompt below>"
+)
+```
+
+**Otherwise:** spawn a subagent using whatever mechanism is available, preferring Sonnet 4.6 if the model can be specified.
+
+The subagent prompt is:
 ```
 Read <path-to-ctx-iter-N.md> for full context. TDD the iteration described there — strict red/green/refactor, one test at a time. Run only this iteration's tests (plus any test files for modules you touch) after each green. When all tests pass, report back a one-line summary of every test written and its final status.
 ```
