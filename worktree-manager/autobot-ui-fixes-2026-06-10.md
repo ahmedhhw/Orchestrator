@@ -1,7 +1,7 @@
 <!-- autobot-status
-stage: 2
-iteration: 0
-gate: none
+stage: 7
+iteration: 3
+gate: confirmed
 updated: 2026-06-10
 -->
 
@@ -157,61 +157,93 @@ In [`diff_hunk_view`](worktree_manager/ui/diff_hunk_view.py#L159), set `lbl.setW
 ### Iteration 0 — Force light mode
 **Context file:** [Iteration 0 context](autobot-ui-fixes-ctx-iter-0-light-mode-2026-06-10.md)
 
+### Implementation Ledger — Iteration 0
+- `test_force_light_mode_sets_color_scheme`: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 0
 
 > STOP. Do not proceed to Iteration 1 until every item is confirmed.
 
-- [ ] Launch the app on a Mac in OS dark mode — the app renders with a light background/light controls.
-- [ ] Toggle the OS appearance to light and back to dark while the app is open — the app stays light.
+- [x] Launch the app on a Mac in OS dark mode — the app renders with a light background/light controls.
+- [x] Toggle the OS appearance to light and back to dark while the app is open — the app stays light.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-10
 **How to confirm:** Check every box, then reply "Iteration 0 confirmed" or describe what failed.
 
 ### Iteration 1 — Worktree dirty indicator
 **Context file:** [Iteration 1 context](autobot-ui-fixes-ctx-iter-1-dirty-indicator-2026-06-10.md)
 
+### Implementation Ledger — Iteration 1
+- `test_worktree_model_is_dirty_defaults_to_false`: red → green ✓
+- `test_load_worktree_view_data_marks_dirty_worktrees`: red → green ✓
+- `test_load_worktree_view_data_calls_dirty_check_once_per_worktree`: red → green ✓
+- `test_dirty_worktree_row_contains_dirty_marker`: red → green ✓
+- `test_clean_worktree_row_has_no_dirty_marker`: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 1
 
 > STOP. Do not proceed to Iteration 2 until every item is confirmed.
 
-- [ ] In a repo with one dirty worktree and one clean, the dirty one shows an orange ● after its name; the clean one shows none.
-- [ ] Hovering the ● shows tooltip "Uncommitted changes".
-- [ ] Commit/stash the changes and refresh — the marker disappears.
-- [ ] Regression: app still launches in light mode and worktrees load normally.
+- [x] In a repo with one dirty worktree and one clean, the dirty one shows an orange ● after its name; the clean one shows none.
+- [x] Hovering the ● shows tooltip "Uncommitted changes".
+- [x] Commit/stash the changes and refresh — the marker disappears.
+- [x] Regression: app still launches in light mode and worktrees load normally.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-10
 **How to confirm:** Check every box, then reply "Iteration 1 confirmed" or describe what failed.
 
 ### Iteration 2 — Diff line wrapping
 **Context file:** [Iteration 2 context](autobot-ui-fixes-ctx-iter-2-diff-wrap-2026-06-10.md)
 
+### Implementation Ledger — Iteration 2
+- `test_diff_line_labels_have_word_wrap_enabled`: red → green ✓
+- `test_word_wrap_does_not_remove_added_or_removed_styling`: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 2
 
 > STOP. Do not proceed to Iteration 3 until every item is confirmed.
 
-- [ ] Open a diff with a line longer than the view width — it wraps onto multiple rows instead of clipping.
-- [ ] The added/removed background colour covers the whole wrapped line.
-- [ ] No horizontal scrollbar is needed for long lines.
-- [ ] Regression: dirty indicator and light mode still work; short diff lines render unchanged.
+- [x] Open a diff with a line longer than the view width — it wraps onto multiple rows instead of clipping.
+- [x] The added/removed background colour covers the whole wrapped line.
+- [x] No horizontal scrollbar is needed for long lines.
+- [x] Regression: dirty indicator and light mode still work; short diff lines render unchanged.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-10
 **How to confirm:** Check every box, then reply "Iteration 2 confirmed" or describe what failed.
 
 ### Iteration 3 — Dropdown + worktree-switch bug fixes (Bug A + Bug B)
 **Context file:** [Iteration 3 context](autobot-ui-fixes-ctx-iter-3-dropdown-switch-fix-2026-06-10.md)
+**Reviewed plan:** [Iteration 3 plan](autobot-ui-fixes-plan-iter-3-dropdown-switch-fix-2026-06-10.md)
+
+### Implementation Ledger — Iteration 3
+- Phase 3.1
+  - `test_first_filter_keystroke_records_the_starting_index`: red → green ✓
+  - `test_index_before_edit_is_not_overwritten_by_later_keystrokes`: red → green ✓
+- Phase 3.2
+  - `test_committing_a_match_after_the_index_moved_emits_once`: red → green ✓
+  - `test_committing_a_match_on_the_normal_path_emits_once`: red → green ✓
+  - `test_committing_the_already_selected_item_emits_nothing`: red → green ✓
+  - `test_typing_filter_text_without_committing_emits_nothing`: red → green ✓
+- Phase 3.3
+  - `test_switching_a_worktree_leaves_exactly_one_pane`: red → green ✓
+  - `test_a_concurrent_switch_for_the_same_run_is_ignored`: red → green ✓
+  - `test_a_fresh_switch_after_one_completes_is_allowed`: red → green ✓
+- Phase 3.4
+  - `test_a_duplicate_run_on_switch_is_logged_not_swallowed`: red → green ✓
+  - `test_an_unexpected_launch_error_on_switch_propagates`: red → green ✓
 
 ## ✋ Manual Testing Gate — Iteration 3
 
 > STOP. This is the last iteration; do not declare done until every item is confirmed.
 
-- [ ] In Command Center, switch a running command's worktree via the dropdown — it actually re-activates in the new worktree (Bug A fixed).
-- [ ] After switching, there is exactly ONE pane for that command — no duplicate, no disappearance (Bug B fixed).
-- [ ] Rapidly switching the worktree dropdown does not spawn extra panes.
-- [ ] Regression: the per-repo branch dropdown still switches branches on selection.
-- [ ] Regression: typing to filter the dropdown without picking does not trigger a switch.
-- [ ] Regression: dirty indicator, diff wrapping, and light mode all still work.
+- [x] In Command Center, switch a running command's worktree via the dropdown — it actually re-activates in the new worktree (Bug A fixed).
+- [x] After switching, there is exactly ONE pane for that command — no duplicate, no disappearance (Bug B fixed).
+- [x] Rapidly switching the worktree dropdown does not spawn extra panes.
+- [x] Regression: the per-repo branch dropdown still switches branches on selection.
+- [x] Regression: typing to filter the dropdown without picking does not trigger a switch.
+- [x] Regression: dirty indicator, diff wrapping, and light mode all still work.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-10
 **How to confirm:** Check every box, then reply "Iteration 3 confirmed" or describe what failed.
 
 ---

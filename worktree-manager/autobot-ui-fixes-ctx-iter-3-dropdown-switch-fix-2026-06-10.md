@@ -114,4 +114,4 @@ flowchart LR
 - [ ] The per-repo branch dropdown still switches branches on selection (regression — same combo).
 - [ ] Typing to filter the dropdown without picking does not trigger a switch (regression).
 
-## TDD mode: <Reviewed | Autonomous>
+## TDD mode: Reviewed. See [plan file](autobot-ui-fixes-plan-iter-3-dropdown-switch-fix-2026-06-10.md).
