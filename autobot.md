@@ -28,7 +28,7 @@ If no argument is given, ask for a feature description or ADO work item URL/ID b
 - **Sign-off required.** Never advance a stage without explicit user approval.
 - **Small mermaid diagrams only.** Each diagram covers one concept, 3–5 nodes max. Use many small diagrams rather than one large one. Only use mermaid when it adds something pseudocode cannot.
 - **Reviewed plans live in their own files.** Never write a Reviewed-mode TDD plan inline in the main autobot document. Write each plan to its own file (see [Reviewed mode](#mode-reviewed)) and link to it from the iteration. This keeps the main doc navigable and the context lean.
-- **Iteration context files are always generated.** Before handing off any iteration to an implementer agent (both Reviewed and Autonomous modes), write a lean `autobot-<feature>-ctx-iter-N.md` file. See [Iteration context files](#iteration-context-files). These are deleted at Stage 7.
+- **Iteration context files are always generated.** Create every iteration's `autobot-<feature>-ctx-iter-N.md` file right after iteration titles are approved (Stage 2). It carries the iteration's full design and is the only context the implementer reads. See [Iteration context files](#iteration-context-files). The user is asked whether to delete each one after its iteration's gate is confirmed (Stage 5).
 
 ---
 
@@ -53,7 +53,7 @@ Long autobot runs accumulate context. Apply these throughout:
 
 ## Iteration context files
 
-Before handing off any iteration to an implementer agent, write a lean file named `autobot-<feature>-ctx-iter-N.md` next to the autobot document. This file is the **only context** the implementer needs — it must be self-contained.
+A context file named `autobot-<feature>-ctx-iter-N.md` is created next to the autobot document for **every** iteration, immediately after iteration titles are approved (see [Stage 2 Step 2](#step-2--detail-each-iteration-after-title-approval)). This file is the **only context** the implementer needs — it must be fully self-contained, carrying the iteration's complete design.
 
 Template:
 
@@ -71,6 +71,17 @@ Template:
 - [existing-file.swift](../relative/path/to/file.swift) — <what changes here, one line>
 - `NewFile.swift` (new) — <what goes in here, one line>
 
+## Design / pseudocode
+<Per-file high-level pseudocode of what to build. No complete code. One block per file touched.>
+
+#### `path/to/file.swift`
+\`\`\`
+<high-level pseudocode>
+\`\`\`
+
+## Diagrams
+<Optional. Small mermaid diagrams — one concept each, 3–5 nodes. Only where a diagram adds something pseudocode cannot. Omit the section if none.>
+
 ## Relevant existing code
 <Only the function signatures / type definitions this iteration actually calls or modifies. Paste snippets — do not ask the implementer to go hunt for them.>
 
@@ -82,7 +93,8 @@ Template:
 - [ ] ...
 
 ## TDD mode: <Reviewed | Autonomous>
-<Reviewed: "Implement phase by phase — Phase N.1, N.2, … See [plan file](autobot-<feature>-plan-iter-N.md)."
+<Set when the iteration is built (Stage 3/6), not at creation time.
+Reviewed: "Implement phase by phase — Phase N.1, N.2, … See [plan file](autobot-<feature>-plan-iter-N.md)."
 Autonomous: "TDD directly. Keep the ledger below as you go.">
 ```
 
@@ -242,35 +254,13 @@ On approval, append the final agreed titles to the autobot doc before proceeding
 
 ### Step 2 — Detail each iteration (after title approval)
 
-For each iteration append full detail followed immediately by its Manual Testing Gate:
+The full design for each iteration lives in its **context file**, not inline in the main doc. As soon as titles are approved, **create every iteration's context file** (`autobot-<feature>-ctx-iter-N.md`) per the [Iteration context files](#iteration-context-files) spec — carrying tests, files, design/pseudocode, diagrams, constraints, and the gate items. Leave the `## TDD mode` line as a placeholder; it's set when the iteration is built.
+
+In the **main doc**, each iteration keeps only its title, a link to its context file, and its Manual Testing Gate (the gate is ticked here at Stage 5):
 
 ```
 ### Iteration N — <Title>
-
-**Tests:**
-- <plain English test name>
-- <plain English test name>
-...
-
-**Files:**
-- `repo-name/` (omit if single-repo)
-  - `path/to/file.py` (new | existing)
-  - ...
-- `other-repo/` (omit if single-repo)
-  - `path/to/file.py` (new | existing)
-  - ...
-
----
-
-#### `path/to/file.py`
-\`\`\`
-<high-level pseudocode>
-\`\`\`
-
-<mermaid diagram — one concept, 3–5 nodes, only if it adds clarity>
-
-#### `path/to/other_file.py`
-...
+**Context file:** [Iteration N context](autobot-<feature>-ctx-iter-N.md)
 
 ## ✋ Manual Testing Gate — Iteration N
 
@@ -285,16 +275,16 @@ For each iteration append full detail followed immediately by its Manual Testing
 **How to confirm:** Check every box, then reply "Iteration N confirmed" or describe what failed.
 ```
 
-Rules:
-- Tests section comes first — it tells the user what this iteration proves before showing how.
+Rules (apply to the context file's design content):
+- Tests come first — they tell the user what this iteration proves before showing how.
 - Pseudocode is high-level. No implementation detail, no complete code.
 - Mermaid diagrams are small and focused. Many small ones, never one large one.
 - In single-repo features, frontend and backend files are interleaved naturally with no sub-headings. In multi-repo features, group files under their repo name — but still interleave front/back within each repo group.
-- Gate items must be specific, observable, and complete. From Iteration 1 on, derive regression items mechanically from prior gates' observable-result lines.
+- Gate items must be specific, observable, and complete. From Iteration 1 on, derive regression items mechanically from prior gates' observable-result lines. The gate lives in the main doc and is mirrored into the context file's "Done when".
 
-Before writing to the doc, scan every file/function/class reference in the iteration details and confirm each existing one is linked.
+Before writing each context file, scan every file/function/class reference and confirm each existing one is linked (relative to the context file's location).
 
-Show all iteration details (with gates) at once after title approval. Stop and ask: *"Does this plan look right? Any changes before we start Iteration 0?"*
+Present all the context files (and the main-doc gates) together after title approval. Stop and ask: *"Does this plan look right? Any changes before we start Iteration 0?"* If the user requests changes, edit the relevant context file directly.
 
 Set `stage: 2, iteration: 0` on approval.
 
@@ -320,10 +310,11 @@ Before writing anything, detect the project's primary language and test framewor
 
 ### Mode: Reviewed
 
-Write the plan to **its own file**, not the main autobot doc. Name it next to the autobot document, e.g. `autobot-<feature>-plan-iter-N.md`. Then add a link to it under the iteration in the main doc:
+Write the plan to **its own file**, not the main autobot doc. Name it next to the autobot document, e.g. `autobot-<feature>-plan-iter-N.md`. Then add a link to it under the iteration's existing block in the main doc (alongside its context-file link):
 
 ```
 ### Iteration N — <Title>
+**Context file:** [Iteration N context](autobot-<feature>-ctx-iter-N.md)
 **Reviewed plan:** [Iteration N plan](autobot-<feature>-plan-iter-N.md)
 ```
 
@@ -419,7 +410,7 @@ Then present the ledger to the user and ask them to complete the Manual Testing 
 
 1. Run the full test suite once to establish a clean baseline. Surface any failures and stop until resolved.
 2. Apply the [Model policy](#model-policy): this is the implementation boundary — prompt the user to switch to Sonnet for token efficiency and wait for confirmation (once per run).
-3. **Write the iteration context file** — generate `autobot-<feature>-ctx-iter-0.md` per the [Iteration context files](#iteration-context-files) spec. Add the link to the autobot doc before handing off.
+3. The iteration context file already exists (created at Stage 2). Set its `## TDD mode` line to the mode just chosen, and — if Reviewed — link the plan file once it's written.
 4. Proceed by mode:
    - *Reviewed:* Tell the user "Say 'Implement Phase 0.1' (or whichever phase) and I'll spawn a subagent for it. One phase at a time." Stop and wait — do not spawn until the user names a phase.
    - *Autonomous:* Spawn the subagent immediately per the [Autonomous mode](#mode-autonomous) spec. No user action needed — report back when done, then ask the user to complete the gate.
@@ -432,7 +423,10 @@ Then present the ledger to the user and ask them to complete the Manual Testing 
 
 When the user replies after a gate:
 
-- **All confirmed:** tick boxes to `[x]`, set `**Confirmed by user:** <date>`, set `gate: confirmed`. Then propose a concise commit message (one imperative sentence, ≤72 chars, no title/body split) and ask: *"Commit this? I'll run `git commit -m \"<message>\"` for you."* Run it only if the user says yes. Proceed to Stage 6.
+- **All confirmed:** tick boxes to `[x]`, set `**Confirmed by user:** <date>`, set `gate: confirmed`. Then:
+  1. Ask: *"Delete this iteration's context file (`autobot-<feature>-ctx-iter-N.md`)? It's served its purpose."* Delete only if yes.
+  2. If a Reviewed TDD plan file was generated for this iteration, separately ask: *"Delete the TDD plan file (`autobot-<feature>-plan-iter-N.md`) too?"* Delete only if yes.
+  3. Propose a concise commit message (one imperative sentence, ≤72 chars, no title/body split) and ask: *"Commit this? I'll run `git commit -m \"<message>\"` for you."* Run it only if the user says yes. Proceed to Stage 6.
 - **Any failed:** leave `gate: pending`, acknowledge, help fix, ask user to re-run and re-confirm.
 
 This gate is mandatory. If the user tries to skip it, refuse and redirect. Never treat a gate as passed without writing it to the file.
@@ -441,7 +435,7 @@ This gate is mandatory. If the user tries to skip it, refuse and redirect. Never
 
 ## Stage 6 — Build Iteration N
 
-After the previous gate is confirmed. Identical to Stage 3 + Stage 4: ask mode, write the context file, write any Reviewed plan, then hand off — Reviewed mode stops and waits, Autonomous mode spawns a subagent immediately. Repeat Stages 5–6 until every iteration is confirmed.
+After the previous gate is confirmed. Identical to Stage 3 + Stage 4: ask mode, set the `## TDD mode` line in the already-created context file, write any Reviewed plan, then hand off — Reviewed mode stops and waits, Autonomous mode spawns a subagent immediately. Repeat Stages 5–6 until every iteration is confirmed.
 
 ---
 
@@ -450,7 +444,7 @@ After the previous gate is confirmed. Identical to Stage 3 + Stage 4: ask mode, 
 When the last iteration's gate is confirmed:
 1. Run the full test suite — confirm no failures or regressions.
 2. Set `stage: 7, gate: confirmed` and declare the feature done.
-3. Delete all `autobot-<feature>-ctx-iter-*.md` files for this run — they were temporary scaffolding.
+3. Context and TDD plan files are cleaned up per-iteration at Stage 5. If any remain (the user kept some), ask once whether to delete the leftovers now.
 4. Propose a commit message and ask permission — same as Stage 5. Run it only if the user says yes.
 
 ---
