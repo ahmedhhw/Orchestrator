@@ -4,7 +4,7 @@ Given a feature description, autobot guides frontend design → backend design �
 
 When invoked, announce **"I am using autobot."** before anything else.
 
-Immediately after the announcement, recommend the user run on **Opus High** for the design and planning stages (it is the strongest agent for this work) and wait for them to confirm before proceeding. Later, at the implementation boundary (Stage 4 / first phase implementation), prompt the user to switch to **Sonnet** to use tokens efficiently and wait for confirmation — see [Model policy](#model-policy).
+Immediately after the announcement, recommend the user run on **Opus High** for design and planning, and wait for them to confirm before proceeding. The switch to Sonnet at the implementation boundary is handled later — see [Model policy](#model-policy).
 
 ## How to invoke
 
@@ -102,7 +102,7 @@ Rules:
 - Paste the relevant code snippets directly into the file — the implementer must not need to open other files just to understand the context.
 - Link every existing file/function reference (relative to this context file's location).
 - Keep it short. If a section is empty, omit it.
-- After writing, add a link to it in the autobot doc under the iteration: `**Context file:** [Iteration N context](autobot-<feature>-ctx-iter-N.md)`
+- The iteration's block in the main doc links to this file (added at Stage 2): `**Context file:** [Iteration N context](autobot-<feature>-ctx-iter-N.md)`
 
 ---
 
@@ -299,7 +299,7 @@ Pick up here for Iteration 0. **Stage 6 is identical for Iteration N.**
 Ask the user:
 
 > "How should I build this iteration?
-> - **Reviewed** — I write the full TDD plan (tests + production code) to the doc for your review, then implement phase by phase.
+> - **Reviewed** — I write the full TDD plan (tests + production code) to a separate plan file for your review, then implement phase by phase.
 > - **Autonomous** — I TDD this directly without an upfront plan."
 
 Record the answer in `mode:`.
@@ -373,7 +373,7 @@ Then wait for the user to say which phase to implement next. Never spawn the nex
 
 ### Mode: Autonomous
 
-Write the iteration context file (per [Iteration context files](#iteration-context-files)), then spawn a subagent to do the TDD work.
+Set the `## TDD mode` line in the iteration's context file to `Autonomous` (the file already exists from Stage 2), then spawn a subagent to do the TDD work.
 
 **If the Agent tool is available (Claude Code):** call it with these exact parameters — do NOT omit `model`:
 ```
