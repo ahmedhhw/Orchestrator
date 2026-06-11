@@ -9,6 +9,7 @@ class WorktreeModel:
     last_commit_ts: int
     is_merged: bool
     is_stale: bool
+    is_dirty: bool = False
 
 
 @dataclass

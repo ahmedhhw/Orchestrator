@@ -98,3 +98,15 @@ def test_repo_config_vscode_editor():
     )
     assert cfg.last_editor == "vscode"
     assert cfg.last_editor_mode == "new"
+
+
+def test_worktree_model_is_dirty_defaults_to_false():
+    wt = WorktreeModel(
+        path="/repos/proj-wt/feature-auth",
+        branch="feature/auth",
+        is_main=False,
+        last_commit_ts=1_700_000_000,
+        is_merged=False,
+        is_stale=False,
+    )
+    assert wt.is_dirty is False

@@ -184,6 +184,7 @@ class MainWindowViewModel:
         branch_status = self.list_branches_with_checkout_status()
         total = len(worktrees)
         for i, wt in enumerate(worktrees, 1):
+            wt.is_dirty = self._git.has_uncommitted_changes(wt.path)
             if on_progress:
                 on_progress(i, total, wt.branch)
         return {"worktrees": worktrees, "branch_status": branch_status}

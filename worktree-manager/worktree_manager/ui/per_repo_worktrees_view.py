@@ -184,6 +184,13 @@ class PerRepoWorktreesView(QWidget):
         name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout.addWidget(name_label)
 
+        if wt.is_dirty:
+            dirty = QLabel("●")
+            dirty.setObjectName("dirty_marker")
+            dirty.setStyleSheet("color: orange;")
+            dirty.setToolTip("Uncommitted changes")
+            layout.addWidget(dirty)
+
         age = QLabel(_fmt_age(wt.last_commit_ts))
         age.setStyleSheet("color: gray;")
         layout.addWidget(age)

@@ -381,3 +381,39 @@ def test_all_cleanup_candidates_includes_healthy_orphan(store, git):
     local_vm.load_worktrees()
     candidates = local_vm.all_cleanup_candidates()
     assert any(c.branch == "hotfix/patch" for c in candidates)
+
+
+# Dirty indicator tests
+
+def test_load_worktree_view_data_marks_dirty_worktrees(store, git):
+    now = int(time.time())
+    dirty_wt = WorktreeModel("/repos/proj-wt/fix-auth", "fix/auth", False, now - 3600, False, False)
+    clean_wt = WorktreeModel("/repos/proj-wt/chore-deps", "chore/deps", False, now - 3600, False, False)
+    git.list_worktrees.return_value = [dirty_wt, clean_wt]
+    git.list_local_branches.return_value = []
+    git.has_uncommitted_changes.side_effect = lambda path: path == "/repos/proj-wt/fix-auth"
+    local_vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store, git_service=git,
+    )
+    data = local_vm.load_worktree_view_data()
+    worktrees = data["worktrees"]
+    fix_auth = next(w for w in worktrees if w.path == "/repos/proj-wt/fix-auth")
+    chore_deps = next(w for w in worktrees if w.path == "/repos/proj-wt/chore-deps")
+    assert fix_auth.is_dirty is True
+    assert chore_deps.is_dirty is False
+
+
+def test_load_worktree_view_data_calls_dirty_check_once_per_worktree(store, git):
+    now = int(time.time())
+    wt1 = WorktreeModel("/repos/proj-wt/fix-auth", "fix/auth", False, now - 3600, False, False)
+    wt2 = WorktreeModel("/repos/proj-wt/chore-deps", "chore/deps", False, now - 3600, False, False)
+    git.list_worktrees.return_value = [wt1, wt2]
+    git.list_local_branches.return_value = []
+    git.has_uncommitted_changes.return_value = False
+    local_vm = MainWindowViewModel(
+        repo_path="/repos/proj", config_store=store, git_service=git,
+    )
+    local_vm.load_worktree_view_data()
+    assert git.has_uncommitted_changes.call_count == 2
+    calls = {c.args[0] for c in git.has_uncommitted_changes.call_args_list}
+    assert calls == {"/repos/proj-wt/fix-auth", "/repos/proj-wt/chore-deps"}
