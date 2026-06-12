@@ -1,4 +1,4 @@
-"""Phase 3.1 — FilterableComboBox records the index before an edit begins."""
+"""Committed index is stable during filtering keystrokes."""
 import pytest
 
 from worktree_manager.ui.filterable_combo import FilterableComboBox
@@ -12,15 +12,15 @@ def combo(qtbot):
     return c
 
 
-def test_first_filter_keystroke_records_the_starting_index(qtbot, combo):
+def test_first_filter_keystroke_does_not_move_committed_index(qtbot, combo):
     combo.setCurrentIndex(2)
     combo.lineEdit().textEdited.emit("fea")
-    assert combo._index_before_edit == 2
+    assert combo._committed_index == 2
 
 
-def test_index_before_edit_is_not_overwritten_by_later_keystrokes(qtbot, combo):
+def test_repeated_keystrokes_do_not_move_committed_index(qtbot, combo):
     combo.setCurrentIndex(3)
     combo.lineEdit().textEdited.emit("f")
     combo.lineEdit().textEdited.emit("fe")
     combo.lineEdit().textEdited.emit("fea")
-    assert combo._index_before_edit == 3
+    assert combo._committed_index == 3

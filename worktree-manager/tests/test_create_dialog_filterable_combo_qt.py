@@ -25,7 +25,7 @@ def test_base_combo_is_editable(qtbot):
 
 def test_base_var_reflects_committed_selection(qtbot):
     d = _make_dialog(qtbot)
-    d._base_combo._commit_from_completer("feature/login")
+    d._base_combo._on_completer_activated("feature/login")
     assert d._base_var.get() == "feature/login"
 
 

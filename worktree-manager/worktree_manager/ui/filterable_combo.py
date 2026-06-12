@@ -108,9 +108,9 @@ class FilterableComboBox(QComboBox):
         return self.itemText(self._committed_index)
 
     def setCurrentIndex(self, index):
-        super().setCurrentIndex(index)
-        self._committed_index = index
+        self._committed_index = index   # update before super so currentText() is correct inside signal handlers
         self._set_invalid(False)
+        super().setCurrentIndex(index)
 
     def setCurrentText(self, text):
         # Selection-only: select the matching item; ignore non-matches.
