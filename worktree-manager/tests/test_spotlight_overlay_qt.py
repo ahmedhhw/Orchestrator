@@ -581,3 +581,58 @@ def test_caption_hidden_when_list_is_empty(qtbot):
     edit.setText("project zzz")
     assert _list_items(overlay) == []
     assert _caption_text(overlay) == ""
+
+
+# ---------------------------------------------------------------------------
+# Spaced-slot-value tests
+# ---------------------------------------------------------------------------
+
+def test_committing_spaced_project_name_then_enter_executes_not_corrupts(qtbot):
+    """Selecting 'My App' → box shows 'project My App '; press Enter → action runs with
+    {'name': 'My App'} and overlay hides. Box must never show 'project MMy App '."""
+    calls = []
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="open_project",
+        keywords=["project"],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["My App", "Other"])],
+        runner=lambda args: calls.append(args),
+    ))
+    overlay = SpotlightOverlay(parser=ActionParser(registry))
+    qtbot.addWidget(overlay)
+    overlay.show()
+
+    edit = overlay.findChild(QLineEdit)
+    # Simulate selecting "My App" from the list — the commit sets text to "project My App "
+    edit.setText("project My App ")
+    qtbot.keyClick(edit, Qt.Key_Return)
+
+    assert calls == [{"name": "My App"}]
+    assert not overlay.isVisible()
+    assert edit.text() != "project MMy App "
+
+
+def test_clicking_spaced_project_row_executes_in_one_shot(qtbot):
+    """_on_item_clicked on 'My App' commits and (because fully committed) executes."""
+    calls = []
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="open_project",
+        keywords=["project"],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["My App", "Other"])],
+        runner=lambda args: calls.append(args),
+    ))
+    overlay = SpotlightOverlay(parser=ActionParser(registry))
+    qtbot.addWidget(overlay)
+    overlay.show()
+
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("project ")
+    lw = overlay.findChild(QListWidget)
+    # "My App" should be the first item in the list
+    items = [lw.item(i).text() for i in range(lw.count())]
+    idx = items.index("My App")
+    lw.itemClicked.emit(lw.item(idx))
+
+    assert calls == [{"name": "My App"}]
+    assert not overlay.isVisible()

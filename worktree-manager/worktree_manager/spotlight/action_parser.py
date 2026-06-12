@@ -31,6 +31,35 @@ def _prefix_filter(items: list[str], needle: str) -> list[str]:
     return [item for item in items if item.lower().startswith(needle)]
 
 
+def _arg_string_after_keywords(text: str, keywords: list[str]) -> str:
+    """Return the substring of text after the matched keyword tokens (and their trailing space).
+
+    Keywords are matched as leading whitespace-delimited tokens; the remainder
+    (including internal spaces) is returned verbatim.
+    """
+    rest = text.lstrip()
+    for kw in keywords:
+        if rest.lower().startswith(kw.lower()):
+            rest = rest[len(kw):]
+        # Strip at most one separating space between keyword tokens.
+        if rest.startswith(" "):
+            rest = rest[1:]
+    return rest
+
+
+def _longest_committed_candidate(rest: str, cands: list[str]) -> str | None:
+    """Return the longest candidate c such that rest starts with c + ' ' or rest == c.
+
+    An exact match with no trailing space (rest == c) counts as committed when
+    it is the final token — nothing follows it.
+    """
+    best: str | None = None
+    for c in cands:
+        if (rest == c or rest.startswith(c + " ")) and (best is None or len(c) > len(best)):
+            best = c
+    return best
+
+
 class ActionParser:
     def __init__(
         self,
@@ -110,48 +139,28 @@ class ActionParser:
                 executable=True, completion_kind="slot",
             )
 
-        N = len(spec.slots)
-        rem = tokens[consumed:]
-        rem_count = len(rem)
+        arg_str = _arg_string_after_keywords(text, spec.keywords)
 
-        if rem_count == 0 and not ends_with_space:
-            active_idx, committed_count, needle = 0, 0, ""
-        elif rem_count <= N - 1:
-            if ends_with_space:
-                active_idx, committed_count, needle = rem_count, rem_count, ""
-            else:
-                active_idx = rem_count - 1
-                committed_count = active_idx
-                needle = rem[active_idx]
-        elif rem_count == N:
-            if ends_with_space:
-                active_idx, committed_count, needle = N - 1, N, ""
-            else:
-                active_idx, committed_count, needle = N - 1, N - 1, rem[N - 1]
-        else:
-            active_idx = N - 1
-            committed_count = N - 1
-            needle = " ".join(rem[N - 1:])
+        committed: dict[str, str] = {}
+        rest = arg_str
+        for i, slot in enumerate(spec.slots):
+            cands = slot.candidates(committed)
+            match = _longest_committed_candidate(rest, cands)
+            if match is None:
+                needle = rest
+                suggestions = _prefix_filter(cands, needle)
+                return ParseResult(
+                    action=spec, suggestions=suggestions, filter_text=needle,
+                    executable=(len(suggestions) == 1),
+                    completion_kind="slot",
+                    committed_args=committed, slot_index=i,
+                    all_candidates=cands,
+                )
+            committed[slot.name] = match
+            rest = rest[len(match) + 1:]  # +1 to strip the single space separator
 
-        committed_args: dict[str, str] = {
-            spec.slots[i].name: rem[i]
-            for i in range(min(committed_count, N))
-        }
-
-        if committed_count == N:
-            return ParseResult(
-                action=spec, suggestions=[], filter_text="",
-                executable=True, completion_kind="slot",
-                committed_args=committed_args, slot_index=N,
-            )
-
-        active_slot = spec.slots[active_idx]
-        candidates = active_slot.candidates(committed_args)
-        suggestions = _prefix_filter(candidates, needle)
         return ParseResult(
-            action=spec, suggestions=suggestions, filter_text=needle,
-            executable=(len(suggestions) == 1),
-            completion_kind="slot",
-            committed_args=committed_args, slot_index=active_idx,
-            all_candidates=candidates,
+            action=spec, suggestions=[], filter_text="",
+            executable=True, completion_kind="slot",
+            committed_args=committed, slot_index=len(spec.slots),
         )

@@ -15,6 +15,29 @@ def _registry_with_project_action(projects):
     return r
 
 
+def _registry_with_command_action(repos, worktrees_by_repo=None, cmds=None):
+    """Multi-slot action: command [repo] [worktree] [cmd]."""
+    if worktrees_by_repo is None:
+        worktrees_by_repo = {}
+    if cmds is None:
+        cmds = []
+    r = ActionRegistry()
+    r.register(ActionSpec(
+        name="run_command",
+        keywords=["command"],
+        slots=[
+            ArgSlot(name="repo", candidates=lambda prev, rs=repos: list(rs)),
+            ArgSlot(
+                name="worktree",
+                candidates=lambda prev, wbr=worktrees_by_repo: wbr.get(prev.get("repo"), []),
+            ),
+            ArgSlot(name="cmd", candidates=lambda prev, cs=cmds: list(cs)),
+        ],
+        runner=lambda args: None,
+    ))
+    return r
+
+
 def test_empty_input_returns_root_keywords_as_suggestions():
     r = _registry_with_project_action(["foo"])
     p = ActionParser(r)
@@ -78,10 +101,14 @@ def test_executable_true_when_filter_matches_exactly_one_candidate():
     assert p.parse("project foo").executable is True
 
 
-def test_executable_false_when_filter_matches_multiple_candidates():
+def test_executable_true_when_filter_is_exact_match_even_if_another_candidate_shares_prefix():
+    # "foo" is an exact candidate — typing it and pressing Enter should execute,
+    # regardless of "foo-bar" also existing.
     r = _registry_with_project_action(["foo", "foo-bar"])
     p = ActionParser(r)
-    assert p.parse("project foo").executable is False
+    result = p.parse("project foo")
+    assert result.executable is True
+    assert result.committed_args == {"name": "foo"}
 
 
 def test_executable_false_when_filter_matches_no_candidates():
@@ -237,3 +264,98 @@ def test_slot_candidates_receive_previous_committed_args():
     p = ActionParser(r)
     p.parse("x a1 ")
     assert seen[-1] == {"a": "a1"}
+
+
+# ── Spaced-slot-values tests ──────────────────────────────────────────────────
+
+def test_spaced_project_name_with_trailing_space_is_committed_and_executable():
+    r = _registry_with_project_action(["My App", "Other"])
+    p = ActionParser(r)
+    result = p.parse("project My App ")
+    assert result.committed_args == {"name": "My App"}
+    assert result.slot_index == 1
+    assert result.executable is True
+    assert result.suggestions == []
+
+
+def test_spaced_project_name_without_trailing_space_is_committed_and_executable():
+    # Typing the full spaced name without a trailing space should be recognised as
+    # committed (exact match) and executable — Enter should run it immediately.
+    r = _registry_with_project_action(["My App", "Other"])
+    p = ActionParser(r)
+    result = p.parse("project My App")
+    assert result.slot_index == 1  # fully committed
+    assert result.committed_args == {"name": "My App"}
+    assert result.executable is True
+
+
+def test_typing_first_word_of_spaced_name_keeps_full_name_suggested():
+    r = _registry_with_project_action(["My App", "Other"])
+    p = ActionParser(r)
+    result = p.parse("project My")
+    assert result.suggestions == ["My App"]
+    assert result.slot_index == 0
+    assert result.filter_text == "My"
+
+
+def test_typing_across_internal_space_filters_by_whole_needle():
+    r = _registry_with_project_action(["My App", "My Other"])
+    p = ActionParser(r)
+    result = p.parse("project My A")
+    assert result.suggestions == ["My App"]
+    assert result.filter_text == "My A"
+
+
+def test_single_word_project_name_commits_with_trailing_space():
+    r = _registry_with_project_action(["solo", "other"])
+    p = ActionParser(r)
+    result = p.parse("project solo ")
+    assert result.committed_args == {"name": "solo"}
+    assert result.executable is True
+    assert result.suggestions == []
+
+
+def test_spaced_value_in_non_final_slot_commits_when_followed_by_space():
+    r = _registry_with_command_action(
+        repos=["My Repo", "Other Repo"],
+        worktrees_by_repo={"My Repo": ["main"], "Other Repo": ["dev"]},
+        cmds=["run"],
+    )
+    p = ActionParser(r)
+    result = p.parse("command My Repo ")
+    assert result.committed_args == {"repo": "My Repo"}
+    assert result.slot_index == 1
+
+
+def test_spaced_values_in_every_slot_all_commit():
+    r = _registry_with_command_action(
+        repos=["My Repo"],
+        worktrees_by_repo={"My Repo": ["main"]},
+        cmds=["Run Tests"],
+    )
+    p = ActionParser(r)
+    result = p.parse("command My Repo main Run Tests ")
+    assert result.committed_args == {"repo": "My Repo", "worktree": "main", "cmd": "Run Tests"}
+    assert result.executable is True
+    assert result.slot_index == 3
+
+
+def test_longest_matching_candidate_wins_for_prefix_nested_names():
+    r = _registry_with_project_action(["Two Word", "Two Word Thing"])
+    p = ActionParser(r)
+    result_long = p.parse("project Two Word Thing ")
+    assert result_long.committed_args == {"name": "Two Word Thing"}
+    assert result_long.executable is True
+
+    result_short = p.parse("project Two Word ")
+    assert result_short.committed_args == {"name": "Two Word"}
+    assert result_short.executable is True
+
+
+def test_typed_value_not_a_candidate_keeps_slot_active_no_suggestions():
+    r = _registry_with_project_action(["My App"])
+    p = ActionParser(r)
+    result = p.parse("project Zzz ")
+    assert result.suggestions == []
+    assert result.executable is False
+    assert result.slot_index == 0
