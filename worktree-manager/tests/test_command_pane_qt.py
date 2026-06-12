@@ -2,7 +2,9 @@ from unittest.mock import MagicMock
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextOption
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QTextEdit
+from PySide6.QtWidgets import (
+    QComboBox, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSizePolicy, QTextEdit,
+)
 
 from worktree_manager.command_runner import RunHandle, RunStatus
 from worktree_manager.models import WorktreeModel
@@ -71,6 +73,24 @@ def test_command_pane_append_line_renders_in_output(qtbot):
     p = _pane(qtbot)
     p.append_line("hello world")
     assert "hello world" in p.get_output_text()
+
+
+def test_long_command_wraps_instead_of_widening_row(qtbot):
+    p = _pane(qtbot)
+    long_cmd = "echo " + "x" * 400 + " && some --very --long --flag chain here"
+    p.set_edit_command(long_cmd)
+
+    # The label wraps long text downward...
+    assert p._cmd_label.wordWrap() is True
+    # ...and yields horizontal space so it never forces the row wider than the
+    # available width (which would push the Edit button off-screen).
+    assert p._cmd_label.sizePolicy().horizontalPolicy() == QSizePolicy.Ignored
+
+    # The Edit button keeps its natural width and stays reachable.
+    edit_btn = _button_with(p, "Edit ✎")
+    p.resize(300, 200)
+    qtbot.addWidget(p)
+    assert edit_btn.sizeHint().width() <= 300
 
 
 def test_command_pane_clear_output_empties_the_textbox(qtbot):

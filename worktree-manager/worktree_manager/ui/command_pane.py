@@ -4,8 +4,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QTextCharFormat, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
     QAbstractScrollArea, QApplication, QComboBox, QHBoxLayout, QLabel,
-    QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QStyle,
-    QTextEdit, QVBoxLayout, QWidget,
+    QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy,
+    QStyle, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.ui.filterable_combo import FilterableComboBox
@@ -269,6 +269,13 @@ class CommandPane(QWidget):
         cmd_bar.setContentsMargins(0, 0, 0, 0)
         self._cmd_label = QLabel("")
         self._cmd_label.setStyleSheet("color: gray; font-family: monospace;")
+        # Wrap long commands so they grow downward instead of widening the row
+        # and pushing the Edit button out of view (which forced a horizontal
+        # scrollbar to reach the controls).
+        self._cmd_label.setWordWrap(True)
+        cmd_policy = self._cmd_label.sizePolicy()
+        cmd_policy.setHorizontalPolicy(QSizePolicy.Ignored)
+        self._cmd_label.setSizePolicy(cmd_policy)
         cmd_bar.addWidget(self._cmd_label, 1)
         self._revert_note = QLabel("Command reverted — hit restart to run reverted command")
         self._revert_note.setStyleSheet("color: orange; font-style: italic;")
@@ -277,7 +284,7 @@ class CommandPane(QWidget):
         self._btn_edit = QPushButton("Edit ✎")
         self._btn_edit.setToolTip("Edit command")
         self._btn_edit.clicked.connect(lambda _checked=False: self.enter_edit_mode())
-        cmd_bar.addWidget(self._btn_edit)
+        cmd_bar.addWidget(self._btn_edit, 0, Qt.AlignTop)
         outer.addLayout(cmd_bar)
 
         self._cmd_edit = QPlainTextEdit()
