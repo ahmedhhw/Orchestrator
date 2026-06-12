@@ -1,9 +1,9 @@
-"""Phase 3.2 — _commit_from_completer emits currentIndexChanged exactly once.
+"""Completer activation emit tests.
 
 Covers:
-- committing after the index already moved under blockSignals -> re-emits once
-- normal path (index not yet at target) -> emits once via setCurrentIndex
-- committing the already-selected item -> emits nothing
+- completer pick while filtered text is in line edit -> commits once (no blockSignals machinery)
+- completer pick of a different item -> emits once via setCurrentIndex
+- completer pick of the already-committed item -> emits nothing
 - raw filter keystrokes without committing -> emit nothing
 """
 import pytest
@@ -19,34 +19,34 @@ def combo(qtbot):
     return c
 
 
-def test_committing_a_match_after_the_index_moved_emits_once(qtbot, combo):
-    # Simulate filtering having advanced the index to the target under blockSignals.
+def test_completer_activated_while_filter_text_shown_emits_once(qtbot, combo):
+    # User has typed a filter prefix so line edit shows partial text, then picks
+    # from the completer dropdown.  Signals are never blocked, so the commit path
+    # just fires currentIndexChanged once via setCurrentIndex.
     combo.setCurrentIndex(0)
-    combo.lineEdit().textEdited.emit("search")   # _index_before_edit = 0, signals blocked
+    combo.lineEdit().setText("search")
+    combo.lineEdit().textEdited.emit("search")   # clears any invalid flag only
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    super(FilterableComboBox, combo).setCurrentIndex(1)  # index moves while signals blocked
-    combo._commit_from_completer("feature/search")
+    combo._on_completer_activated("feature/search")
     assert fired == [1]
     assert combo.currentIndex() == 1
 
 
-def test_committing_a_match_on_the_normal_path_emits_once(qtbot, combo):
+def test_completer_activated_with_different_item_emits_once(qtbot, combo):
     combo.setCurrentIndex(0)
-    combo.lineEdit().textEdited.emit("search")
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    combo._commit_from_completer("feature/search")
+    combo._on_completer_activated("feature/search")
     assert fired == [1]
     assert combo.currentIndex() == 1
 
 
-def test_committing_the_already_selected_item_emits_nothing(qtbot, combo):
+def test_completer_activated_with_already_committed_item_emits_nothing(qtbot, combo):
     combo.setCurrentIndex(1)
-    combo.lineEdit().textEdited.emit("search")   # _index_before_edit = 1
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    combo._commit_from_completer("feature/search")
+    combo._on_completer_activated("feature/search")
     assert fired == []
     assert combo.currentIndex() == 1
 
