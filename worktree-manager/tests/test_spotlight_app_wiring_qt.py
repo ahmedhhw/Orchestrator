@@ -78,7 +78,8 @@ def test_enter_invokes_open_project_on_workspace_vm(qtbot, tmp_path, monkeypatch
     app.show()
     overlay = app.open_spotlight_for_test()
     edit = overlay.findChild(QLineEdit)
-    edit.setText("project alpha")
+    # New model: trailing space means slot committed; Enter executes.
+    edit.setText("project alpha ")
     qtbot.keyClick(edit, Qt.Key_Return)
     assert len(calls) == 1
     assert calls[0][0] == "alpha"

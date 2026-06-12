@@ -1,14 +1,44 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLineEdit, QListWidget
+from PySide6.QtWidgets import QLabel, QLineEdit, QListWidget
 
 from worktree_manager.spotlight.action_parser import ActionParser
 from worktree_manager.spotlight.action_registry import (
     ActionRegistry, ActionSpec, ArgSlot,
 )
+from worktree_manager.spotlight.nickname_store import NicknameEntry, NicknameStore
 from worktree_manager.ui.spotlight_overlay import SpotlightOverlay
 
 
-def _make_overlay(qtbot, projects=("alpha", "beta", "gamma")):
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+class _FakeNicknameStore:
+    """Minimal in-memory NicknameStore for tests."""
+
+    def __init__(self, entries: dict[str, NicknameEntry] | None = None):
+        self._entries: dict[str, NicknameEntry] = entries or {}
+
+    def all(self) -> dict[str, NicknameEntry]:
+        return dict(self._entries)
+
+    def get(self, nickname: str) -> NicknameEntry | None:
+        return self._entries.get(nickname)
+
+    def save(self, entry: NicknameEntry) -> None:
+        self._entries[entry.nickname] = entry
+
+    def delete(self, nickname: str) -> None:
+        self._entries.pop(nickname, None)
+
+
+def _make_overlay(
+    qtbot,
+    projects=("alpha", "beta", "gamma"),
+    mru_labels: list[str] | None = None,
+    nickname_store: _FakeNicknameStore | None = None,
+    on_action_executed=None,
+):
     registry = ActionRegistry()
     registry.register(ActionSpec(
         name="open_project",
@@ -16,8 +46,15 @@ def _make_overlay(qtbot, projects=("alpha", "beta", "gamma")):
         slots=[ArgSlot(name="name", candidates=lambda prev, p=projects: list(p))],
         runner=lambda args: None,
     ))
-    parser = ActionParser(registry)
-    overlay = SpotlightOverlay(parser=parser)
+    parser = ActionParser(
+        registry,
+        nickname_store=nickname_store,
+        mru_labels=mru_labels or [],
+    )
+    overlay = SpotlightOverlay(
+        parser=parser,
+        on_action_executed=on_action_executed,
+    )
     qtbot.addWidget(overlay)
     overlay.show()
     return overlay
@@ -27,6 +64,18 @@ def _list_items(overlay):
     lw = overlay.findChild(QListWidget)
     return [lw.item(i).text() for i in range(lw.count())]
 
+
+def _caption_text(overlay) -> str:
+    """Return the visible caption label text, or '' if hidden."""
+    label = overlay.findChild(QLabel, "caption_label")
+    if label is None or label.isHidden():
+        return ""
+    return label.text()
+
+
+# ---------------------------------------------------------------------------
+# Baseline structural tests (always kept)
+# ---------------------------------------------------------------------------
 
 def test_overlay_is_frameless(qtbot):
     registry = ActionRegistry()
@@ -85,7 +134,9 @@ def test_escape_hides_overlay(qtbot):
     assert not overlay.isVisible()
 
 
-# ── Phase 0.4 tests ─────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Phase 0.4 survivors (re-expressed for new model — no ghost)
+# ---------------------------------------------------------------------------
 
 def test_enter_runs_action_with_highlighted_suggestion_as_arg(qtbot):
     calls = []
@@ -101,8 +152,8 @@ def test_enter_runs_action_with_highlighted_suggestion_as_arg(qtbot):
     overlay.show()
 
     edit = overlay.findChild(QLineEdit)
-    edit.setText("project ")  # trailing space — no ghost, shows both candidates
-    qtbot.keyClick(edit, Qt.Key_Down)  # highlight "beta"
+    # New model: trailing space means slot committed; Enter executes.
+    edit.setText("project beta ")  # all committed
     qtbot.keyClick(edit, Qt.Key_Return)
 
     assert calls == [{"name": "beta"}]
@@ -120,7 +171,8 @@ def test_enter_hides_overlay_after_running(qtbot):
     qtbot.addWidget(overlay)
     overlay.show()
     edit = overlay.findChild(QLineEdit)
-    edit.setText("project alpha")  # fully typed — no ghost
+    # New model: trailing space means slot is committed; one Enter executes.
+    edit.setText("project alpha ")
     qtbot.keyClick(edit, Qt.Key_Return)
     assert not overlay.isVisible()
 
@@ -143,31 +195,6 @@ def test_enter_with_empty_suggestion_list_is_noop(qtbot):
     assert calls == []
     assert overlay.isVisible()
 
-
-def test_enter_with_ghost_commits_only_does_not_execute(qtbot):
-    # "pro" has ghost "ject "; Enter commits to "project " but does not execute —
-    # the command still needs a slot argument.
-    calls = []
-    registry = ActionRegistry()
-    registry.register(ActionSpec(
-        name="open_project",
-        keywords=["project"],
-        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha"])],
-        runner=lambda args: calls.append(args),
-    ))
-    overlay = SpotlightOverlay(parser=ActionParser(registry))
-    qtbot.addWidget(overlay)
-    overlay.show()
-    edit = overlay.findChild(QLineEdit)
-    edit.setText("pro")
-    assert edit.ghost_text() == "ject"
-    qtbot.keyClick(edit, Qt.Key_Return)
-    assert edit.text() == "project"
-    assert calls == []
-    assert overlay.isVisible()
-
-
-# ── Phase 1.4 tests ──────────────────────────────────────────────────────────
 
 def test_enter_on_zero_arg_action_runs_with_empty_args(qtbot):
     calls = []
@@ -200,7 +227,8 @@ def test_enter_on_multi_keyword_chain_with_arg(qtbot):
     qtbot.addWidget(overlay)
     overlay.show()
     edit = overlay.findChild(QLineEdit)
-    edit.setText("edit project alpha")
+    # New model: trailing space means slot committed; Enter executes.
+    edit.setText("edit project alpha ")
     qtbot.keyClick(edit, Qt.Key_Return)
     assert calls == [{"name": "alpha"}]
 
@@ -222,83 +250,64 @@ def test_enter_on_multi_slot_uses_committed_plus_highlighted(qtbot):
     qtbot.addWidget(overlay)
     overlay.show()
     edit = overlay.findChild(QLineEdit)
-    edit.setText("command repoA wt2 runs")
+    # New model: trailing space means all slots committed; Enter executes.
+    edit.setText("command repoA wt2 runs ")
     qtbot.keyClick(edit, Qt.Key_Return)
     assert calls == [{"repo": "repoA", "worktree": "wt2", "cmd": "runs"}]
 
 
-# ── Phase 1.5 tests ──────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# New Iteration-0 tests
+# ---------------------------------------------------------------------------
 
-def test_tab_commits_ghost_when_single_option(qtbot):
-    # "pro" already has ghost "ject" from _refresh (single match).
-    # First Tab commits that ghost; real input becomes "project".
+def test_empty_input_shows_mru_then_keywords_row0_highlighted_caption_commands(qtbot):
+    """Shows MRU labels then root keywords on empty input; row 0 highlighted; caption COMMANDS."""
+    overlay = _make_overlay(qtbot, mru_labels=["my-alias"])
+    lw = overlay.findChild(QListWidget)
+    items = _list_items(overlay)
+    assert items == ["my-alias", "project"]
+    assert lw.currentRow() == 0
+    assert _caption_text(overlay) == "COMMANDS"
+
+
+def test_typing_filters_active_token_line_edit_text_unchanged(qtbot):
+    """Typing narrows the list; the line-edit text is exactly what was typed."""
     overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
-    edit.setText("pro")
-    assert edit.ghost_text() == "ject"   # auto-set by _refresh
-    qtbot.keyClick(edit, Qt.Key_Tab)
-    assert edit.text() == "project"
-    assert edit.ghost_text() == ""
+    edit.setText("project al")
+    assert edit.text() == "project al"
+    assert _list_items(overlay) == ["alpha"]
 
 
-def test_tab_shows_ghost_for_common_prefix(qtbot):
-    registry = ActionRegistry()
-    registry.register(ActionSpec(name="run_server", keywords=["runserver"], slots=[]))
-    registry.register(ActionSpec(name="run_tests", keywords=["runtests"], slots=[]))
-    overlay = SpotlightOverlay(parser=ActionParser(registry))
-    qtbot.addWidget(overlay)
-    overlay.show()
-    edit = overlay.findChild(QLineEdit)
-    edit.setText("ru")
-    qtbot.keyClick(edit, Qt.Key_Tab)
-    # real input unchanged; ghost shows common prefix extension "n"
-    assert edit.text() == "ru"
-    assert edit.ghost_text() == "n"
-
-
-def test_tab_cycles_ghost_when_no_common_prefix(qtbot):
-    overlay = _make_overlay(qtbot, projects=("alpha", "beta"))
+def test_up_down_moves_highlight_does_not_change_text(qtbot):
+    """Up/Down move the list highlight; the line-edit text is never changed."""
+    overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
     edit.setText("project ")
-    qtbot.keyClick(edit, Qt.Key_Tab)
-    first_ghost = edit.ghost_text()
-    assert first_ghost in ("alpha", "beta")
-    assert edit.text() == "project "  # real input unchanged
-    qtbot.keyClick(edit, Qt.Key_Tab)
-    second_ghost = edit.ghost_text()
-    assert {first_ghost, second_ghost} == {"alpha", "beta"}
-    assert edit.text() == "project "
+    lw = overlay.findChild(QListWidget)
+    initial_text = edit.text()
+    qtbot.keyClick(edit, Qt.Key_Down)
+    assert lw.currentRow() == 1
+    assert edit.text() == initial_text
+    qtbot.keyClick(edit, Qt.Key_Up)
+    assert lw.currentRow() == 0
+    assert edit.text() == initial_text
 
 
-def test_tab_commits_ghost_then_enter_executes(qtbot):
-    # "project a" already has ghost "lpha" from _refresh.
-    # Tab commits ghost → "project alpha"; Enter executes.
-    calls = []
-    registry = ActionRegistry()
-    registry.register(ActionSpec(
-        name="open_project",
-        keywords=["project"],
-        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha"])],
-        runner=lambda args: calls.append(args),
-    ))
-    overlay = SpotlightOverlay(parser=ActionParser(registry))
-    qtbot.addWidget(overlay)
-    overlay.show()
+def test_enter_on_keyword_row_commits_plain_text_with_trailing_space(qtbot):
+    """Enter on a highlighted keyword row appends it (+ space) as plain text and advances the list."""
+    overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
-    edit.setText("project a")
-    assert edit.ghost_text() == "lpha"   # auto-set by _refresh
-    qtbot.keyClick(edit, Qt.Key_Tab)     # commits ghost
-    assert edit.text() == "project alpha"
-    assert edit.ghost_text() == ""
-    assert calls == []
-    qtbot.keyClick(edit, Qt.Key_Return)  # executes
-    assert calls == [{"name": "alpha"}]
-    assert not overlay.isVisible()
+    # Start at root — "project" is highlighted
+    qtbot.keyClick(edit, Qt.Key_Return)
+    # After commit the edit should have "project " and list should show slot candidates
+    assert edit.text() == "project "
+    items = _list_items(overlay)
+    assert items == ["alpha", "beta", "gamma"]
 
 
-def test_tab_commits_ghost_for_non_final_slot_then_waits(qtbot):
-    # "command rep" already has ghost "oA" from _refresh (single match, non-final slot).
-    # Tab commits ghost → "command repoA"; still needs worktree slot.
+def test_enter_walks_every_slot_then_executes(qtbot):
+    """Enter on each slot commits it; after the last slot Enter executes and closes."""
     calls = []
     registry = ActionRegistry()
     registry.register(ActionSpec(
@@ -314,85 +323,261 @@ def test_tab_commits_ghost_for_non_final_slot_then_waits(qtbot):
     qtbot.addWidget(overlay)
     overlay.show()
     edit = overlay.findChild(QLineEdit)
-    edit.setText("command rep")
-    assert edit.ghost_text() == "oA"    # auto-set by _refresh
-    qtbot.keyClick(edit, Qt.Key_Tab)    # commits ghost
-    assert edit.text() == "command repoA"
-    assert calls == []   # not yet executable
+
+    # commit keyword
+    qtbot.keyClick(edit, Qt.Key_Return)
+    assert edit.text() == "command "
+    # commit repo slot (row 0 = "repoA")
+    qtbot.keyClick(edit, Qt.Key_Return)
+    assert edit.text() == "command repoA "
+    # commit worktree slot (row 0 = "wt1")
+    qtbot.keyClick(edit, Qt.Key_Return)
+    assert edit.text() == "command repoA wt1 "
+    # one more Enter executes
+    qtbot.keyClick(edit, Qt.Key_Return)
+    assert calls == [{"repo": "repoA", "worktree": "wt1"}]
+    assert not overlay.isVisible()
 
 
-def test_non_tab_key_does_not_commit_ghost(qtbot):
-    overlay = _make_overlay(qtbot)
-    edit = overlay.findChild(QLineEdit)
-    edit.setText("pro")
-    assert edit.ghost_text() == "ject"
-    # typing any character should NOT commit the ghost — it types into the real input
-    qtbot.keyClick(edit, Qt.Key_X)
-    assert edit.ghost_text() == ""  # ghost is cleared (text changed, no longer valid)
-    assert edit.text() == "prox"    # real input got the keystroke, ghost was not committed
-
-
-def test_enter_without_ghost_on_incomplete_command_shows_error(qtbot):
+def test_enter_on_complete_zero_slot_keyword_executes_and_hides(qtbot):
+    """Enter on a fully-typed zero-slot keyword executes and hides the overlay."""
+    calls = []
     registry = ActionRegistry()
     registry.register(ActionSpec(
-        name="open_project",
-        keywords=["project"],
-        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha", "beta"])],
-        runner=lambda args: None,
+        name="open_settings",
+        keywords=["settings"],
+        slots=[],
+        runner=lambda args: calls.append(args),
     ))
     overlay = SpotlightOverlay(parser=ActionParser(registry))
     qtbot.addWidget(overlay)
     overlay.show()
     edit = overlay.findChild(QLineEdit)
-    edit.setText("pro")  # partial keyword, no ghost because 2 candidates share prefix
-    # Clear the ghost manually so there is definitely no ghost showing
-    edit.set_ghost_text("")
+    # commit keyword row first
+    qtbot.keyClick(edit, Qt.Key_Return)  # commits "settings "
+    # now the command is executable (slot_index == len(slots) == 0, executable)
     qtbot.keyClick(edit, Qt.Key_Return)
+    assert calls == [{}]
+    assert not overlay.isVisible()
+
+
+def test_enter_on_exact_nickname_runs_stored_action_and_hides(qtbot):
+    """Enter on an exact nickname runs the stored action with stored args and closes (the bug fix)."""
+    calls = []
+    ns = _FakeNicknameStore({
+        "myalias": NicknameEntry(
+            nickname="myalias",
+            action_name="open_project",
+            args={"name": "alpha"},
+        )
+    })
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="open_project",
+        keywords=["project"],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha"])],
+        runner=lambda args: calls.append(args),
+    ))
+    parser = ActionParser(registry, nickname_store=ns)
+    overlay = SpotlightOverlay(parser=parser)
+    qtbot.addWidget(overlay)
+    overlay.show()
+
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("myalias")
+    qtbot.keyClick(edit, Qt.Key_Return)
+
+    assert calls == [{"name": "alpha"}]
+    assert not overlay.isVisible()
+
+
+def test_enter_on_nickname_row_selected_from_partial_input_runs_action(qtbot):
+    """Selecting a nickname row from partial typed text (not an exact match) and pressing Enter
+    must execute the nickname, not commit it with a trailing space and then fail."""
+    calls = []
+    ns = _FakeNicknameStore({
+        "projo1": NicknameEntry(
+            nickname="projo1",
+            action_name="open_project",
+            args={"name": "dev-tools"},
+        )
+    })
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="open_project",
+        keywords=["project"],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["dev-tools"])],
+        runner=lambda args: calls.append(args),
+    ))
+    parser = ActionParser(registry, nickname_store=ns)
+    overlay = SpotlightOverlay(parser=parser)
+    qtbot.addWidget(overlay)
+    overlay.show()
+
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("proj")  # partial — projo1 appears as a suggestion but is not an exact match
+    lw = overlay.findChild(QListWidget)
+    # Find and select the projo1 row
+    rows = [lw.item(i).text() for i in range(lw.count())]
+    idx = rows.index("projo1")
+    lw.setCurrentRow(idx)
+    qtbot.keyClick(edit, Qt.Key_Return)
+
+    assert calls == [{"name": "dev-tools"}]
+    assert not overlay.isVisible()
+
+
+def test_single_click_on_exact_nickname_runs_stored_action_and_hides(qtbot):
+    """Single click on a nickname row runs the stored action — clicking must not append a trailing space."""
+    calls = []
+    ns = _FakeNicknameStore({
+        "myalias": NicknameEntry(
+            nickname="myalias",
+            action_name="open_project",
+            args={"name": "alpha"},
+        )
+    })
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="open_project",
+        keywords=["project"],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha"])],
+        runner=lambda args: calls.append(args),
+    ))
+    parser = ActionParser(registry, nickname_store=ns)
+    overlay = SpotlightOverlay(parser=parser)
+    qtbot.addWidget(overlay)
+    overlay.show()
+
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("myalias")
+    lw = overlay.findChild(QListWidget)
+    lw.itemClicked.emit(lw.item(0))
+
+    assert calls == [{"name": "alpha"}]
+    assert not overlay.isVisible()
+
+
+def test_single_click_commits_like_enter(qtbot):
+    """A single click on a list row commits it exactly like pressing Enter on that row."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+    lw = overlay.findChild(QListWidget)
+
+    # At root: list has ["project"]; click it
+    item = lw.item(0)
+    lw.itemClicked.emit(item)
+
+    assert edit.text() == "project "
+    assert _list_items(overlay) == ["alpha", "beta", "gamma"]
+
+
+def test_single_click_on_completing_row_executes(qtbot):
+    """A single click on a row that completes the command executes and hides the overlay."""
+    calls = []
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="open_project",
+        keywords=["project"],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha"])],
+        runner=lambda args: calls.append(args),
+    ))
+    overlay = SpotlightOverlay(parser=ActionParser(registry))
+    qtbot.addWidget(overlay)
+    overlay.show()
+
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("project ")
+    lw = overlay.findChild(QListWidget)
+    # Only "alpha" in list; clicking it should execute
+    item = lw.item(0)
+    lw.itemClicked.emit(item)
+
+    assert calls == [{"name": "alpha"}]
+    assert not overlay.isVisible()
+
+
+def test_enter_on_unmatched_text_flags_invalid_keeps_text_shows_error(qtbot):
+    """Enter on free-typed text with no list match: invalid border, text kept, nothing runs."""
+    calls = []
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="open_project",
+        keywords=["project"],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha"])],
+        runner=lambda args: calls.append(args),
+    ))
+    overlay = SpotlightOverlay(parser=ActionParser(registry))
+    qtbot.addWidget(overlay)
+    overlay.show()
+
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("project zzz")
+    qtbot.keyClick(edit, Qt.Key_Return)
+
+    assert calls == []
     assert overlay.isVisible()
+    assert edit.text() == "project zzz"
     assert overlay.error_text() != ""
+    assert edit.property("invalid") == True
 
 
-def test_enter_without_ghost_clears_error_on_next_keystroke(qtbot):
+def test_typing_after_error_clears_error(qtbot):
+    """Typing any character after an invalid-flag error clears the error and invalid state."""
     registry = ActionRegistry()
     registry.register(ActionSpec(
         name="open_project",
         keywords=["project"],
-        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha", "beta"])],
+        slots=[ArgSlot(name="name", candidates=lambda prev: ["alpha"])],
         runner=lambda args: None,
     ))
     overlay = SpotlightOverlay(parser=ActionParser(registry))
     qtbot.addWidget(overlay)
     overlay.show()
+
     edit = overlay.findChild(QLineEdit)
-    edit.setText("pro")
-    edit.set_ghost_text("")
+    edit.setText("project zzz")
     qtbot.keyClick(edit, Qt.Key_Return)
     assert overlay.error_text() != ""
-    qtbot.keyClick(edit, Qt.Key_J)
+
+    # Type a character — this should clear the error
+    qtbot.keyClick(edit, Qt.Key_Backspace)
     assert overlay.error_text() == ""
+    assert edit.property("invalid") != True
 
 
-def test_ghost_text_shows_for_unique_prefix(qtbot):
+def test_tab_does_nothing(qtbot):
+    """Tab key press does not commit, cycle, or change the line-edit text."""
     overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
     edit.setText("pro")
-    assert edit.ghost_text() == "ject"
+    lw = overlay.findChild(QListWidget)
+    row_before = lw.currentRow()
+    qtbot.keyClick(edit, Qt.Key_Tab)
+    assert edit.text() == "pro"
+    assert lw.currentRow() == row_before
 
 
-def test_ghost_text_empty_when_candidates_have_no_common_prefix(qtbot):
-    registry = ActionRegistry()
-    registry.register(ActionSpec(name="open_project", keywords=["project"], slots=[]))
-    registry.register(ActionSpec(name="run_command", keywords=["command"], slots=[]))
-    overlay = SpotlightOverlay(parser=ActionParser(registry))
-    qtbot.addWidget(overlay)
-    overlay.show()
-    edit = overlay.findChild(QLineEdit)
-    edit.setText("")
-    assert edit.ghost_text() == ""
+def test_caption_commands_at_root_stage(qtbot):
+    """Caption shows COMMANDS at the root/keyword stage."""
+    overlay = _make_overlay(qtbot)
+    assert _caption_text(overlay) == "COMMANDS"
 
 
-def test_ghost_text_empty_when_filter_has_no_match(qtbot):
+def test_caption_slot_plural_at_slot_stage(qtbot):
+    """Caption shows the slot's plural name when in a slot stage."""
     overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
-    edit.setText("xyz")
-    assert edit.ghost_text() == ""
+    edit.setText("project ")
+    # slot name is "name" → SLOT_CAPTIONS has no entry → falls back to "NAME"
+    # but "name" maps to "PROJECTS" in SLOT_CAPTIONS
+    assert _caption_text(overlay) == "PROJECTS"
+
+
+def test_caption_hidden_when_list_is_empty(qtbot):
+    """Caption is hidden when the suggestion list is empty."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("project zzz")
+    assert _list_items(overlay) == []
+    assert _caption_text(overlay) == ""

@@ -260,7 +260,8 @@ def test_overlay_normal_execution_calls_on_action_executed(qtbot):
     overlay.show()
 
     from PySide6.QtCore import Qt
-    overlay._edit.setText("project alpha")
+    # New model: trailing space means slot committed; Enter executes.
+    overlay._edit.setText("project alpha ")
     qtbot.keyClick(overlay._edit, Qt.Key_Return)
 
     assert len(executed) == 1
@@ -280,7 +281,8 @@ def test_overlay_no_callback_when_none(qtbot):
     overlay.show()
 
     from PySide6.QtCore import Qt
-    overlay._edit.setText("project alpha")
+    # New model: trailing space means slot committed; Enter executes.
+    overlay._edit.setText("project alpha ")
     qtbot.keyClick(overlay._edit, Qt.Key_Return)
     assert len(executed) == 1
 

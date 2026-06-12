@@ -1,55 +1,19 @@
-from PySide6.QtCore import QEvent, QRect, Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import (
     QLabel, QLineEdit, QListWidget, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.spotlight.action_parser import ActionParser
 
-
-def _longest_common_prefix(items: list[str]) -> str:
-    if not items:
-        return ""
-    out = items[0]
-    for s in items[1:]:
-        i = 0
-        while i < len(out) and i < len(s) and out[i].lower() == s[i].lower():
-            i += 1
-        out = out[:i]
-        if not out:
-            return ""
-    return out
-
-
-class _GhostLineEdit(QLineEdit):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._ghost: str = ""
-
-    def set_ghost_text(self, text: str) -> None:
-        if text == self._ghost:
-            return
-        self._ghost = text
-        self.update()
-
-    def ghost_text(self) -> str:
-        return self._ghost
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if not self._ghost:
-            return
-        painter = QPainter(self)
-        painter.setPen(QColor(150, 150, 150))
-        rect = self.cursorRect()
-        x = rect.right() + 1
-        w = max(0, self.width() - x - 4)
-        painter.drawText(
-            QRect(x, 0, w, self.height()),
-            Qt.AlignVCenter | Qt.AlignLeft,
-            self._ghost,
-        )
-        painter.end()
+# Maps slot names to human-friendly plural captions.
+SLOT_CAPTIONS: dict[str, str] = {
+    "repo": "REPOS",
+    "worktree": "WORKTREES",
+    "branch": "BRANCHES",
+    "cmd": "COMMANDS",
+    "name": "PROJECTS",
+    "editor": "EDITORS",
+}
 
 
 class SpotlightOverlay(QWidget):
@@ -65,20 +29,25 @@ class SpotlightOverlay(QWidget):
         )
         self.setMinimumSize(520, 320)
         self._parser = parser
-        self._tab_cycle: dict | None = None
         self._on_action_executed = on_action_executed
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        self._edit = _GhostLineEdit()
+        self._edit = QLineEdit()
         self._edit.setPlaceholderText(">")
         self._edit.textChanged.connect(self._on_text_changed)
         self._edit.installEventFilter(self)
         layout.addWidget(self._edit)
 
+        self._caption = QLabel()
+        self._caption.setObjectName("caption_label")
+        self._caption.hide()
+        layout.addWidget(self._caption)
+
         self._list = QListWidget()
+        self._list.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self._list, 1)
 
         self._error_label = QLabel()
@@ -88,8 +57,28 @@ class SpotlightOverlay(QWidget):
 
         self._refresh("")
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def error_text(self) -> str:
         return self._error_label.text() if not self._error_label.isHidden() else ""
+
+    def show_centered_over(self, parent: QWidget) -> None:
+        geo = parent.geometry()
+        x = geo.x() + (geo.width() - self.width()) // 2
+        y = geo.y() + (geo.height() // 4)
+        self.move(x, y)
+        self._edit.clear()
+        self._set_error("")
+        self._set_invalid(False)
+        self._refresh("")
+        self.show()
+        self._edit.setFocus()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _set_error(self, message: str) -> None:
         if message:
@@ -99,9 +88,16 @@ class SpotlightOverlay(QWidget):
             self._error_label.hide()
             self._error_label.setText("")
 
+    def _set_invalid(self, flag: bool) -> None:
+        self._edit.setProperty("invalid", flag)
+        style = self._edit.style()
+        if style is not None:
+            style.unpolish(self._edit)
+            style.polish(self._edit)
+
     def _on_text_changed(self, text: str) -> None:
-        self._tab_cycle = None
         self._set_error("")
+        self._set_invalid(False)
         self._refresh(text)
 
     def _refresh(self, text: str) -> None:
@@ -111,145 +107,119 @@ class SpotlightOverlay(QWidget):
             self._list.addItem(s)
         if self._list.count() > 0:
             self._list.setCurrentRow(0)
+        self._render_caption(result)
 
-        # Only show common-prefix ghost when not in a Tab cycle or nickname match.
-        if self._tab_cycle is None:
-            if result.completion_kind == "nickname":
-                self._edit.set_ghost_text("")
-            else:
-                ghost = ""
-                if result.suggestions:
-                    common = _longest_common_prefix(result.suggestions)
-                    ft = result.filter_text
-                    if common:
-                        if ft and common.lower().startswith(ft.lower()) and len(common) > len(ft):
-                            ghost = common[len(ft):]
-                        elif not ft:
-                            ghost = common
-                self._edit.set_ghost_text(ghost)
-
-    def _commit_ghost(self) -> None:
-        ghost = self._edit.ghost_text()
-        if not ghost:
+    def _render_caption(self, result) -> None:
+        if not result.suggestions:
+            self._caption.hide()
             return
-        self._edit.set_ghost_text("")
-        self._tab_cycle = None
-        current = self._edit.text()
-        # Insert a space separator when ghost is a new token rather than a suffix.
-        result = self._parser.parse(current)
-        if result.filter_text == "" and current and not current.endswith(" "):
-            separator = " "
+        if result.action is None:
+            cap = "COMMANDS"
+        elif result.slot_index < len(result.action.slots):
+            slot_name = result.action.slots[result.slot_index].name
+            cap = SLOT_CAPTIONS.get(slot_name, slot_name.upper())
         else:
-            separator = ""
-        self._edit.setText(current + separator + ghost)
+            cap = "COMMANDS"
+        self._caption.setText(cap)
+        self._caption.show()
 
-    def _handle_tab(self) -> None:
-        text = self._edit.text()
+    def _commit(self, text: str, row_text: str) -> str:
+        """Strip the active filter_text from `text`, append `row_text + ' '`."""
         result = self._parser.parse(text)
-        suggestions = result.suggestions
-        if not suggestions:
-            return
-
         ft = result.filter_text
         base = text[: len(text) - len(ft)] if ft else text
+        return base + row_text + " "
 
-        common = _longest_common_prefix(suggestions)
+    @staticmethod
+    def _result_is_fully_committed(result) -> bool:
+        """Return True when `result` represents an executable, fully-committed command."""
+        return (
+            result.action is not None
+            and result.executable
+            and (not result.action.slots or result.slot_index == len(result.action.slots))
+        )
 
-        if len(suggestions) == 1:
-            # If ghost is already showing for this single option, commit it.
-            if self._edit.ghost_text():
-                self._commit_ghost()
-                return
-            # Ghost not yet shown — set it so the user sees it before committing.
-            completion = suggestions[0]
-            ghost = completion[len(ft):]
-            suffix = self._tab_suffix(result)
-            self._tab_cycle = {
-                "base": base,
-                "candidates": suggestions,
-                "idx": 0,
-                "suffix": suffix,
-            }
-            self._edit.set_ghost_text(ghost + suffix)
-            return
-
-        if common and len(common) > len(ft) and common.lower().startswith(ft.lower()):
-            ghost = common[len(ft):]
-            self._tab_cycle = {
-                "base": base,
-                "candidates": suggestions,
-                "idx": -1,
-                "suffix": "",
-            }
-            self._edit.set_ghost_text(ghost)
-            return
-
-        # No common prefix: start/advance cycling through suggestions as ghost.
-        if self._tab_cycle is not None and self._tab_cycle.get("cycling"):
-            idx = (self._tab_cycle["idx"] + 1) % len(self._tab_cycle["candidates"])
-        else:
-            idx = 0
-        completion = suggestions[idx]
-        self._tab_cycle = {
-            "base": base,
-            "candidates": list(suggestions),
-            "idx": idx,
-            "suffix": "",
-            "cycling": True,
-        }
-        self._edit.set_ghost_text(completion[len(ft):] if ft else completion)
-
-    def _tab_suffix(self, result) -> str:
-        if result.completion_kind == "keyword":
-            return " "
-        if result.completion_kind == "slot" and result.action is not None:
-            if result.slot_index < len(result.action.slots) - 1:
-                return " "
-        return ""
-
-    def _maybe_execute(self) -> None:
-        # If ghost is showing, Enter commits it — nothing more.
-        if self._edit.ghost_text():
-            self._commit_ghost()
-            return
-
-        # No ghost: execute only if the command is complete.
-        result = self._parser.parse(self._edit.text())
-
-        # Nickname execution path.
-        if result.completion_kind == "nickname" and result.nickname_action_name is not None:
-            spec = self._parser._registry.get_by_name(result.nickname_action_name)
-            if spec is not None:
-                args = dict(result.nickname_args or {})
-                spec.runner(args)
-                if self._on_action_executed:
-                    self._on_action_executed(result.nickname_action_name, args)
-                self.hide()
-                return
-            self._set_error("Unknown command")
-            return
-
-        if result.action is None:
-            self._set_error("Unknown command")
-            return
-
+    def _execute_result(self, result) -> None:
+        """Run the action described by `result` and hide the overlay."""
         args = dict(result.committed_args)
-        if result.action.slots:
-            if result.slot_index < len(result.action.slots):
-                if self._list.count() == 0:
-                    self._set_error("No matching option")
-                    return
-                item = self._list.currentItem()
-                if item is None:
-                    self._set_error("No option selected")
-                    return
-                slot = result.action.slots[result.slot_index]
-                args[slot.name] = item.text()
-
         result.action.runner(args)
         if self._on_action_executed:
             self._on_action_executed(result.action.name, args)
         self.hide()
+
+    def _commit_or_execute(self) -> None:
+        text = self._edit.text()
+        result = self._parser.parse(text)
+
+        # 1. Exact nickname → run stored action.
+        if result.completion_kind == "nickname" and result.nickname_action_name:
+            spec = self._parser._registry.get_by_name(result.nickname_action_name)
+            if spec is None:
+                self._set_error("Unknown command")
+                return
+            args = dict(result.nickname_args or {})
+            spec.runner(args)
+            if self._on_action_executed:
+                self._on_action_executed(result.nickname_action_name, args)
+            self.hide()
+            return
+
+        # 2. Complete command (all slots committed) → execute.
+        if self._result_is_fully_committed(result):
+            self._execute_result(result)
+            return
+
+        # 3. Incomplete + a row highlighted → commit that row and advance.
+        item = self._list.currentItem()
+        if result.suggestions and item is not None:
+            row_text = item.text()
+            # If the row is a nickname, execute it directly. _commit would append a trailing space
+            # which prevents the parser's exact-nickname check from firing on a second Enter.
+            nick_store = self._parser._nickname_store
+            if nick_store is not None:
+                entry = nick_store.get(row_text)
+                if entry is not None:
+                    spec = self._parser._registry.get_by_name(entry.action_name)
+                    if spec is not None:
+                        args = dict(entry.args)
+                        spec.runner(args)
+                        if self._on_action_executed:
+                            self._on_action_executed(entry.action_name, args)
+                        self.hide()
+                        return
+            self._edit.setText(self._commit(text, row_text))
+            return
+
+        # 4. Nothing to commit → flag invalid.
+        self._set_invalid(True)
+        self._set_error("No matching option")
+
+    def _on_item_clicked(self, item) -> None:
+        """Single click: commit the clicked row; if that completes the command, execute immediately."""
+        self._list.setCurrentItem(item)
+        text = self._edit.text()
+        result = self._parser.parse(text)
+
+        # Nickname: delegate directly — _commit would append a trailing space and break the match.
+        if result.completion_kind == "nickname":
+            self._commit_or_execute()
+            return
+
+        # Look ahead: if this click would commit (path 3) and the committed text
+        # would be immediately executable, do commit+execute in one shot.
+        if result.suggestions and not self._result_is_fully_committed(result):
+            new_text = self._commit(text, item.text())
+            new_result = self._parser.parse(new_text)
+            if self._result_is_fully_committed(new_result):
+                self._edit.setText(new_text)
+                self._execute_result(new_result)
+                return
+
+        self._commit_or_execute()
+
+    # ------------------------------------------------------------------
+    # Event filter
+    # ------------------------------------------------------------------
 
     def eventFilter(self, obj, event):
         if obj is self._edit and event.type() == QEvent.KeyPress:
@@ -258,10 +228,10 @@ class SpotlightOverlay(QWidget):
                 self.hide()
                 return True
             if key == Qt.Key_Tab:
-                self._handle_tab()
+                # Tab does nothing in the new model.
                 return True
             if key in (Qt.Key_Return, Qt.Key_Enter):
-                self._maybe_execute()
+                self._commit_or_execute()
                 return True
             if key in (Qt.Key_Down, Qt.Key_Up):
                 if key == Qt.Key_Down:
@@ -274,15 +244,3 @@ class SpotlightOverlay(QWidget):
                         self._list.setCurrentRow(row)
                 return True
         return super().eventFilter(obj, event)
-
-    def show_centered_over(self, parent: QWidget) -> None:
-        geo = parent.geometry()
-        x = geo.x() + (geo.width() - self.width()) // 2
-        y = geo.y() + (geo.height() // 4)
-        self.move(x, y)
-        self._edit.clear()
-        self._tab_cycle = None
-        self._set_error("")
-        self._refresh("")
-        self.show()
-        self._edit.setFocus()
