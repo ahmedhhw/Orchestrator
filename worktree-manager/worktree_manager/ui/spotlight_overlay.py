@@ -128,6 +128,8 @@ class SpotlightOverlay(QWidget):
         result = self._parser.parse(text)
         ft = result.filter_text
         base = text[: len(text) - len(ft)] if ft else text
+        if base and not base.endswith(" "):
+            base += " "
         return base + row_text + " "
 
     @staticmethod

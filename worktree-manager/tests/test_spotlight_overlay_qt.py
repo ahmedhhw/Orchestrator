@@ -636,3 +636,22 @@ def test_clicking_spaced_project_row_executes_in_one_shot(qtbot):
 
     assert calls == [{"name": "My App"}]
     assert not overlay.isVisible()
+
+
+# ---------------------------------------------------------------------------
+# Space-before-suggestion tests
+# ---------------------------------------------------------------------------
+
+def test_enter_on_slot_suggestion_when_keyword_typed_without_trailing_space(qtbot):
+    """When user types a full keyword without a trailing space then presses Enter on a
+    slot suggestion, the committed text must be 'keyword suggestion ' not 'keywordsuggestion '."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+
+    # type the keyword "project" with no trailing space
+    edit.setText("project")
+    # suggestions should now show slot candidates (alpha, beta, gamma)
+    # Row 0 is highlighted; pressing Enter should commit to "project alpha "
+    qtbot.keyClick(edit, Qt.Key_Return)
+
+    assert edit.text() == "project alpha "
