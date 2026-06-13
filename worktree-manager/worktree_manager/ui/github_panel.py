@@ -16,6 +16,7 @@ from PySide6.QtGui import QCursor, QDesktopServices
 
 from worktree_manager.github_vm import GitHubViewModel, TokenState
 from worktree_manager.github_models import PullRequest
+from worktree_manager.github_search import filter_prs
 from worktree_manager.ui.filterable_combo import FilterableComboBox
 
 
@@ -168,6 +169,18 @@ class GitHubPanel(QWidget):
         self._loading_label.setAlignment(Qt.AlignCenter)
         self._loading_label.hide()
         pr_list_layout.addWidget(self._loading_label)
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("Search PRs…")
+        self._search_edit.textChanged.connect(self._on_search_changed)
+        self._search_edit.hide()
+        pr_list_layout.addWidget(self._search_edit)
+
+        self._no_match_label = QLabel()
+        self._no_match_label.setStyleSheet("color: gray; padding: 8px;")
+        self._no_match_label.setAlignment(Qt.AlignCenter)
+        self._no_match_label.hide()
+        pr_list_layout.addWidget(self._no_match_label)
+
         self._pr_list = QListWidget()
         self._pr_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._pr_list.customContextMenuRequested.connect(self._on_pr_list_context_menu)
@@ -404,10 +417,36 @@ class GitHubPanel(QWidget):
 
     def _on_prs_updated(self):
         self._loading_label.hide()
-        self._pr_list.show()
         self._pr_error_label.hide()
+        self._render_pr_list()
+
+    def _on_search_changed(self, text: str):
+        self._render_pr_list()
+
+    def _render_pr_list(self):
         self._pr_list.clear()
-        for pr in self._vm.prs:
+        self._no_match_label.hide()
+
+        all_prs = self._vm.prs
+
+        if not all_prs:
+            # No PRs at all — hide search, show empty list (existing behaviour)
+            self._search_edit.hide()
+            self._pr_list.show()
+            return
+
+        self._search_edit.show()
+        needle = self._search_edit.text()
+        visible = filter_prs(all_prs, needle)
+
+        if not visible:
+            self._pr_list.hide()
+            self._no_match_label.setText(f'No pull requests match "{needle}"')
+            self._no_match_label.show()
+            return
+
+        self._pr_list.show()
+        for pr in visible:
             badge = self._ci_badge(pr)
             unread = self._vm.unread_comment_count(pr)
             badge_prefix = f"🔴 {unread} new  " if unread > 0 else ""
