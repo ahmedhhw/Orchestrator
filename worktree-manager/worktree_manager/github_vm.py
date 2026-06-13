@@ -9,7 +9,7 @@ import requests
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from worktree_manager.github_models import PullRequest
+from worktree_manager.github_models import CICheck, PullRequest
 from worktree_manager.github_service import GitHubService
 from worktree_manager.git_service import GitService
 
@@ -35,17 +35,22 @@ class GitHubViewModel(QObject):
         super().__init__(parent)
         self._store = store
         self._svc: GitHubService | None = None
-        self.prs: list[PullRequest] = []
         self.selected_pr: PullRequest | None = None
         self.polling_active: bool = True
         self._unseen_comment_ids_by_pr: dict[tuple, set[int]] = {}
         self._pr_state_path: Path = store._path.parent / "github_pr_state.json"
         self._pr_state: dict[tuple, dict] = self._load_pr_state()
+        self._pr_cache_path: Path = store._path.parent / "github_pr_cache.json"
         self._known_prs: list[tuple[str, str, int]] = []
         self._login: str = ""
         self._initial_load_done: bool = False
         self._total_fetch_running = False
         self._fetch_lock = threading.Lock()
+
+        self.prs: list[PullRequest] = self._load_pr_cache()
+        if self.prs:
+            self._initial_load_done = True
+            self.prs_updated.emit()
 
         token = store.get_github_token()
         if token:
@@ -179,6 +184,7 @@ class GitHubViewModel(QObject):
 
         results.sort(key=lambda p: p.pr_key)
         self.prs = results
+        self._save_pr_cache()
         self._emit_pr_events(self.prs)
         self._initial_load_done = True
         self.prs_updated.emit()
@@ -243,6 +249,65 @@ class GitHubViewModel(QObject):
             self._pr_state_path.write_text(json.dumps(serialisable, indent=2))
         except Exception:
             log.warning("Failed to save PR state to disk", exc_info=True)
+
+    def _save_pr_cache(self) -> None:
+        rows = [
+            {
+                "number": p.number,
+                "title": p.title,
+                "html_url": p.html_url,
+                "head_branch": p.head_branch,
+                "base_branch": p.base_branch,
+                "state": p.state,
+                "draft": p.draft,
+                "mergeable": p.mergeable,
+                "mergeable_state": p.mergeable_state,
+                "owner": p.owner,
+                "repo": p.repo,
+                "checks": [
+                    {
+                        "name": c.name,
+                        "status": c.status,
+                        "conclusion": c.conclusion,
+                        "check_suite_id": c.check_suite_id,
+                    }
+                    for c in p.checks
+                ],
+            }
+            for p in self.prs
+        ]
+        try:
+            self._pr_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self._pr_cache_path.write_text(json.dumps(rows, indent=2))
+        except Exception:
+            log.warning("Failed to save PR cache to disk", exc_info=True)
+
+    def _load_pr_cache(self) -> list[PullRequest]:
+        if not self._pr_cache_path.exists():
+            return []
+        try:
+            raw = json.loads(self._pr_cache_path.read_text())
+            return [
+                PullRequest(
+                    number=row["number"],
+                    title=row["title"],
+                    body="",
+                    html_url=row["html_url"],
+                    head_branch=row["head_branch"],
+                    base_branch=row["base_branch"],
+                    state=row["state"],
+                    draft=row["draft"],
+                    mergeable=row["mergeable"],
+                    mergeable_state=row["mergeable_state"],
+                    owner=row["owner"],
+                    repo=row["repo"],
+                    checks=[CICheck(**c) for c in row["checks"]],
+                )
+                for row in raw
+            ]
+        except Exception:
+            log.warning("Failed to load PR cache; starting empty", exc_info=True)
+            return []
 
     def _emit_pr_events(self, new_prs: list[PullRequest]) -> None:
         for pr in new_prs:
