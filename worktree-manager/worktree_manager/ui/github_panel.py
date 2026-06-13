@@ -508,6 +508,7 @@ class GitHubPanel(QWidget):
             pr.number, pr.mergeable, pr.is_ready_to_merge(),
         )
         menu = QMenu(self)
+        menu.addAction("↗ Open in browser")
         menu.addAction("↗ View details")
         if pr.is_ready_to_merge():
             menu.addAction("✓ Merge (squash)")
@@ -516,7 +517,9 @@ class GitHubPanel(QWidget):
         if action is None:
             return
         text = action.text()
-        if text == "↗ View details":
+        if text == "↗ Open in browser":
+            QDesktopServices.openUrl(QUrl(pr.html_url))
+        elif text == "↗ View details":
             self._vm.select_pr(pr)
         elif text == "✓ Merge (squash)":
             self._vm.merge_pr(pr, squash=True)
