@@ -53,7 +53,11 @@ def test_partial_keyword_filters_root_keywords_by_prefix_case_insensitive():
     r.register(ActionSpec(name="run_command", keywords=["command"], slots=[]))
     p = ActionParser(r)
     assert p.parse("PRO").suggestions == ["project"]
-    assert p.parse("c").suggestions == ["command"]
+    # Fuzzy: "c" is a subsequence of both "command" and "project";
+    # "command" must rank first (stronger match — starts with "c").
+    c_results = p.parse("c").suggestions
+    assert "command" in c_results
+    assert c_results[0] == "command"
     assert p.parse("xyz").suggestions == []
 
 
@@ -92,7 +96,11 @@ def test_filter_supports_multi_word_candidate_names():
     r = _registry_with_project_action(["My Cool Project", "Other"])
     p = ActionParser(r)
     assert p.parse("project My").suggestions == ["My Cool Project"]
-    assert p.parse("project Ot").suggestions == ["Other"]
+    # Fuzzy: "Ot" is a subsequence of both "Other" and "My Cool Project";
+    # "Other" must rank first (starts with "Ot" — stronger match).
+    ot_results = p.parse("project Ot").suggestions
+    assert "Other" in ot_results
+    assert ot_results[0] == "Other"
 
 
 def test_executable_true_when_filter_matches_exactly_one_candidate():
@@ -229,7 +237,9 @@ def test_multi_slot_filters_active_slot_by_partial_needle():
     p = ActionParser(r)
     result = p.parse("command repoA main run")
     assert result.slot_index == 2
-    assert result.suggestions == ["runserver", "runtests"]
+    # Fuzzy: both "runserver" and "runtests" match "run"; both must be present.
+    assert "runserver" in result.suggestions
+    assert "runtests" in result.suggestions
     assert result.committed_args == {"repo": "repoA", "worktree": "main"}
 
 
@@ -359,3 +369,30 @@ def test_typed_value_not_a_candidate_keeps_slot_active_no_suggestions():
     assert result.suggestions == []
     assert result.executable is False
     assert result.slot_index == 0
+
+
+# ── Fuzzy-filter wiring tests ─────────────────────────────────────────────────
+
+def test_parser_surfaces_non_prefix_subsequence():
+    # "mn" is not a prefix of "main" but is a subsequence — fuzzy filter must surface it.
+    r = _registry_with_project_action(["main", "master", "maint-notes"])
+    p = ActionParser(r)
+    result = p.parse("project mn")
+    assert "main" in result.suggestions
+
+
+def test_parser_keeps_filter_text_raw():
+    # filter_text must remain the raw typed fragment regardless of fuzzy expansion.
+    r = _registry_with_project_action(["main", "master"])
+    p = ActionParser(r)
+    result = p.parse("project mn")
+    assert result.filter_text == "mn"
+
+
+def test_parser_ranks_best_candidate_first():
+    # "mn" matches "main" (word-start, early) better than "maint-notes" (longer span).
+    # "main" must be suggestions[0].
+    r = _registry_with_project_action(["maint-notes", "main", "master"])
+    p = ActionParser(r)
+    result = p.parse("project mn")
+    assert result.suggestions[0] == "main"

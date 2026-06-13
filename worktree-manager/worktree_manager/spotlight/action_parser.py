@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from worktree_manager.spotlight.action_registry import ActionRegistry, ActionSpec
+from worktree_manager.spotlight.fuzzy import fuzzy_filter
 
 if TYPE_CHECKING:
     from worktree_manager.spotlight.nickname_store import NicknameStore
@@ -23,12 +24,6 @@ class ParseResult:
     nickname_action_name: str | None = None
     nickname_args: dict | None = None
 
-
-def _prefix_filter(items: list[str], needle: str) -> list[str]:
-    if not needle:
-        return list(items)
-    needle = needle.lower()
-    return [item for item in items if item.lower().startswith(needle)]
 
 
 def _arg_string_after_keywords(text: str, keywords: list[str]) -> str:
@@ -122,12 +117,12 @@ class ActionParser:
             # Also include nickname names that start with the partial token.
             if self._nickname_store is not None and not prefix:
                 nick_names = list(self._nickname_store.all().keys())
-                for n in _prefix_filter(nick_names, partial):
+                for n in fuzzy_filter(nick_names, partial):
                     if n not in candidates:
                         candidates = list(candidates) + [n]
             return ParseResult(
                 action=None,
-                suggestions=_prefix_filter(candidates, partial),
+                suggestions=fuzzy_filter(candidates, partial),
                 filter_text=partial,
                 completion_kind="keyword",
                 all_candidates=list(candidates),
@@ -148,7 +143,7 @@ class ActionParser:
             match = _longest_committed_candidate(rest, cands)
             if match is None:
                 needle = rest
-                suggestions = _prefix_filter(cands, needle)
+                suggestions = fuzzy_filter(cands, needle)
                 return ParseResult(
                     action=spec, suggestions=suggestions, filter_text=needle,
                     executable=(len(suggestions) == 1),
