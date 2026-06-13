@@ -99,8 +99,11 @@ def test_overlay_shows_root_keywords_on_empty_input(qtbot):
 def test_typing_filters_suggestions_in_realtime(qtbot):
     overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
+    # "alp" uniquely matches "alpha" — auto-commit fires, field becomes "project alpha "
+    # and the slot is now committed so the suggestion list is empty.
     edit.setText("project alp")
-    assert _list_items(overlay) == ["alpha"]
+    assert edit.text() == "project alpha "
+    assert _list_items(overlay) == []
 
 
 def test_typing_with_no_match_shows_empty_list(qtbot):
@@ -271,12 +274,14 @@ def test_empty_input_shows_mru_then_keywords_row0_highlighted_caption_commands(q
 
 
 def test_typing_filters_active_token_line_edit_text_unchanged(qtbot):
-    """Typing narrows the list; the line-edit text is exactly what was typed."""
+    """Typing that matches multiple candidates narrows the list without auto-commit;
+    typing that matches exactly one candidate auto-commits to the full token + space."""
     overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
-    edit.setText("project al")
-    assert edit.text() == "project al"
-    assert _list_items(overlay) == ["alpha"]
+    # "project b" matches "beta" uniquely — auto-commits to "project beta "
+    edit.setText("project b")
+    assert edit.text() == "project beta "
+    assert _list_items(overlay) == []
 
 
 def test_up_down_moves_highlight_does_not_change_text(qtbot):
@@ -550,11 +555,12 @@ def test_tab_does_nothing(qtbot):
     """Tab key press does not commit, cycle, or change the line-edit text."""
     overlay = _make_overlay(qtbot)
     edit = overlay.findChild(QLineEdit)
-    edit.setText("pro")
+    # "project a" matches alpha and gamma — ambiguous, no auto-commit fires.
+    edit.setText("project a")
     lw = overlay.findChild(QListWidget)
     row_before = lw.currentRow()
     qtbot.keyClick(edit, Qt.Key_Tab)
-    assert edit.text() == "pro"
+    assert edit.text() == "project a"
     assert lw.currentRow() == row_before
 
 
@@ -655,3 +661,123 @@ def test_enter_on_slot_suggestion_when_keyword_typed_without_trailing_space(qtbo
     qtbot.keyClick(edit, Qt.Key_Return)
 
     assert edit.text() == "project alpha "
+
+
+# ---------------------------------------------------------------------------
+# Iteration 1 — Auto-commit on unique match
+# ---------------------------------------------------------------------------
+
+from worktree_manager.ui.spotlight_overlay import should_autocommit  # noqa: E402
+
+
+def _make_parse_result(filter_text: str, suggestions: list[str]):
+    """Build a minimal ParseResult-like object for should_autocommit unit tests."""
+    from worktree_manager.spotlight.action_parser import ParseResult
+    return ParseResult(action=None, suggestions=suggestions, filter_text=filter_text)
+
+
+def test_should_autocommit_returns_row_for_unique(qtbot):
+    """should_autocommit returns the single suggestion when fragment non-empty
+    and exactly one suggestion that differs from the fragment."""
+    result = _make_parse_result("alp", ["alpha"])
+    assert should_autocommit(result) == "alpha"
+
+
+def test_should_autocommit_returns_none_when_ambiguous_or_empty(qtbot):
+    """Returns None for 0 suggestions, >1 suggestions, empty fragment, or suggestion == fragment."""
+    # 0 suggestions
+    assert should_autocommit(_make_parse_result("alp", [])) is None
+    # >1 suggestions
+    assert should_autocommit(_make_parse_result("ma", ["main", "master"])) is None
+    # empty fragment
+    assert should_autocommit(_make_parse_result("", ["alpha"])) is None
+    # suggestion equals fragment (already fully typed)
+    assert should_autocommit(_make_parse_result("alpha", ["alpha"])) is None
+
+
+def test_unique_match_rewrites_field_to_token_plus_space(qtbot):
+    """After typing a fragment that fuzzy-resolves to one candidate, the field text
+    becomes '<prior> <token> ' (trailing space)."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+    # "project " is the prior committed text; "alp" uniquely matches "alpha"
+    edit.setText("project alp")
+    assert edit.text() == "project alpha "
+
+
+def test_ambiguous_fragment_does_not_rewrite(qtbot):
+    """With >1 candidate matching the fragment, the field text is left exactly as typed."""
+    overlay = _make_overlay(qtbot, projects=("main", "master", "other"))
+    edit = overlay.findChild(QLineEdit)
+    # "ma" matches both "main" and "master" — no auto-commit
+    edit.setText("project ma")
+    assert edit.text() == "project ma"
+
+
+def test_empty_fragment_does_not_rewrite(qtbot):
+    """Landing on a fresh slot (no fragment typed yet) does not auto-commit even if
+    only one candidate exists."""
+    overlay = _make_overlay(qtbot, projects=("only-one",))
+    edit = overlay.findChild(QLineEdit)
+    # After "project " the slot has one candidate but filter_text is "" — no auto-commit
+    edit.setText("project ")
+    assert edit.text() == "project "
+    assert _list_items(overlay) == ["only-one"]
+
+
+def test_exact_full_token_with_longer_candidate_does_not_rewrite(qtbot):
+    """Typing the full token 'main' when suggestions resolve to exactly ['main'] does not
+    auto-commit because suggestion == filter_text (fully typed — commit on Enter, not auto)."""
+    overlay = _make_overlay(qtbot, projects=("main", "master"))
+    edit = overlay.findChild(QLineEdit)
+    # fuzzy_filter(["main","master"], "main") → ["main"] only, but only == filter_text → no auto
+    edit.setText("project main")
+    assert edit.text() == "project main"
+
+
+def test_auto_commit_advances_to_next_slot(qtbot):
+    """After an auto-commit on a mid-command slot, the suggestion list shows the next
+    slot's candidates (or the command becomes executable)."""
+    calls = []
+    registry = ActionRegistry()
+    registry.register(ActionSpec(
+        name="run_command",
+        keywords=["command"],
+        slots=[
+            ArgSlot(name="repo", candidates=lambda prev: ["repoA", "repoB"]),
+            ArgSlot(name="worktree", candidates=lambda prev: ["wt1", "wt2"]),
+        ],
+        runner=lambda args: calls.append(args),
+    ))
+    overlay = SpotlightOverlay(parser=ActionParser(registry))
+    qtbot.addWidget(overlay)
+    overlay.show()
+    edit = overlay.findChild(QLineEdit)
+
+    # "repoA" uniquely matched by "rA" (subsequence)
+    edit.setText("command rA")
+    # Auto-commit should have fired → field is now "command repoA "
+    assert edit.text() == "command repoA "
+    # And the list should show the next slot's candidates (worktree)
+    assert _list_items(overlay) == ["wt1", "wt2"]
+
+
+def test_no_infinite_recursion_on_auto_commit(qtbot):
+    """The programmatic setText inside _on_text_changed does not re-trigger auto-commit;
+    only a single rewrite occurs (guard works)."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+
+    rewrite_count = [0]
+    original_commit = overlay._commit
+
+    def counting_commit(text, row_text):
+        rewrite_count[0] += 1
+        return original_commit(text, row_text)
+
+    overlay._commit = counting_commit
+
+    # "alp" uniquely matches "alpha" — exactly one rewrite should happen
+    edit.setText("project alp")
+    assert edit.text() == "project alpha "
+    assert rewrite_count[0] == 1

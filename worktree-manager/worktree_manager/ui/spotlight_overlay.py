@@ -16,6 +16,24 @@ SLOT_CAPTIONS: dict[str, str] = {
 }
 
 
+def should_autocommit(result) -> str | None:
+    """Return the single suggestion when it is safe to auto-commit, else None.
+
+    Conditions for auto-commit:
+    - filter_text is non-empty (the user has typed something in this slot)
+    - exactly one suggestion exists
+    - that suggestion differs from filter_text (it has not already been fully typed)
+    """
+    if not result.filter_text:
+        return None
+    if len(result.suggestions) != 1:
+        return None
+    only = result.suggestions[0]
+    if only == result.filter_text:
+        return None
+    return only
+
+
 class SpotlightOverlay(QWidget):
     def __init__(
         self,
@@ -55,6 +73,7 @@ class SpotlightOverlay(QWidget):
         self._error_label.hide()
         layout.addWidget(self._error_label)
 
+        self._suppress_change = False
         self._refresh("")
 
     # ------------------------------------------------------------------
@@ -96,8 +115,19 @@ class SpotlightOverlay(QWidget):
             style.polish(self._edit)
 
     def _on_text_changed(self, text: str) -> None:
+        if self._suppress_change:
+            return
         self._set_error("")
         self._set_invalid(False)
+        result = self._parser.parse(text)
+        row = should_autocommit(result)
+        if row is not None:
+            new_text = self._commit(text, row)
+            self._suppress_change = True
+            self._edit.setText(new_text)
+            self._suppress_change = False
+            self._refresh(new_text)
+            return
         self._refresh(text)
 
     def _refresh(self, text: str) -> None:
