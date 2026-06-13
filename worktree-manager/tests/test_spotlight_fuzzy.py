@@ -1,4 +1,6 @@
-from worktree_manager.spotlight.fuzzy import fuzzy_score, fuzzy_filter
+from worktree_manager.spotlight.fuzzy import (
+    fuzzy_score, fuzzy_filter, fuzzy_match_indices,
+)
 
 
 def test_subsequence_matches_with_gaps():
@@ -51,6 +53,29 @@ def test_filter_sorts_best_first_with_stable_tiebreak():
     # Tiebreak: original input order preserved for equal scores
     result2 = fuzzy_filter(["alpha_beta", "alpha_beta_extra"], "ab")
     assert result2[0] == "alpha_beta"  # shorter span wins or same — original order stable
+
+
+def test_match_indices_returns_consumed_positions():
+    # "wsch" in "worktree switch": w(0), s(9), c(12)?? — greedy left-to-right
+    idx = fuzzy_match_indices("wsch", "worktree switch")
+    assert idx is not None
+    # Each returned index points at the matched char, in order, lowercased compare.
+    cand = "worktree switch"
+    assert [cand[i].lower() for i in idx] == list("wsch")
+    assert idx == sorted(idx)
+
+
+def test_match_indices_empty_needle_is_empty_list():
+    assert fuzzy_match_indices("", "anything") == []
+
+
+def test_match_indices_non_subsequence_returns_none():
+    assert fuzzy_match_indices("zx", "worktree switch") is None
+
+
+def test_match_indices_is_case_insensitive():
+    idx = fuzzy_match_indices("MA", "main")
+    assert idx == [0, 1]
 
 
 def test_filter_drops_non_matches():

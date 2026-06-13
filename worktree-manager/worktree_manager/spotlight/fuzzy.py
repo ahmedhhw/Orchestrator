@@ -9,18 +9,19 @@ PENALTY_LEADIN = 1
 PENALTY_CANDIDATE_LENGTH = 1  # small per-char cost so shorter candidates rank higher on tie
 
 
-def fuzzy_score(needle: str, candidate: str) -> int | None:
-    """Return a score >= 0 if needle is a subsequence of candidate, else None.
+def fuzzy_match_indices(needle: str, candidate: str) -> list[int] | None:
+    """Return the candidate indices consumed by a greedy subsequence match.
 
-    Higher score = better match.
+    Walks candidate left-to-right, consuming needle chars in order (case
+    insensitive). Returns the list of matched indices, or None if needle is not
+    a subsequence of candidate. An empty needle returns an empty list.
     """
     if needle == "":
-        return 0
+        return []
 
     nl = needle.lower()
     cl = candidate.lower()
 
-    # Walk candidate left-to-right, consuming needle chars in order.
     matched: list[int] = []
     ni = 0
     for ci, ch in enumerate(cl):
@@ -32,6 +33,23 @@ def fuzzy_score(needle: str, candidate: str) -> int | None:
 
     if ni < len(nl):
         return None  # not all needle chars found
+    return matched
+
+
+def fuzzy_score(needle: str, candidate: str) -> int | None:
+    """Return a score >= 0 if needle is a subsequence of candidate, else None.
+
+    Higher score = better match.
+    """
+    if needle == "":
+        return 0
+
+    matched = fuzzy_match_indices(needle, candidate)
+    if matched is None:
+        return None
+
+    nl = needle.lower()
+    cl = candidate.lower()
 
     score = 0
 

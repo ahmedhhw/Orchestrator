@@ -668,6 +668,52 @@ def test_enter_on_slot_suggestion_when_keyword_typed_without_trailing_space(qtbo
     assert edit.text() == "project alpha "
 
 
+# ---------------------------------------------------------------------------
+# Fuzzy-match highlighting
+# ---------------------------------------------------------------------------
+
+def test_highlight_html_bolds_matched_chars(qtbot):
+    """The delegate renders matched characters wrapped in a highlight span."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+    # "alp" fuzzy-matches "alpha" — first three chars are matched.
+    edit.setText("project alp")
+    html = overlay._row_html("alpha")
+    # Each matched char ("a", "l", "p") is wrapped in its own highlight span.
+    assert html.count("<span") == 3
+    # Plain (unmatched) tail still present.
+    assert html.rstrip().endswith("ha")
+
+
+def test_highlight_html_handles_gapped_match(qtbot):
+    """Highlight spans wrap only the matched chars when the match has gaps."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("project ga")  # matches "gamma": g(0), a(1)
+    html = overlay._row_html("gamma")
+    assert html.count("<span") == 2
+
+
+def test_highlight_html_no_needle_is_plain_text(qtbot):
+    """With no active filter text the row renders without highlight spans."""
+    overlay = _make_overlay(qtbot)
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("project ")  # slot stage, empty needle
+    html = overlay._row_html("alpha")
+    assert "<span" not in html
+    assert "alpha" in html
+
+
+def test_highlight_html_escapes_special_chars(qtbot):
+    """Candidate text with HTML-significant characters is escaped."""
+    overlay = _make_overlay(qtbot, projects=("a<b>&c",))
+    edit = overlay.findChild(QLineEdit)
+    edit.setText("project ")
+    html = overlay._row_html("a<b>&c")
+    assert "&lt;" in html and "&gt;" in html and "&amp;" in html
+    assert "<b>" not in html
+
+
 def test_tab_advances_to_next_slot(qtbot):
     """Tab-commit on a mid-command slot advances the list to the next slot's candidates."""
     registry = ActionRegistry()
