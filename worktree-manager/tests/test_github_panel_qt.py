@@ -73,17 +73,28 @@ def test_tabs_visible_when_token_configured(vm, qtbot, tmp_path):
 # ── My PRs tab — list ─────────────────────────────────────────────────────────
 
 
+def _pr_items(panel):
+    """Return list items that are PR rows (have pr_key data), skipping repo headers."""
+    from PySide6.QtCore import Qt
+    return [
+        panel._pr_list.item(i)
+        for i in range(panel._pr_list.count())
+        if panel._pr_list.item(i).data(Qt.UserRole) is not None
+    ]
+
+
 def test_prs_updated_signal_refreshes_list(panel, vm, qtbot):
     vm.prs = [_make_pr(10), _make_pr(11)]
     vm.prs_updated.emit()
-    assert panel._pr_list.count() == 2
+    # 2 PR rows + 1 repo header = 3 total items
+    assert len(_pr_items(panel)) == 2
 
 
 def test_pr_row_shows_number_and_title(panel, vm, qtbot):
     from PySide6.QtWidgets import QLabel
     vm.prs = [_make_pr(42)]
     vm.prs_updated.emit()
-    item = panel._pr_list.item(0)
+    item = _pr_items(panel)[0]
     widget = panel._pr_list.itemWidget(item)
     label = widget.findChild(QLabel)
     item_text = label.text() if label else ""
@@ -95,7 +106,7 @@ def test_current_branch_pr_shows_label(panel, vm, qtbot):
     from PySide6.QtWidgets import QLabel
     vm.prs = [_make_pr(1, head="feat")]
     vm.prs_updated.emit()
-    item = panel._pr_list.item(0)
+    item = _pr_items(panel)[0]
     widget = panel._pr_list.itemWidget(item)
     label = widget.findChild(QLabel)
     item_text = label.text() if label else ""
@@ -111,7 +122,7 @@ def test_clicking_pr_row_calls_vm_select(panel, vm, qtbot):
     vm.prs = [_make_pr(7)]
     vm.prs_updated.emit()
     with patch.object(vm, "select_pr") as mock_select:
-        item = panel._pr_list.item(0)
+        item = _pr_items(panel)[0]
         widget = panel._pr_list.itemWidget(item)
         btn = widget.findChild(QPushButton)
         btn.click()

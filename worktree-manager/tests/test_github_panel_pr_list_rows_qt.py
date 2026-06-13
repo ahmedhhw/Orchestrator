@@ -37,17 +37,33 @@ def panel(vm, qtbot):
     return p
 
 
+def _pr_items(panel):
+    """Return list items that are PR rows (have pr_key data), skipping repo headers."""
+    items = []
+    for i in range(panel._pr_list.count()):
+        item = panel._pr_list.item(i)
+        if item.data(Qt.UserRole) is not None:
+            items.append(item)
+    return items
+
+
 def _row_label_text(panel, row: int) -> str:
-    item = panel._pr_list.item(row)
-    widget = panel._pr_list.itemWidget(item)
+    items = _pr_items(panel)
+    if row >= len(items):
+        return ""
+    widget = panel._pr_list.itemWidget(items[row])
     label = widget.findChild(QLabel)
     return label.text() if label else ""
 
 
 def _row_view_btn(panel, row: int) -> QPushButton:
-    item = panel._pr_list.item(row)
-    widget = panel._pr_list.itemWidget(item)
-    return widget.findChild(QPushButton)
+    items = _pr_items(panel)
+    if row >= len(items):
+        return None
+    widget = panel._pr_list.itemWidget(items[row])
+    btns = widget.findChildren(QPushButton)
+    # the View button is the only button in a PR row
+    return btns[0] if btns else None
 
 
 # ── two-line row format ───────────────────────────────────────────────────────
@@ -190,7 +206,7 @@ def test_context_menu_view_action_calls_select_pr(vm, panel, qtbot):
         view_action.text.return_value = "↗ View details"
         mock_menu.exec.return_value = view_action
         mock_menu.addAction.return_value = view_action
-        panel._show_pr_context_menu(pr.pr_key, panel._pr_list.item(0))
+        panel._show_pr_context_menu(pr.pr_key, _pr_items(panel)[0])
     mock_select.assert_called_once_with(pr)
 
 
@@ -204,7 +220,7 @@ def test_context_menu_merge_action_absent_when_not_ready(vm, panel, qtbot):
         MockMenu.return_value = mock_menu
         mock_menu.exec.return_value = None
         mock_menu.addAction.side_effect = lambda text: actions_added.append(text)
-        panel._show_pr_context_menu(pr.pr_key, panel._pr_list.item(0))
+        panel._show_pr_context_menu(pr.pr_key, _pr_items(panel)[0])
     assert not any("Merge" in a for a in actions_added)
 
 
@@ -223,7 +239,7 @@ def test_context_menu_merge_action_present_when_ready(vm, panel, qtbot):
         MockMenu.return_value = mock_menu
         mock_menu.exec.return_value = None
         mock_menu.addAction.side_effect = lambda text: actions_added.append(text)
-        panel._show_pr_context_menu(pr.pr_key, panel._pr_list.item(0))
+        panel._show_pr_context_menu(pr.pr_key, _pr_items(panel)[0])
     assert any("Merge" in a for a in actions_added)
 
 
@@ -244,7 +260,7 @@ def test_context_menu_merge_action_calls_vm_merge(vm, panel, qtbot):
         merge_action.text.return_value = "✓ Merge (squash)"
         mock_menu.exec.return_value = merge_action
         mock_menu.addAction.return_value = merge_action
-        panel._show_pr_context_menu(pr.pr_key, panel._pr_list.item(0))
+        panel._show_pr_context_menu(pr.pr_key, _pr_items(panel)[0])
     mock_merge.assert_called_once_with(pr, squash=True)
 
 
@@ -260,7 +276,7 @@ def test_context_menu_copy_url_writes_clipboard(vm, panel, qtbot):
         copy_action.text.return_value = "⧉ Copy URL"
         mock_menu.exec.return_value = copy_action
         mock_menu.addAction.return_value = copy_action
-        panel._show_pr_context_menu(pr.pr_key, panel._pr_list.item(0))
+        panel._show_pr_context_menu(pr.pr_key, _pr_items(panel)[0])
     MockApp.clipboard.return_value.setText.assert_called()
 
 
@@ -275,7 +291,7 @@ def test_two_prs_same_number_different_repos_both_shown(vm, panel, qtbot):
                       head_branch="g", base_branch="main", state="open", draft=False, mergeable=True)
     vm.prs = [pr1, pr2]
     vm.prs_updated.emit()
-    assert panel._pr_list.count() == 2
+    assert len(_pr_items(panel)) == 2
 
 
 def test_view_button_passes_pr_object_not_bare_number(vm, panel, qtbot):
@@ -303,7 +319,7 @@ def test_context_menu_select_passes_pr_object(vm, panel, qtbot):
         view_action.text.return_value = "↗ View details"
         mock_menu.exec.return_value = view_action
         mock_menu.addAction.return_value = view_action
-        panel._show_pr_context_menu(pr.pr_key, panel._pr_list.item(0))
+        panel._show_pr_context_menu(pr.pr_key, _pr_items(panel)[0])
     mock_select.assert_called_once_with(pr)
 
 
@@ -325,7 +341,7 @@ def test_context_menu_merge_passes_pr_object(vm, panel, qtbot):
         merge_action.text.return_value = "✓ Merge (squash)"
         mock_menu.exec.return_value = merge_action
         mock_menu.addAction.return_value = merge_action
-        panel._show_pr_context_menu(pr.pr_key, panel._pr_list.item(0))
+        panel._show_pr_context_menu(pr.pr_key, _pr_items(panel)[0])
     mock_merge.assert_called_once_with(pr, squash=True)
 
 

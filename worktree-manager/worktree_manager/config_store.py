@@ -87,6 +87,36 @@ class ConfigStore:
         data.setdefault("ui", {})[key] = value
         self._save_raw(data)
 
+    # ── per-repo settings ─────────────────────────────────────────────────────
+
+    def _repo_settings(self, data: dict) -> dict:
+        return data.setdefault("ui", {}).setdefault("github_repo_settings", {})
+
+    def get_repo_muted_checks(self, repo: str) -> list[str]:
+        return self.get_ui_pref("github_repo_settings", {}).get(repo, {}).get("muted_checks", [])
+
+    def set_repo_muted_checks(self, repo: str, names) -> None:
+        data = self._load_raw()
+        self._repo_settings(data).setdefault(repo, {})["muted_checks"] = list(names)
+        self._save_raw(data)
+
+    def get_repo_notification_pref(self, repo: str, event_type: str) -> bool:
+        return self.get_ui_pref("github_repo_settings", {}).get(repo, {}).get("notifications", {}).get(event_type, True)
+
+    def set_repo_notification_pref(self, repo: str, event_type: str, enabled: bool) -> None:
+        data = self._load_raw()
+        s = self._repo_settings(data).setdefault(repo, {})
+        s.setdefault("notifications", {})[event_type] = bool(enabled)
+        self._save_raw(data)
+
+    def get_repo_collapsed(self, repo: str) -> bool:
+        return bool(self.get_ui_pref("github_repo_settings", {}).get(repo, {}).get("collapsed", False))
+
+    def set_repo_collapsed(self, repo: str, collapsed: bool) -> None:
+        data = self._load_raw()
+        self._repo_settings(data).setdefault(repo, {})["collapsed"] = bool(collapsed)
+        self._save_raw(data)
+
     def get_diff_pref(self, repo_path: str) -> dict | None:
         data = self._load_raw()
         return data.get("ui", {}).get("diff", {}).get(repo_path)

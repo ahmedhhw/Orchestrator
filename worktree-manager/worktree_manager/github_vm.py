@@ -223,6 +223,7 @@ class GitHubViewModel(QObject):
                     "mergeable_state": entry["mergeable_state"],
                     "comment_ids": set(entry["comment_ids"]),
                     "review_keys": {tuple(k) for k in entry["review_keys"]},
+                    "ready": entry.get("ready"),
                 }
             return result
         except Exception:
@@ -241,6 +242,7 @@ class GitHubViewModel(QObject):
                 "mergeable_state": entry["mergeable_state"],
                 "comment_ids": list(entry["comment_ids"]),
                 "review_keys": [list(k) for k in entry["review_keys"]],
+                "ready": entry.get("ready"),
             }
             for (owner, repo, num), entry in pruned.items()
         }
@@ -309,12 +311,21 @@ class GitHubViewModel(QObject):
             log.warning("Failed to load PR cache; starting empty", exc_info=True)
             return []
 
+    def muted_checks_for(self, repo: str) -> set[str]:
+        return set(self._store.get_repo_muted_checks(repo))
+
+    def _should_notify(self, pr: PullRequest, event_type: str) -> bool:
+        return self._store.get_repo_notification_pref(f"{pr.owner}/{pr.repo}", event_type)
+
     def _emit_pr_events(self, new_prs: list[PullRequest]) -> None:
         for pr in new_prs:
             pk = pr.pr_key
             state = self._pr_state.get(pk)
-            curr_ci = pr.ci_status()
+            repo_key = f"{pr.owner}/{pr.repo}"
+            muted = self.muted_checks_for(repo_key)
+            curr_ci = pr.ci_status(muted)
             curr_merge = pr.mergeable_state
+            curr_ready = pr.is_ready_to_merge()
 
             if state is None:
                 self._pr_state[pk] = {
@@ -322,37 +333,46 @@ class GitHubViewModel(QObject):
                     "mergeable_state": curr_merge,
                     "comment_ids": {c.id for c in pr.comments},
                     "review_keys": {(r.author, r.state) for r in pr.reviews},
+                    "ready": curr_ready,
                 }
                 continue
 
             if state["ci"] != curr_ci:
-                if curr_ci == "failed":
+                if curr_ci == "failed" and self._should_notify(pr, "ci_failed"):
                     self.pr_event.emit(pk, "ci_failed", f'❌ "{pr.title}" — checks failed')
-                elif curr_ci == "passed":
+                elif curr_ci == "passed" and self._should_notify(pr, "ci_passed"):
                     self.pr_event.emit(pk, "ci_passed", f'✅ "{pr.title}" — all checks passed')
                 state["ci"] = curr_ci
 
             if state["mergeable_state"] != curr_merge and pr.mergeability() == "conflicts":
-                self.pr_event.emit(pk, "pr_conflicts", f'⚠️ "{pr.title}" has merge conflicts')
+                if self._should_notify(pr, "pr_conflicts"):
+                    self.pr_event.emit(pk, "pr_conflicts", f'⚠️ "{pr.title}" has merge conflicts')
             state["mergeable_state"] = curr_merge
 
             for comment in pr.comments:
                 if comment.id not in state["comment_ids"]:
-                    self.pr_event.emit(pk, "new_comment",
-                                       f'💬 {comment.author} commented on "{pr.title}"')
+                    if self._should_notify(pr, "new_comment"):
+                        self.pr_event.emit(pk, "new_comment",
+                                           f'💬 {comment.author} commented on "{pr.title}"')
                     state["comment_ids"].add(comment.id)
                     self._unseen_comment_ids_by_pr.setdefault(pk, set()).add(comment.id)
 
             for review in pr.reviews:
                 key = (review.author, review.state)
                 if key not in state["review_keys"]:
-                    if review.state == "APPROVED":
+                    if review.state == "APPROVED" and self._should_notify(pr, "review"):
                         self.pr_event.emit(pk, "review_approved",
                                            f'✅ {review.author} approved "{pr.title}"')
-                    elif review.state == "CHANGES_REQUESTED":
+                    elif review.state == "CHANGES_REQUESTED" and self._should_notify(pr, "review"):
                         self.pr_event.emit(pk, "review_changes_requested",
                                            f'🔄 {review.author} requested changes on "{pr.title}"')
                     state["review_keys"].add(key)
+
+            if state.get("ready") is False and curr_ready:
+                if self._should_notify(pr, "ready_to_merge"):
+                    self.pr_event.emit(pk, "ready_to_merge",
+                                       f'🟢 "{pr.title}" is ready to merge')
+            state["ready"] = curr_ready
 
         self._save_pr_state()
 

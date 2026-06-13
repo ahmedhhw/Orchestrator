@@ -16,7 +16,8 @@ from PySide6.QtGui import QCursor, QDesktopServices
 
 from worktree_manager.github_vm import GitHubViewModel, TokenState
 from worktree_manager.github_models import PullRequest
-from worktree_manager.github_search import filter_prs
+from worktree_manager.github_search import filter_prs, group_and_filter
+from worktree_manager.ui.repo_settings_dialog import RepoSettingsDialog
 from worktree_manager.ui.filterable_combo import FilterableComboBox
 
 
@@ -430,46 +431,102 @@ class GitHubPanel(QWidget):
         all_prs = self._vm.prs
 
         if not all_prs:
-            # No PRs at all — hide search, show empty list (existing behaviour)
             self._search_edit.hide()
             self._pr_list.show()
             return
 
         self._search_edit.show()
         needle = self._search_edit.text()
-        visible = filter_prs(all_prs, needle)
 
-        if not visible:
+        store = self._vm._store
+        collapsed_repos = {
+            repo for repo in {f"{p.owner}/{p.repo}" for p in all_prs}
+            if store.get_repo_collapsed(repo)
+        }
+
+        groups = group_and_filter(all_prs, needle, collapsed_repos)
+
+        if not groups:
             self._pr_list.hide()
             self._no_match_label.setText(f'No pull requests match "{needle}"')
             self._no_match_label.show()
             return
 
         self._pr_list.show()
-        for pr in visible:
-            badge = self._ci_badge(pr)
-            unread = self._vm.unread_comment_count(pr)
-            badge_prefix = f"🔴 {unread} new  " if unread > 0 else ""
-            merge_badge = self._mergeable_badge(pr)
-            label_text = (f"#{pr.number}  {pr.title}   {badge_prefix}{badge}\n"
-                          f"{pr.head_branch} → {pr.base_branch}    {merge_badge}")
+        for group in groups:
+            self._add_repo_header(group, store)
+            if not group.collapsed:
+                for pr in group.prs:
+                    self._add_pr_row(pr)
 
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(8, 4, 8, 4)
-            lbl = QLabel(label_text)
-            lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            row_layout.addWidget(lbl, 1)
-            view_btn = QPushButton("↗ View")
-            view_btn.setFixedWidth(64)
-            view_btn.clicked.connect(lambda checked=False, p=pr: self._vm.select_pr(p))
-            row_layout.addWidget(view_btn)
+    def _add_repo_header(self, group, store) -> None:
+        glyph = "▸" if group.collapsed else "▾"
+        repo = group.repo
 
-            item = QListWidgetItem()
-            item.setData(Qt.UserRole, pr.pr_key)
-            item.setSizeHint(row_widget.sizeHint().__class__(0, 48))
-            self._pr_list.addItem(item)
-            self._pr_list.setItemWidget(item, row_widget)
+        header_widget = QWidget()
+        header_widget.setStyleSheet("background: palette(midlight);")
+        h_layout = QHBoxLayout(header_widget)
+        h_layout.setContentsMargins(8, 4, 8, 4)
+
+        name_btn = QPushButton(f"{glyph}  {repo}  ({group.count})")
+        name_btn.setFlat(True)
+        name_btn.setStyleSheet("font-weight: bold; text-align: left;")
+        name_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        name_btn.clicked.connect(lambda checked=False, r=repo: self._toggle_repo_collapsed(r, store))
+        h_layout.addWidget(name_btn, 1)
+
+        gear_btn = QPushButton("⚙")
+        gear_btn.setFixedWidth(32)
+        gear_btn.setToolTip(f"Settings for {repo}")
+        gear_btn.setStyleSheet("QPushButton { background: palette(button); border: 1px solid palette(mid); border-radius: 4px; padding: 2px; }")
+        gear_btn.clicked.connect(lambda checked=False, r=repo: self._open_repo_settings(r, store))
+        h_layout.addWidget(gear_btn)
+
+        item = QListWidgetItem()
+        item.setFlags(Qt.ItemIsEnabled)  # not selectable
+        item.setSizeHint(header_widget.sizeHint().__class__(0, 34))
+        self._pr_list.addItem(item)
+        self._pr_list.setItemWidget(item, header_widget)
+
+    def _toggle_repo_collapsed(self, repo: str, store) -> None:
+        store.set_repo_collapsed(repo, not store.get_repo_collapsed(repo))
+        self._render_pr_list()
+
+    def _open_repo_settings(self, repo: str, store) -> None:
+        discovered = sorted({
+            c.name for p in self._vm.prs
+            if f"{p.owner}/{p.repo}" == repo
+            for c in p.checks
+        })
+        dlg = RepoSettingsDialog(repo, store, discovered, parent=self)
+        dlg.exec()
+        self._render_pr_list()
+
+    def _add_pr_row(self, pr: PullRequest) -> None:
+        muted = self._vm.muted_checks_for(f"{pr.owner}/{pr.repo}")
+        badge = self._ci_badge(pr, muted)
+        unread = self._vm.unread_comment_count(pr)
+        badge_prefix = f"🔴 {unread} new  " if unread > 0 else ""
+        merge_badge = self._mergeable_badge(pr)
+        label_text = (f"#{pr.number}  {pr.title}   {badge_prefix}{badge}\n"
+                      f"{pr.head_branch} → {pr.base_branch}    {merge_badge}")
+
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(8, 4, 8, 4)
+        lbl = QLabel(label_text)
+        lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        row_layout.addWidget(lbl, 1)
+        view_btn = QPushButton("↗ View")
+        view_btn.setFixedWidth(64)
+        view_btn.clicked.connect(lambda checked=False, p=pr: self._vm.select_pr(p))
+        row_layout.addWidget(view_btn)
+
+        item = QListWidgetItem()
+        item.setData(Qt.UserRole, pr.pr_key)
+        item.setSizeHint(row_widget.sizeHint().__class__(0, 48))
+        self._pr_list.addItem(item)
+        self._pr_list.setItemWidget(item, row_widget)
 
 
     @staticmethod
@@ -482,15 +539,17 @@ class GitHubPanel(QWidget):
             "checking":  "⚪ Checking mergeability…",
         }.get(pr.mergeability(), "⚪ Checking mergeability…")
 
-    def _ci_badge(self, pr: PullRequest) -> str:
-        s = pr.ci_status()
-        if s == "running":
-            return "⏳ checks running"
-        if s == "failed":
-            return "❌ checks failed"
-        if s == "passed":
-            return "✅ checks passed"
-        return "– no checks"
+    def _ci_badge(self, pr: PullRequest, muted: set | None = None) -> str:
+        muted = muted or set()
+        status, ignored = pr.ci_status_summary(muted)
+        base = {
+            "running": "⏳ checks running",
+            "failed":  "❌ checks failed",
+            "passed":  "✅ checks passed",
+        }.get(status, "– no checks")
+        if ignored and status != "failed":
+            return f"{base} · {ignored} ignored"
+        return base
 
     def _on_pr_list_context_menu(self, pos) -> None:
         item = self._pr_list.itemAt(pos)

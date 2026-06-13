@@ -55,16 +55,26 @@ class PullRequest:
     def pr_key(self) -> tuple[str, str, int]:
         return (self.owner, self.repo, self.number)
 
-    def ci_status(self) -> str:
-        """Return 'running', 'failed', 'passed', or 'unknown'."""
-        if not self.checks:
+    def ci_status(self, muted=frozenset()) -> str:
+        """Return 'running', 'failed', 'passed', or 'unknown'.
+
+        *muted* is a set of check names to exclude before aggregating.
+        """
+        active = [c for c in self.checks if c.name not in muted]
+        if not active:
             return "unknown"
-        conclusions = [c.conclusion for c in self.checks]
+        conclusions = [c.conclusion for c in active]
         if any(c == "failure" for c in conclusions):
             return "failed"
         if any(c is None for c in conclusions):
             return "running"
         return "passed"
+
+    def ci_status_summary(self, muted=frozenset()) -> tuple[str, int]:
+        """Return (status, ignored_count) where ignored_count is muted failing checks."""
+        status = self.ci_status(muted)
+        ignored = sum(1 for c in self.checks if c.name in muted and c.conclusion == "failure")
+        return (status, ignored)
 
     def mergeability(self) -> str:
         """Return 'mergeable' | 'conflicts' | 'behind' | 'blocked' | 'checking'."""
