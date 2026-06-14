@@ -606,13 +606,38 @@ class App(QMainWindow):
                 nickname_store=self._nickname_store,
                 mru_labels=_build_mru_labels(),
             ),
-            parent=self,
+            parent=None,
             on_action_executed=_on_action_executed,
         )
         from PySide6.QtCore import Qt as _Qt
-        shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
-        shortcut.setContext(_Qt.ApplicationShortcut)
-        shortcut.activated.connect(self._open_spotlight)
+        seq = self._store.get_spotlight_shortcut()
+        self._spotlight_qshortcut = QShortcut(QKeySequence(seq), self)
+        self._spotlight_qshortcut.setContext(_Qt.ApplicationShortcut)
+        self._spotlight_qshortcut.activated.connect(self._open_spotlight)
+
+        from worktree_manager.global_hotkey import GlobalHotkey
+        from PySide6.QtCore import Qt as _Qt2
+        self._global_hotkey = GlobalHotkey(parent=self)
+        self._global_hotkey.triggered.connect(
+            self._open_spotlight, _Qt2.ConnectionType.QueuedConnection
+        )
+        self.apply_spotlight_shortcut(seq)
+
+    def apply_spotlight_shortcut(self, seq: str) -> bool:
+        """Rebind the in-process QShortcut and re-register the global Carbon hotkey.
+
+        Returns True if the global hotkey was registered successfully (or on
+        non-macOS where the in-process shortcut is the only path).  Returns
+        False if Carbon registration failed; the in-process shortcut still works.
+        """
+        from PySide6.QtGui import QKeySequence as _QKS
+        from worktree_manager.spotlight.combo import parse_combo
+        self._spotlight_qshortcut.setKey(_QKS(seq))
+        try:
+            keycode, mask = parse_combo(seq)
+        except ValueError:
+            return False
+        return self._global_hotkey.register(keycode, mask)
 
     def _open_spotlight(self) -> None:
         from worktree_manager.spotlight.action_parser import ActionParser

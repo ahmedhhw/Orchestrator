@@ -1,3 +1,6 @@
+import ctypes
+import ctypes.util
+import sys
 from html import escape
 
 from PySide6.QtCore import QEvent, Qt
@@ -12,6 +15,27 @@ from worktree_manager.spotlight.fuzzy import fuzzy_match_indices
 
 # Color for fuzzy-matched characters in suggestion rows.
 HIGHLIGHT_COLOR = "#4da3ff"
+
+# NSPopUpMenuWindowLevel = 101: high enough to appear over full-screen app Spaces,
+# matching real Spotlight behavior.  No-op on non-macOS.
+_NSStatusWindowLevel = 101
+
+def _set_macos_window_level(widget, level: int) -> None:
+    if sys.platform != "darwin":
+        return
+    objc_lib = ctypes.CDLL(ctypes.util.find_library("objc"))
+    sel = objc_lib.sel_registerName
+    sel.restype = ctypes.c_void_p
+    _msg_id = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(
+        ("objc_msgSend", objc_lib)
+    )
+    _msg_set_level = ctypes.CFUNCTYPE(
+        None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long
+    )(("objc_msgSend", objc_lib))
+    ns_view = ctypes.c_void_p(int(widget.winId()))
+    ns_window = _msg_id(ns_view, sel(b"window"))
+    if ns_window:
+        _msg_set_level(ns_window, sel(b"setLevel:"), level)
 
 # Maps slot names to human-friendly plural captions.
 SLOT_CAPTIONS: dict[str, str] = {
@@ -145,15 +169,24 @@ class SpotlightOverlay(QWidget):
         return self._error_label.text() if not self._error_label.isHidden() else ""
 
     def show_centered_over(self, parent: QWidget) -> None:
-        geo = parent.geometry()
-        x = geo.x() + (geo.width() - self.width()) // 2
-        y = geo.y() + (geo.height() // 4)
+        from PySide6.QtWidgets import QApplication
+        if parent.isMinimized() or not parent.isVisible():
+            screen = QApplication.primaryScreen().availableGeometry()
+            x = screen.x() + (screen.width() - self.width()) // 2
+            y = screen.y() + (screen.height() // 4)
+        else:
+            geo = parent.geometry()
+            x = geo.x() + (geo.width() - self.width()) // 2
+            y = geo.y() + (geo.height() // 4)
         self.move(x, y)
         self._edit.clear()
         self._set_error("")
         self._set_invalid(False)
         self._refresh("")
         self.show()
+        _set_macos_window_level(self, _NSStatusWindowLevel)
+        self.activateWindow()
+        self.raise_()
         self._edit.setFocus()
 
     # ------------------------------------------------------------------

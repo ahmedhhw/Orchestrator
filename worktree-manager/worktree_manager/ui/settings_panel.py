@@ -1,6 +1,8 @@
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel,
-    QPushButton, QSpinBox, QVBoxLayout,
+    QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.ui.filterable_combo import FilterableComboBox
@@ -10,11 +12,17 @@ from worktree_manager.setup_settings_vm import SettingsViewModel
 
 class SettingsDialog(QDialog):
     def __init__(self, parent, vm: SettingsViewModel, store=None):
-        super().__init__(parent)
+        # Accept either a real QWidget or any object (e.g. MagicMock in tests).
+        # Pass a valid Qt parent to QDialog; keep the original as _app for
+        # calling apply_spotlight_shortcut after Save.
+        qt_parent = parent if isinstance(parent, QWidget) else None
+        super().__init__(qt_parent)
         self.setWindowTitle("Settings")
         self.setModal(True)
         self._vm = vm
         self._store = store
+        self._app = parent          # may be App, QWidget, or MagicMock
+        self._capturing = False     # True while in shortcut-record mode
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 20, 24, 16)
@@ -85,6 +93,24 @@ class SettingsDialog(QDialog):
         self._experimental_check.setChecked(current_experimental)
         outer.addWidget(self._experimental_check)
 
+        # ── Spotlight shortcut row ──────────────────────────────────────────
+        row_sc = QHBoxLayout()
+        row_sc.addWidget(QLabel("Spotlight shortcut:"))
+        self._shortcut_field = QLineEdit()
+        self._shortcut_field.setReadOnly(True)
+        _sc = store.get_spotlight_shortcut() if store else None
+        current_sc = _sc if isinstance(_sc, str) else "Ctrl+K"
+        self._shortcut_field.setText(current_sc)
+        row_sc.addWidget(self._shortcut_field)
+        self._record_btn = QPushButton("Record")
+        self._record_btn.clicked.connect(self._toggle_capture)
+        row_sc.addWidget(self._record_btn)
+        outer.addLayout(row_sc)
+
+        self._shortcut_status = QLabel("Global ●")
+        outer.addWidget(self._shortcut_status)
+
+        # ── Buttons ─────────────────────────────────────────────────────────
         btns = QHBoxLayout()
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -94,6 +120,56 @@ class SettingsDialog(QDialog):
         self._save_btn.clicked.connect(self._save)
         btns.addWidget(self._save_btn)
         outer.addLayout(btns)
+
+    # ------------------------------------------------------------------
+    # Shortcut capture
+    # ------------------------------------------------------------------
+
+    def _toggle_capture(self) -> None:
+        """Enter / exit shortcut-record mode."""
+        self._capturing = not self._capturing
+        if self._capturing:
+            self._record_btn.setText("Cancel")
+            self._shortcut_status.setText("Press a shortcut…")
+            self.installEventFilter(self)
+        else:
+            self._record_btn.setText("Record")
+            self.removeEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        if self._capturing and event.type() == QKeyEvent.Type.KeyPress:
+            key_event = event  # QKeyEvent
+            key = key_event.key()
+
+            # Esc cancels capture without changing the combo
+            if key == Qt.Key.Key_Escape:
+                self._toggle_capture()
+                return True
+
+            # Ignore bare modifier key-presses
+            if key in (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt,
+                       Qt.Key.Key_Meta, Qt.Key.Key_Super_L, Qt.Key.Key_Super_R):
+                return True
+
+            modifiers = key_event.modifiers()
+            if modifiers == Qt.KeyboardModifier.NoModifier:
+                # Bare key — reject and show message
+                self._shortcut_status.setText("⚠ Needs a modifier (e.g. Ctrl+K)")
+                return True
+
+            # Build a combo string and accept
+            combo = QKeySequence(modifiers | key).toString()
+            if combo:
+                self._shortcut_field.setText(combo)
+                self._shortcut_status.setText("Global ●")
+            self._toggle_capture()
+            return True
+
+        return super().eventFilter(obj, event)
+
+    # ------------------------------------------------------------------
+    # Save
+    # ------------------------------------------------------------------
 
     def _save(self):
         self._vm.save(
@@ -106,4 +182,15 @@ class SettingsDialog(QDialog):
             self._store.set_branch_diff_mode(self._branch_diff_combo.currentData())
             self._store.save_github_poll_interval(int(self._github_poll_spin.value()))
             self._store.set_experimental_features(self._experimental_check.isChecked())
+
+            # Persist the shortcut and apply it to the App window
+            combo = self._shortcut_field.text()
+            self._store.set_spotlight_shortcut(combo)
+            if hasattr(self._app, "apply_spotlight_shortcut"):
+                ok = self._app.apply_spotlight_shortcut(combo)
+                if not ok:
+                    self._shortcut_status.setText(
+                        "⚠ Could not register globally — Local only"
+                    )
+
         self.accept()

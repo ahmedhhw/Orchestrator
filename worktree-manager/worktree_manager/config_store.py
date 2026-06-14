@@ -87,6 +87,14 @@ class ConfigStore:
         data.setdefault("ui", {})[key] = value
         self._save_raw(data)
 
+    # ── spotlight shortcut ────────────────────────────────────────────────────
+
+    def get_spotlight_shortcut(self) -> str:
+        return self.get_ui_pref("spotlight_shortcut", "Ctrl+K")
+
+    def set_spotlight_shortcut(self, seq: str) -> None:
+        self.set_ui_pref("spotlight_shortcut", seq)
+
     # ── per-repo settings ─────────────────────────────────────────────────────
 
     def _repo_settings(self, data: dict) -> dict:
