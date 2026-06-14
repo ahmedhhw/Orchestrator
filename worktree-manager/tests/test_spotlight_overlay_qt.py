@@ -736,3 +736,99 @@ def test_tab_advances_to_next_slot(qtbot):
     qtbot.keyClick(edit, Qt.Key_Tab)
     assert edit.text() == "command repoA "
     assert _list_items(overlay) == ["wt1", "wt2"]
+
+
+# ---------------------------------------------------------------------------
+# macOS focus / window-ordering tests (Iteration 0 — overlay-only focus)
+# ---------------------------------------------------------------------------
+
+def test_configure_macos_overlay_window_called_on_macos(qtbot, monkeypatch):
+    """On darwin, show_centered_over configures the overlay's NSWindow (non-activating
+    floating panel + orderFrontRegardless) instead of Qt's activateWindow/raise_."""
+    import sys
+    import worktree_manager.ui.spotlight_overlay as mod
+
+    overlay = _make_overlay(qtbot)
+    parent = overlay  # use overlay itself as parent widget (visible, not minimized)
+
+    configure_calls = []
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        mod, "_configure_macos_overlay_window", lambda w: configure_calls.append(w)
+    )
+
+    overlay.show_centered_over(parent)
+
+    assert len(configure_calls) == 1
+    assert configure_calls[0] is overlay
+
+
+def test_show_does_not_call_qt_activate_on_macos(qtbot, monkeypatch):
+    """On darwin, show_centered_over must NOT call Qt's activateWindow() or raise_()
+    — those activate the app and raise the main window to the front."""
+    import sys
+    import worktree_manager.ui.spotlight_overlay as mod
+
+    overlay = _make_overlay(qtbot)
+    parent = overlay
+
+    activate_calls = []
+    raise_calls = []
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(mod, "_configure_macos_overlay_window", lambda w: None)
+    monkeypatch.setattr(overlay, "activateWindow", lambda: activate_calls.append(True))
+    monkeypatch.setattr(overlay, "raise_", lambda: raise_calls.append(True))
+
+    overlay.show_centered_over(parent)
+
+    assert activate_calls == [], "activateWindow() must not be called on macOS"
+    assert raise_calls == [], "raise_() must not be called on macOS"
+
+
+def test_show_uses_qt_activate_off_macos(qtbot, monkeypatch):
+    """On non-darwin, show_centered_over uses Qt's activateWindow() and raise_()
+    and does not run the macOS NSWindow configuration."""
+    import sys
+    import worktree_manager.ui.spotlight_overlay as mod
+
+    overlay = _make_overlay(qtbot)
+    parent = overlay
+
+    activate_calls = []
+    raise_calls = []
+    configure_calls = []
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(
+        mod, "_configure_macos_overlay_window", lambda w: configure_calls.append(w)
+    )
+    monkeypatch.setattr(overlay, "activateWindow", lambda: activate_calls.append(True))
+    monkeypatch.setattr(overlay, "raise_", lambda: raise_calls.append(True))
+
+    overlay.show_centered_over(parent)
+
+    assert activate_calls == [True], "activateWindow() must be called on non-macOS"
+    assert raise_calls == [True], "raise_() must be called on non-macOS"
+    assert configure_calls == [], "macOS configuration must not run on non-macOS"
+
+
+def test_show_still_focuses_line_edit(qtbot, monkeypatch):
+    """Regardless of platform, after show_centered_over the search line-edit has
+    input focus so typing works immediately."""
+    import sys
+    import worktree_manager.ui.spotlight_overlay as mod
+
+    # Test on both macOS and non-macOS paths
+    for platform in ("darwin", "linux"):
+        overlay = _make_overlay(qtbot)
+        parent = overlay
+
+        monkeypatch.setattr(sys, "platform", platform)
+        monkeypatch.setattr(mod, "_configure_macos_overlay_window", lambda w: None)
+
+        overlay.show_centered_over(parent)
+
+        edit = overlay.findChild(QLineEdit)
+        assert edit.hasFocus(), f"line-edit must have focus after show_centered_over on {platform}"

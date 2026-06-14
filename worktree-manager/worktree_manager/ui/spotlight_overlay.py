@@ -16,26 +16,83 @@ from worktree_manager.spotlight.fuzzy import fuzzy_match_indices
 # Color for fuzzy-matched characters in suggestion rows.
 HIGHLIGHT_COLOR = "#4da3ff"
 
-# NSPopUpMenuWindowLevel = 101: high enough to appear over full-screen app Spaces,
-# matching real Spotlight behavior.  No-op on non-macOS.
-_NSStatusWindowLevel = 101
+# --- macOS overlay window constants ---------------------------------------
+# Mirrors the working recipe in TimeControl's TaskPalettePanel (Swift): a
+# borderless non-activating NSPanel at .floating level that joins all Spaces and
+# floats over full-screen apps, brought up with orderFrontRegardless() so a
+# *background* app's panel appears on top WITHOUT activating the app (which would
+# raise the main window).  All values verified against the macOS SDK 2026-06-13.
+_NS_STYLE_NONACTIVATING_PANEL = 0x80   # NSWindowStyleMaskNonactivatingPanel = 1 << 7
+_NS_FLOATING_WINDOW_LEVEL = 3          # NSFloatingWindowLevel
+_NS_COLLECTION_CAN_JOIN_ALL_SPACES = 0x1     # 1 << 0
+_NS_COLLECTION_FULLSCREEN_AUXILIARY = 0x100  # 1 << 8
+_NS_OVERLAY_COLLECTION_BEHAVIOR = (
+    _NS_COLLECTION_CAN_JOIN_ALL_SPACES | _NS_COLLECTION_FULLSCREEN_AUXILIARY
+)  # 0x101
 
-def _set_macos_window_level(widget, level: int) -> None:
+
+def _configure_macos_overlay_window(widget) -> None:
+    """Configure the overlay's NSWindow to float on top of the foreground app.
+
+    Replicates TimeControl's TaskPalettePanel recipe via the objc bridge:
+      - style mask gains NSWindowStyleMaskNonactivatingPanel  (don't activate the app)
+      - hidesOnDeactivate = NO  (Qt.Tool panels default to YES; AppKit otherwise
+        auto-hides the panel the moment this app is not frontmost — which is exactly
+        when the global shortcut fires from another app, so it must be disabled)
+      - level = NSFloatingWindowLevel
+      - collectionBehavior = canJoinAllSpaces | fullScreenAuxiliary  (all Spaces / full-screen)
+      - orderFrontRegardless()  (bring a *background* app's window to front w/o activating)
+
+    orderFrontRegardless is the key difference from makeKeyAndOrderFront:, which does
+    NOT front a background regular app's window.  Qt drives key-window/focus state for
+    its QNSPanel, so we do NOT call AppKit's makeKey (it raises an NSException on the
+    Qt-managed panel) — `self._edit.setFocus()` in show_centered_over handles input
+    focus instead.  No-op on non-darwin.
+    """
     if sys.platform != "darwin":
         return
     objc_lib = ctypes.CDLL(ctypes.util.find_library("objc"))
     sel = objc_lib.sel_registerName
     sel.restype = ctypes.c_void_p
+
+    # objc_msgSend variants by signature.
     _msg_id = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(
         ("objc_msgSend", objc_lib)
-    )
-    _msg_set_level = ctypes.CFUNCTYPE(
+    )                                                            # -> id, no args
+    _msg_uint_ret = ctypes.CFUNCTYPE(
+        ctypes.c_ulong, ctypes.c_void_p, ctypes.c_void_p
+    )(("objc_msgSend", objc_lib))                                # -> NSUInteger, no args
+    _msg_void = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)(
+        ("objc_msgSend", objc_lib)
+    )                                                            # void, no args
+    _msg_set_uint = ctypes.CFUNCTYPE(
+        None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong
+    )(("objc_msgSend", objc_lib))                                # void, NSUInteger arg
+    _msg_set_long = ctypes.CFUNCTYPE(
         None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long
-    )(("objc_msgSend", objc_lib))
+    )(("objc_msgSend", objc_lib))                                # void, NSInteger arg
+    _msg_set_bool = ctypes.CFUNCTYPE(
+        None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_bool
+    )(("objc_msgSend", objc_lib))                                # void, BOOL arg
+
     ns_view = ctypes.c_void_p(int(widget.winId()))
     ns_window = _msg_id(ns_view, sel(b"window"))
-    if ns_window:
-        _msg_set_level(ns_window, sel(b"setLevel:"), level)
+    if not ns_window:
+        return
+
+    current_mask = _msg_uint_ret(ns_window, sel(b"styleMask"))
+    _msg_set_uint(
+        ns_window, sel(b"setStyleMask:"), current_mask | _NS_STYLE_NONACTIVATING_PANEL
+    )
+    # The decisive fix: Qt.Tool panels have hidesOnDeactivate=YES, so AppKit hides
+    # the overlay whenever this app isn't frontmost (i.e. when triggered from another
+    # app).  Disabling it lets the panel stay up over the foreground app.
+    _msg_set_bool(ns_window, sel(b"setHidesOnDeactivate:"), False)
+    _msg_set_long(ns_window, sel(b"setLevel:"), _NS_FLOATING_WINDOW_LEVEL)
+    _msg_set_uint(
+        ns_window, sel(b"setCollectionBehavior:"), _NS_OVERLAY_COLLECTION_BEHAVIOR
+    )
+    _msg_void(ns_window, sel(b"orderFrontRegardless"))
 
 # Maps slot names to human-friendly plural captions.
 SLOT_CAPTIONS: dict[str, str] = {
@@ -184,9 +241,15 @@ class SpotlightOverlay(QWidget):
         self._set_invalid(False)
         self._refresh("")
         self.show()
-        _set_macos_window_level(self, _NSStatusWindowLevel)
-        self.activateWindow()
-        self.raise_()
+        if sys.platform == "darwin":
+            # Non-activating floating panel that joins all Spaces + floats over
+            # full-screen apps, brought to front with orderFrontRegardless so a
+            # background app's overlay appears on top without activating this app
+            # (which would raise the main window).  Mirrors TimeControl's panel.
+            _configure_macos_overlay_window(self)
+        else:
+            self.activateWindow()
+            self.raise_()
         self._edit.setFocus()
 
     # ------------------------------------------------------------------
