@@ -131,33 +131,25 @@ class App(QMainWindow):
         )
 
         def _run_open_project(args):
-            name = args["name"]
-            editor = self._store.get_ui_pref("project_editor", "cursor")
-            self._wp_vm.open_project(name, editor)
+            # Editor comes from the third token. Legacy nicknames saved before
+            # the editor token existed have no "editor" arg — default to cursor.
+            self._wp_vm.open_project(args["name"], args.get("editor", "cursor"))
 
         self._spotlight_registry.register(ActionSpec(
             name="open_project",
             keywords=["project"],
-            slots=[ArgSlot(
-                name="name",
-                candidates=lambda prev: [p.name for p in self._store.all_projects()],
-            )],
+            slots=[
+                ArgSlot(
+                    name="name",
+                    candidates=lambda prev: [p.name for p in self._store.all_projects()],
+                ),
+                ArgSlot(
+                    name="editor",
+                    candidates=lambda prev: ["cursor", "vscode"],
+                ),
+            ],
             runner=_run_open_project,
             description="Open a workspace project",
-        ))
-
-        def _run_set_project_editor(args):
-            self._store.set_ui_pref("project_editor", args["editor"])
-
-        self._spotlight_registry.register(ActionSpec(
-            name="set_project_editor",
-            keywords=["settings", "project", "editor"],
-            slots=[ArgSlot(
-                name="editor",
-                candidates=lambda prev: ["cursor", "vscode"],
-            )],
-            runner=_run_set_project_editor,
-            description="Set the editor used to open workspace projects",
         ))
 
         from worktree_manager.ui.project_operations_dialog import (
