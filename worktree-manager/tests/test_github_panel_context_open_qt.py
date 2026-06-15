@@ -153,3 +153,47 @@ def test_merge_squash_present_when_ready_to_merge(panel, vm):
     vm.prs = [pr]
     texts = _action_texts(panel, pr.pr_key)
     assert "✓ Merge (squash)" in texts
+
+
+def _choose_context_action(panel, pr, action_text):
+    """Simulate the user picking *action_text* from the PR's context menu."""
+    import worktree_manager.ui.github_panel as gp_mod
+    chosen = MagicMock()
+    chosen.text.return_value = action_text
+    with patch.object(gp_mod, "QMenu") as MockMenu:
+        instance = MagicMock()
+        instance.exec.return_value = chosen
+        MockMenu.return_value = instance
+        item = MagicMock(spec=QListWidgetItem)
+        panel._show_pr_context_menu(pr.pr_key, item)
+
+
+def test_context_retry_all_surfaces_error_instead_of_raising(panel, vm):
+    import requests
+    from worktree_manager.github_models import CICheck
+    pr = PullRequest(
+        number=1, title="PR 1", body="", html_url="https://github.com/o/r/pull/1",
+        head_branch="feat", base_branch="main", state="open", draft=False, mergeable=True,
+        checks=[CICheck("build", "completed", "failure", check_suite_id="s1", run_id="9")],
+    )
+    vm.prs = [pr]
+    vm.retry_all_cis = MagicMock(side_effect=requests.HTTPError("403 Forbidden"))
+    # Must not raise; the list error label surfaces the message.
+    _choose_context_action(panel, pr, "↺ Re-try all CIs")
+    assert panel._pr_error_label.isVisible()
+    assert "403" in panel._pr_error_label.text()
+
+
+def test_context_retry_failed_surfaces_error_instead_of_raising(panel, vm):
+    import requests
+    from worktree_manager.github_models import CICheck
+    pr = PullRequest(
+        number=1, title="PR 1", body="", html_url="https://github.com/o/r/pull/1",
+        head_branch="feat", base_branch="main", state="open", draft=False, mergeable=True,
+        checks=[CICheck("build", "completed", "failure", check_suite_id="s1", run_id="9")],
+    )
+    vm.prs = [pr]
+    vm.retry_failed_cis = MagicMock(side_effect=requests.HTTPError("403 Forbidden"))
+    _choose_context_action(panel, pr, "↺ Re-try failed CIs")
+    assert panel._pr_error_label.isVisible()
+    assert "403" in panel._pr_error_label.text()

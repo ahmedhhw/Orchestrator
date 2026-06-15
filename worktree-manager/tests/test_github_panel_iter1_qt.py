@@ -89,24 +89,32 @@ def test_open_url_calls_desktop_services(configured_panel, configured_vm, qtbot)
     assert "pull/42" in called_url.toString()
 
 
-# Phase 1.2 — Re-run CI button
+# Phase 1.2 — Re-try CI buttons (replaced single re-run button with two buttons)
 
-def test_rerun_button_hidden_when_no_failures(configured_panel, configured_vm, qtbot):
+def test_retry_failed_button_hidden_when_no_action_failures(configured_panel, configured_vm, qtbot):
     pr = _make_pr(42, checks=[CICheck("build", "completed", "success", "suite-1")])
     _show_detail(configured_panel, configured_vm, pr)
-    assert not configured_panel._rerun_btn.isVisible()
+    assert not configured_panel._retry_failed_btn.isVisible()
 
 
-def test_rerun_button_visible_when_check_failed(configured_panel, configured_vm, qtbot):
-    pr = _make_pr(42, checks=[CICheck("build", "completed", "failure", "suite-1")])
+def test_retry_all_button_visible_when_checks_present(configured_panel, configured_vm, qtbot):
+    pr = _make_pr(42, checks=[CICheck("build", "completed", "success", "suite-1")])
     _show_detail(configured_panel, configured_vm, pr)
-    assert configured_panel._rerun_btn.isVisible()
+    assert configured_panel._retry_all_btn.isVisible()
 
 
-def test_rerun_button_calls_service(configured_panel, configured_vm, qtbot):
-    failed_check = CICheck("build", "completed", "failure", "suite-99")
+def test_retry_failed_button_visible_when_action_check_failed(configured_panel, configured_vm, qtbot):
+    failed_check = CICheck("build", "completed", "failure", "suite-1", run_id="99")
     pr = _make_pr(42, checks=[failed_check])
     _show_detail(configured_panel, configured_vm, pr)
-    configured_vm._svc = MagicMock()
-    configured_panel._rerun_btn.click()
-    configured_vm._svc.rerun_failed_checks.assert_called_once_with("suite-99", pr)
+    assert configured_panel._retry_failed_btn.isVisible()
+
+
+def test_retry_failed_button_calls_vm_retry_failed_cis(configured_panel, configured_vm, qtbot):
+    from unittest.mock import MagicMock
+    failed_check = CICheck("build", "completed", "failure", "suite-1", run_id="99")
+    pr = _make_pr(42, checks=[failed_check])
+    _show_detail(configured_panel, configured_vm, pr)
+    configured_vm.retry_failed_cis = MagicMock(return_value="")
+    configured_panel._retry_failed_btn.click()
+    configured_vm.retry_failed_cis.assert_called_once_with(pr)

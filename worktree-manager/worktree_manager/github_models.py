@@ -107,6 +107,14 @@ class PullRequest:
                 seen.append(c.run_id)
         return seen
 
+    def all_actions_run_ids(self) -> list[str]:
+        """Return distinct run_ids across all checks that have one (Actions checks)."""
+        seen: list[str] = []
+        for c in self.checks:
+            if c.run_id and c.run_id not in seen:
+                seen.append(c.run_id)
+        return seen
+
     def non_rerunnable_failed_count(self) -> int:
         """Count failed checks that have no run_id (can't be re-run via Actions API)."""
         return sum(1 for c in self.checks if c.conclusion == "failure" and not c.run_id)

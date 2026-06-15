@@ -429,12 +429,22 @@ class GitHubViewModel(QObject):
         return f"({skipped} non-Actions {noun} can't be re-run here)"
 
     def retry_all_cis(self, pr: PullRequest) -> None:
-        """Rerun the entire check suite for the PR."""
+        """Rerun all CI for the PR.
+
+        Prefers re-running each distinct GitHub Actions workflow run (the
+        reliable "Re-run all jobs" path). Falls back to re-requesting the
+        whole check suite only when the PR has no Actions runs to drive.
+        """
         if self._svc is None:
             return
-        sid = pr.check_suite_id_for_all()
-        if sid:
-            self._svc.rerun_all_checks(sid, pr)
+        run_ids = pr.all_actions_run_ids()
+        if run_ids:
+            for rid in run_ids:
+                self._svc.rerun_workflow(rid, pr)
+        else:
+            sid = pr.check_suite_id_for_all()
+            if sid:
+                self._svc.rerun_all_checks(sid, pr)
         self._optimistically_mark_running(pr, only_failed=False)
         self.pr_event.emit(pr.pr_key, "ci_rerun", f'⏳ Re-running all checks for #{pr.number}…')
         self._schedule_quick_fetch()

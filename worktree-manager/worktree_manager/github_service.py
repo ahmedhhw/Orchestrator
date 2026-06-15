@@ -244,6 +244,14 @@ class GitHubService:
         )
         resp.raise_for_status()
 
+    def rerun_workflow(self, run_id: str, pr: "PullRequest") -> None:
+        base = self._base_for_pr(pr)
+        resp = requests.post(
+            f"{base}/actions/runs/{run_id}/rerun",
+            headers=self._headers,
+        )
+        resp.raise_for_status()
+
     def merge_pr(self, pr: PullRequest, squash: bool = True) -> None:
         base = self._base_for_pr(pr)
         resp = requests.put(

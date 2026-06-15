@@ -83,6 +83,35 @@ def test_failed_actions_run_ids_ignores_failed_checks_without_run_id():
     assert result == ["42"]
 
 
+# ── PullRequest.all_actions_run_ids ───────────────────────────────────────────
+
+def test_all_actions_run_ids_returns_distinct_run_ids_across_all_checks():
+    pr = _make_pr()
+    pr.checks = [
+        CICheck(name="a", status="completed", conclusion="success", run_id="99"),
+        CICheck(name="b", status="completed", conclusion="failure", run_id="99"),  # same run
+        CICheck(name="c", status="completed", conclusion="success", run_id="100"),
+    ]
+    assert pr.all_actions_run_ids() == ["99", "100"]
+
+
+def test_all_actions_run_ids_ignores_checks_without_run_id():
+    pr = _make_pr()
+    pr.checks = [
+        CICheck(name="a", status="completed", conclusion="success", run_id=None),
+        CICheck(name="b", status="completed", conclusion="success", run_id="7"),
+    ]
+    assert pr.all_actions_run_ids() == ["7"]
+
+
+def test_all_actions_run_ids_empty_when_no_actions_checks():
+    pr = _make_pr()
+    pr.checks = [
+        CICheck(name="a", status="completed", conclusion="failure", run_id=None),
+    ]
+    assert pr.all_actions_run_ids() == []
+
+
 # ── PullRequest.non_rerunnable_failed_count ───────────────────────────────────
 
 def test_non_rerunnable_failed_count_counts_failed_without_run_id():

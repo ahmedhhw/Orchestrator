@@ -57,3 +57,25 @@ def test_rerun_failed_jobs_raises_on_http_error(svc):
         mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("422")
         with pytest.raises(requests.HTTPError):
             svc.rerun_failed_jobs("99", pr)
+
+
+# ── rerun_workflow ───────────────────────────────────────────────────────────
+
+def test_rerun_workflow_posts_to_actions_rerun_endpoint(svc):
+    pr = _make_pr()
+    with patch("worktree_manager.github_service.requests.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=201)
+        svc.rerun_workflow("77", pr)
+    mock_post.assert_called_once()
+    url = mock_post.call_args[0][0]
+    assert "actions/runs/77/rerun" in url
+    assert "rerun-failed-jobs" not in url
+
+
+def test_rerun_workflow_raises_on_http_error(svc):
+    pr = _make_pr()
+    with patch("worktree_manager.github_service.requests.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=403, ok=False)
+        mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("403")
+        with pytest.raises(requests.HTTPError):
+            svc.rerun_workflow("77", pr)

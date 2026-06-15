@@ -128,19 +128,34 @@ def test_retry_failed_cis_emits_pr_event_for_toast(vm, qtbot):
 
 # ── retry_all_cis ────────────────────────────────────────────────────────────
 
-def test_retry_all_cis_calls_rerun_all_checks_with_suite_id(vm, qtbot):
+def test_retry_all_cis_reruns_each_distinct_workflow_run(vm, qtbot):
     pr = _make_pr(checks=[
-        _passing_check("a", suite_id="suite-42"),
-        _failed_check("b", run_id="1", suite_id="suite-42"),
+        _passing_check("a", run_id="500", suite_id="suite-42"),
+        _failed_check("b", run_id="500", suite_id="suite-42"),   # same run, collapsed
+        _passing_check("c", run_id="501", suite_id="suite-42"),
+    ])
+    vm._svc = MagicMock()
+    vm.retry_all_cis(pr)
+    calls = vm._svc.rerun_workflow.call_args_list
+    called_ids = {c[0][0] for c in calls}
+    assert called_ids == {"500", "501"}
+    # workflow rerun is preferred over the check-suite rerequest
+    vm._svc.rerun_all_checks.assert_not_called()
+
+
+def test_retry_all_cis_falls_back_to_suite_rerequest_when_no_actions_runs(vm, qtbot):
+    pr = _make_pr(checks=[
+        _failed_check("a", run_id=None, suite_id="suite-42"),   # non-Actions check
     ])
     vm._svc = MagicMock()
     vm.retry_all_cis(pr)
     vm._svc.rerun_all_checks.assert_called_once_with("suite-42", pr)
+    vm._svc.rerun_workflow.assert_not_called()
 
 
 def test_retry_all_cis_marks_all_checks_as_running(vm, qtbot):
     pr = _make_pr(checks=[
-        _passing_check("a", suite_id="suite-1"),
+        _passing_check("a", run_id="1", suite_id="suite-1"),
         _failed_check("b", run_id="1", suite_id="suite-1"),
     ])
     vm._svc = MagicMock()
