@@ -1,4 +1,5 @@
 import logging
+import re
 import subprocess
 from urllib.parse import urlparse
 
@@ -147,6 +148,12 @@ class GitHubService:
             mergeable=None,
         )
 
+    @staticmethod
+    def _parse_run_id(details_url: str) -> str | None:
+        """Extract workflow run id from a GitHub Actions details URL."""
+        m = re.search(r"/actions/runs/(\d+)", details_url or "")
+        return m.group(1) if m else None
+
     def _base_for_pr(self, pr: PullRequest) -> str:
         parts = urlparse(pr.html_url).path.strip("/").split("/")
         owner, repo = parts[0], parts[1]
@@ -179,6 +186,7 @@ class GitHubService:
                         status=c["status"],
                         conclusion=c.get("conclusion"),
                         check_suite_id=str(c["check_suite"]["id"]) if c.get("check_suite") else None,
+                        run_id=GitHubService._parse_run_id(c.get("details_url") or ""),
                     )
                     for c in checks_resp.json().get("check_runs", [])
                 ]
@@ -220,10 +228,26 @@ class GitHubService:
             raise RuntimeError(msg)
         return self._pr_from_dict(resp.json())
 
-    def rerun_failed_checks(self, check_suite_id: str, pr: "PullRequest") -> None:
+    def rerun_all_checks(self, check_suite_id: str, pr: "PullRequest") -> None:
         base = self._base_for_pr(pr)
         resp = requests.post(
             f"{base}/check-suites/{check_suite_id}/rerequest",
+            headers=self._headers,
+        )
+        resp.raise_for_status()
+
+    def rerun_failed_jobs(self, run_id: str, pr: "PullRequest") -> None:
+        base = self._base_for_pr(pr)
+        resp = requests.post(
+            f"{base}/actions/runs/{run_id}/rerun-failed-jobs",
+            headers=self._headers,
+        )
+        resp.raise_for_status()
+
+    def rerun_workflow(self, run_id: str, pr: "PullRequest") -> None:
+        base = self._base_for_pr(pr)
+        resp = requests.post(
+            f"{base}/actions/runs/{run_id}/rerun",
             headers=self._headers,
         )
         resp.raise_for_status()

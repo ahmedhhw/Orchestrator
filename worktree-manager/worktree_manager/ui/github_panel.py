@@ -227,12 +227,21 @@ class GitHubPanel(QWidget):
         checks_header = QHBoxLayout()
         checks_header.addWidget(QLabel("CI Checks"))
         checks_header.addStretch(1)
-        self._rerun_btn = QPushButton("↺ Re-run")
-        self._rerun_btn.setFixedWidth(80)
-        self._rerun_btn.hide()
-        self._rerun_conn = None
-        checks_header.addWidget(self._rerun_btn)
+        self._retry_failed_btn = QPushButton("↺ Re-try failed")
+        self._retry_failed_btn.setToolTip("Re-run only the failed CI jobs")
+        self._retry_failed_btn.hide()
+        self._retry_failed_conn = None
+        checks_header.addWidget(self._retry_failed_btn)
+        self._retry_all_btn = QPushButton("↺ Re-try all")
+        self._retry_all_btn.setToolTip("Re-run all CI checks")
+        self._retry_all_btn.hide()
+        self._retry_all_conn = None
+        checks_header.addWidget(self._retry_all_btn)
         detail_layout.addLayout(checks_header)
+        self._rerun_status_label = QLabel()
+        self._rerun_status_label.setStyleSheet("color: gray; font-size: 11px;")
+        self._rerun_status_label.hide()
+        detail_layout.addWidget(self._rerun_status_label)
         self._checks_list = QListWidget()
         self._checks_list.setMaximumHeight(120)
         detail_layout.addWidget(self._checks_list)
@@ -572,6 +581,14 @@ class GitHubPanel(QWidget):
         if pr.is_ready_to_merge():
             menu.addAction("✓ Merge (squash)")
         menu.addAction("⧉ Copy URL")
+        failed_run_ids = pr.failed_actions_run_ids()
+        has_checks = bool(pr.checks)
+        if failed_run_ids or has_checks:
+            menu.addSeparator()
+        if failed_run_ids:
+            menu.addAction("↺ Re-try failed CIs")
+        if has_checks:
+            menu.addAction("↺ Re-try all CIs")
         action = menu.exec(QCursor.pos())
         if action is None:
             return
@@ -584,6 +601,16 @@ class GitHubPanel(QWidget):
             self._vm.merge_pr(pr, squash=True)
         elif text == "⧉ Copy URL":
             QApplication.clipboard().setText(pr.html_url)
+        elif text == "↺ Re-try failed CIs":
+            try:
+                self._vm.retry_failed_cis(pr)
+            except Exception as exc:
+                self._on_refresh_error(f"⚠ Re-run failed: {exc}")
+        elif text == "↺ Re-try all CIs":
+            try:
+                self._vm.retry_all_cis(pr)
+            except Exception as exc:
+                self._on_refresh_error(f"⚠ Re-run failed: {exc}")
 
     def _on_pr_detail_updated(self):
         pr = self._vm.selected_pr
@@ -611,17 +638,28 @@ class GitHubPanel(QWidget):
             badge = {"success": "✅", "failure": "❌"}.get(conclusion, "⏳")
             self._checks_list.addItem(f"● {c.name}   {badge} {conclusion}")
 
-        failed_checks = [c for c in pr.checks if c.conclusion == "failure"]
-        if failed_checks:
-            self._rerun_btn.show()
-            suite_id = failed_checks[0].check_suite_id
-            if self._rerun_conn is not None:
-                self._rerun_btn.clicked.disconnect(self._rerun_conn)
-            self._rerun_conn = self._rerun_btn.clicked.connect(
-                lambda checked=False, sid=suite_id, p=pr: self._vm._svc.rerun_failed_checks(sid, p) if self._vm._svc else None
+        self._rerun_status_label.hide()
+
+        failed_run_ids = pr.failed_actions_run_ids()
+        if failed_run_ids:
+            self._retry_failed_btn.show()
+            if self._retry_failed_conn is not None:
+                self._retry_failed_btn.clicked.disconnect(self._retry_failed_conn)
+            self._retry_failed_conn = self._retry_failed_btn.clicked.connect(
+                lambda checked=False, p=pr: self._on_retry_failed(p)
             )
         else:
-            self._rerun_btn.hide()
+            self._retry_failed_btn.hide()
+
+        if pr.checks:
+            self._retry_all_btn.show()
+            if self._retry_all_conn is not None:
+                self._retry_all_btn.clicked.disconnect(self._retry_all_conn)
+            self._retry_all_conn = self._retry_all_btn.clicked.connect(
+                lambda checked=False, p=pr: self._on_retry_all(p)
+            )
+        else:
+            self._retry_all_btn.hide()
 
         self._reviews_list.clear()
         if pr.reviews:
@@ -663,6 +701,35 @@ class GitHubPanel(QWidget):
         else:
             self._squash_checkbox.hide()
             self._merge_btn.hide()
+
+    def _on_retry_failed(self, pr: PullRequest) -> None:
+        try:
+            note = self._vm.retry_failed_cis(pr)
+        except Exception as exc:
+            self._show_rerun_error(exc)
+            return
+        msg = "⏳ Re-running failed checks…"
+        if note:
+            msg += "  " + note
+        self._show_rerun_status(msg)
+
+    def _on_retry_all(self, pr: PullRequest) -> None:
+        try:
+            self._vm.retry_all_cis(pr)
+        except Exception as exc:
+            self._show_rerun_error(exc)
+            return
+        self._show_rerun_status("⏳ Re-running all checks…")
+
+    def _show_rerun_status(self, msg: str) -> None:
+        self._rerun_status_label.setStyleSheet("color: gray; font-size: 11px;")
+        self._rerun_status_label.setText(msg)
+        self._rerun_status_label.show()
+
+    def _show_rerun_error(self, exc: Exception) -> None:
+        self._rerun_status_label.setStyleSheet("color: red; font-size: 11px;")
+        self._rerun_status_label.setText(f"⚠ Re-run failed: {exc}")
+        self._rerun_status_label.show()
 
     def _on_back(self):
         self._vm.deselect_pr()

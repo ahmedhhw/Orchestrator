@@ -8,6 +8,7 @@ class CICheck:
     status: str          # queued | in_progress | completed
     conclusion: str | None  # success | failure | neutral | cancelled | skipped | None
     check_suite_id: str | None = None
+    run_id: str | None = None
 
 
 @dataclass
@@ -94,6 +95,33 @@ class PullRequest:
         return "mergeable" if self.mergeable else "conflicts"
 
     def is_ready_to_merge(self) -> bool:
-        #DON'T CHANGE THIS METHOD, I want this to depend on only whether the PR is marked as mergeable by GitHub, 
+        #DON'T CHANGE THIS METHOD, I want this to depend on only whether the PR is marked as mergeable by GitHub,
         #which is what the real UI does.
         return self.mergeable
+
+    def failed_actions_run_ids(self) -> list[str]:
+        """Return distinct run_ids for failed checks that have a run_id (Actions checks)."""
+        seen: list[str] = []
+        for c in self.checks:
+            if c.conclusion == "failure" and c.run_id and c.run_id not in seen:
+                seen.append(c.run_id)
+        return seen
+
+    def all_actions_run_ids(self) -> list[str]:
+        """Return distinct run_ids across all checks that have one (Actions checks)."""
+        seen: list[str] = []
+        for c in self.checks:
+            if c.run_id and c.run_id not in seen:
+                seen.append(c.run_id)
+        return seen
+
+    def non_rerunnable_failed_count(self) -> int:
+        """Count failed checks that have no run_id (can't be re-run via Actions API)."""
+        return sum(1 for c in self.checks if c.conclusion == "failure" and not c.run_id)
+
+    def check_suite_id_for_all(self) -> str | None:
+        """Return the first available check_suite_id, or None if none exist."""
+        for c in self.checks:
+            if c.check_suite_id:
+                return c.check_suite_id
+        return None

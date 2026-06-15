@@ -15,6 +15,8 @@ from worktree_manager.git_service import GitService
 
 log = logging.getLogger(__name__)
 
+RERUN_REFETCH_MS = 4000
+
 
 class TokenState(Enum):
     MISSING = auto()
@@ -408,6 +410,57 @@ class GitHubViewModel(QObject):
         self._svc.merge_pr(pr, squash=squash)
         self.pr_event.emit(pr.pr_key, "pr_merged", f'✅ "{pr.title}" merged')
         self.total_fetch()
+
+    # ── CI rerun ──────────────────────────────────────────────────────────────
+
+    def retry_failed_cis(self, pr: PullRequest) -> str:
+        """Rerun only failed Actions jobs; return a note if some checks can't be re-run."""
+        if self._svc is None:
+            return ""
+        for rid in pr.failed_actions_run_ids():
+            self._svc.rerun_failed_jobs(rid, pr)
+        skipped = pr.non_rerunnable_failed_count()
+        self._optimistically_mark_running(pr, only_failed=True)
+        self.pr_event.emit(pr.pr_key, "ci_rerun", f'⏳ Re-running failed checks for #{pr.number}…')
+        self._schedule_quick_fetch()
+        if not skipped:
+            return ""
+        noun = "checks" if skipped != 1 else "check"
+        return f"({skipped} non-Actions {noun} can't be re-run here)"
+
+    def retry_all_cis(self, pr: PullRequest) -> None:
+        """Rerun all CI for the PR.
+
+        Prefers re-running each distinct GitHub Actions workflow run (the
+        reliable "Re-run all jobs" path). Falls back to re-requesting the
+        whole check suite only when the PR has no Actions runs to drive.
+        """
+        if self._svc is None:
+            return
+        run_ids = pr.all_actions_run_ids()
+        if run_ids:
+            for rid in run_ids:
+                self._svc.rerun_workflow(rid, pr)
+        else:
+            sid = pr.check_suite_id_for_all()
+            if sid:
+                self._svc.rerun_all_checks(sid, pr)
+        self._optimistically_mark_running(pr, only_failed=False)
+        self.pr_event.emit(pr.pr_key, "ci_rerun", f'⏳ Re-running all checks for #{pr.number}…')
+        self._schedule_quick_fetch()
+
+    def _optimistically_mark_running(self, pr: PullRequest, only_failed: bool) -> None:
+        for c in pr.checks:
+            target = (c.conclusion == "failure" and c.run_id) if only_failed else True
+            if target:
+                c.conclusion = None
+                c.status = "in_progress"
+        self.prs_updated.emit()
+        if self.selected_pr is not None and self.selected_pr.pr_key == pr.pr_key:
+            self.pr_detail_updated.emit()
+
+    def _schedule_quick_fetch(self) -> None:
+        QTimer.singleShot(RERUN_REFETCH_MS, self.quick_fetch)
 
     # ── repo/branch helpers (used by open-PR form) ────────────────────────────
 
