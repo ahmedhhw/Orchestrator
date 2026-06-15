@@ -572,6 +572,14 @@ class GitHubPanel(QWidget):
         if pr.is_ready_to_merge():
             menu.addAction("✓ Merge (squash)")
         menu.addAction("⧉ Copy URL")
+        failed_run_ids = pr.failed_actions_run_ids()
+        has_checks = bool(pr.checks)
+        if failed_run_ids or has_checks:
+            menu.addSeparator()
+        if failed_run_ids:
+            menu.addAction("↺ Re-try failed CIs")
+        if has_checks:
+            menu.addAction("↺ Re-try all CIs")
         action = menu.exec(QCursor.pos())
         if action is None:
             return
@@ -584,6 +592,10 @@ class GitHubPanel(QWidget):
             self._vm.merge_pr(pr, squash=True)
         elif text == "⧉ Copy URL":
             QApplication.clipboard().setText(pr.html_url)
+        elif text == "↺ Re-try failed CIs":
+            self._vm.retry_failed_cis(pr)
+        elif text == "↺ Re-try all CIs":
+            self._vm.retry_all_cis(pr)
 
     def _on_pr_detail_updated(self):
         pr = self._vm.selected_pr

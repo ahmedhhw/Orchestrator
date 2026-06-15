@@ -17,20 +17,43 @@ def _make_pr(owner="myorg", repo="myrepo"):
     )
 
 
-def test_rerun_failed_checks_calls_correct_endpoint(svc):
+# ── rerun_all_checks (renamed from rerun_failed_checks) ──────────────────────
+
+def test_rerun_all_checks_posts_to_check_suite_rerequest_endpoint(svc):
     pr = _make_pr()
     with patch("worktree_manager.github_service.requests.post") as mock_post:
         mock_post.return_value = MagicMock(status_code=201)
-        svc.rerun_failed_checks("suite-42", pr)
+        svc.rerun_all_checks("suite-42", pr)
     mock_post.assert_called_once()
     url = mock_post.call_args[0][0]
     assert "check-suites/suite-42/rerequest" in url
 
 
-def test_rerun_failed_checks_raises_on_error(svc):
+def test_rerun_all_checks_raises_on_http_error(svc):
     pr = _make_pr()
     with patch("worktree_manager.github_service.requests.post") as mock_post:
         mock_post.return_value = MagicMock(status_code=403, ok=False)
         mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("403")
         with pytest.raises(requests.HTTPError):
-            svc.rerun_failed_checks("suite-42", pr)
+            svc.rerun_all_checks("suite-42", pr)
+
+
+# ── rerun_failed_jobs ────────────────────────────────────────────────────────
+
+def test_rerun_failed_jobs_posts_to_actions_rerun_failed_jobs_endpoint(svc):
+    pr = _make_pr()
+    with patch("worktree_manager.github_service.requests.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=201)
+        svc.rerun_failed_jobs("99", pr)
+    mock_post.assert_called_once()
+    url = mock_post.call_args[0][0]
+    assert "actions/runs/99/rerun-failed-jobs" in url
+
+
+def test_rerun_failed_jobs_raises_on_http_error(svc):
+    pr = _make_pr()
+    with patch("worktree_manager.github_service.requests.post") as mock_post:
+        mock_post.return_value = MagicMock(status_code=422, ok=False)
+        mock_post.return_value.raise_for_status.side_effect = requests.HTTPError("422")
+        with pytest.raises(requests.HTTPError):
+            svc.rerun_failed_jobs("99", pr)
