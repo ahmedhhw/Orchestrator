@@ -1,10 +1,12 @@
-# Autobot — Iterative TDD Feature Builder
+# Autobot — Iterative TDD Feature Builder (cost-optimized)
 
 Given a feature description, autobot guides frontend design → backend design → iteration planning → iterative TDD implementation, with a mandatory manual testing gate between every iteration.
 
+The inline session is **stage-aware**: it runs Opus for design (Stage 1–2) then switches to Sonnet for building (Stage 3–7), and Reviewed-mode TDD plans are authored by an Opus subagent rather than inline. See [Model policy](#model-policy).
+
 When invoked, announce **"I am using autobot."** before anything else.
 
-Immediately after the announcement, recommend the user run on **Opus High** and wait for them to confirm before proceeding. Stay on Opus throughout — implementation subagents are spawned as Sonnet automatically, so the inline session never needs to switch. See [Model policy](#model-policy).
+Immediately after the announcement, recommend the user run on **Opus High** for the design stages and wait for them to confirm before proceeding. At the Stage 2→3 boundary you will recommend switching the inline session to **Sonnet** for the build stages. See [Model policy](#model-policy).
 
 ## How to invoke
 
@@ -20,6 +22,7 @@ If no argument is given, ask for a feature description or ADO work item URL/ID b
 
 ## Conventions (apply everywhere)
 
+- **Reuse before building.** Prefer extending existing code over writing things from scratch. Before designing any feature, search the codebase for a system that already does something similar — then either extend it, or make it more reusable by extracting the shared behaviour into a common utility/class and using it from both the old and new call sites. Only write something new when no existing system can reasonably be adapted. Call out in the design which existing systems you are reusing or refactoring, and why a new component is justified when you do introduce one.
 - **ALWAYS LINK EXISTING REPO REFERENCES — NO EXCEPTIONS.** Any time you name an existing file, function, class, or method — in prose, scope bullets, or file lists — you MUST link it with markdown relative to the autobot document's own location. Example: instead of `TodoViewModel.swift`, write `[TodoViewModel.swift](../TimeControl/ViewModels/TodoViewModel.swift)`. New files that do not yet exist: name their intended path only, do not link. **Before outputting any section, scan it and verify every existing reference is linked.**
 - **Strict TDD.** Never write production code before a failing test exists for it.
 - **Test names describe behaviour.** Plain readable English — no `phase`, `iter`, `iteration`, or numbers from the plan in test or file names.
@@ -63,8 +66,19 @@ Omit links for files that don't exist yet (e.g. before Stage 2 there is only the
 
 ## Model policy
 
-- **Inline session:** Opus High for the whole run. Recommend it at invocation and wait for confirmation. Never prompt the user to switch models mid-run.
-- **Implementation subagents:** spawned as **Sonnet** automatically via the spawn call (see [Reviewed mode](#mode-reviewed) / [Autonomous mode](#mode-autonomous)). This is where token-heavy implementation work happens, so the inline Opus session stays cheap by delegating.
+The inline model is **stage-aware** — Opus where design reasoning lives, Sonnet for the orchestration-heavy build tail. Every Opus-worthy build-time task is delegated to an Opus subagent, so the inline session never needs to be Opus after Stage 2.
+
+| What | Model | Where |
+|------|-------|-------|
+| Stage 1–2 — design + iteration slicing | **Opus High** | inline |
+| Stage 2→3 boundary | — | recommend switching inline to Sonnet (see below) |
+| Stage 3–7 — orchestration, gates, commits | **Sonnet** | inline |
+| Reviewed-mode TDD plan authoring | **Opus** | subagent (spawned by the Sonnet inline session) |
+| Implementation (Reviewed phases & Autonomous) | **Sonnet** | subagent |
+
+- **Stage 2→3 switch.** After the iteration plan is approved (`stage: 2`) and before building Iteration 0, recommend the user switch the inline session to **Sonnet** to save cost, and **wait for confirmation** before continuing. This is the one and only inline model switch in a run. Mirror the tone of the Opus recommendation at invocation.
+- **Why this is safe.** No Opus-worthy work happens inline after Stage 2: design is done, plan authoring is delegated to an Opus subagent, and implementation is delegated to Sonnet subagents. The Sonnet inline session only orchestrates (spawns, copies ledgers, coordinates gates, applies small plan-review tweaks, writes commit messages).
+- **Plan revisions.** When the user requests changes to a delegated Opus-authored plan after review, apply small tweaks **inline** (Sonnet) — only re-spawn an Opus subagent if the revision is a substantial re-design.
 
 ---
 
@@ -75,6 +89,7 @@ Long autobot runs accumulate context. Apply these throughout:
 - **Reviewed plans in separate files** — see the Conventions rule on plan files.
 - **Iteration context files** — implementer agents read the lean context file for the current iteration instead of the full autobot doc. See [Iteration context files](#iteration-context-files).
 - **Delegate implementation to Sonnet subagents** (see Model policy) — the heavy work happens in the subagent's context, not the inline session's.
+- **Delegate Reviewed-mode plan authoring to an Opus subagent** (see Model policy) — the plan's full test + production code is written in the subagent's throwaway context and never accumulates in the inline session, which only sees "plan ready" and the file link.
 - **Read narrowly.** When you only need one function, read its line range — not the whole file. Prefer search over speculative full-file reads.
 
 ---
@@ -190,6 +205,10 @@ If multiple `autobot-*.md` exist, list them and ask which to resume. Tell the us
 
 **Plain description:** use it directly.
 
+### Survey existing code first
+
+Before drawing any mock or writing any pseudocode, search the codebase for systems that already do something close to what this feature needs (similar UI components, services, data flows, utilities). Note what you find — you will design to **extend or generalize** these rather than build parallel implementations. See the **Reuse before building** convention. Surface the candidates you intend to reuse to the user as part of the design.
+
 ---
 
 ### Stage 1a — Frontend Design
@@ -227,6 +246,8 @@ Do not proceed to Stage 1b until the user approves. Set `stage: 1` (part 2 pendi
 ### Stage 1b — Backend Design
 
 Design the business logic that makes the frontend work. No UI logic here — only data, algorithms, and flow.
+
+**Reuse first.** For each piece of business logic, first identify whether an existing system already provides it or something close. Prefer extending that system, or extracting its shared behaviour into a common utility/class that both the existing and new call sites use, over writing a new implementation. Where you do reuse or refactor an existing system, say so explicitly in the design and link it. Where you introduce something new, justify why nothing existing could be adapted. See the **Reuse before building** convention.
 
 For each piece of business logic, write pseudocode and a small focused mermaid diagram where it helps. Use as many small diagrams as needed — one per concept (data model, sequence, state machine, etc.).
 
@@ -275,6 +296,8 @@ List iteration titles and nothing else. Wait for approval before adding detail.
 
 Iteration 0 is always the walking skeleton — the minimum a human can run and touch end-to-end. Use as many iterations as the feature genuinely needs — no more, no less.
 
+If a reuse refactor is needed (extracting an existing system into a common utility before the feature can build on it), make that its own early iteration so the extraction is proven green before new behaviour depends on it.
+
 If the feature has both frontend and backend, interleave them within each iteration — a thin slice of UI and the backend it needs, together.
 
 Ask: *"Does this slice look right? You can ask me to add, remove, combine, or split iterations — or propose your own set entirely."* Wait for approval or changes before Step 2.
@@ -319,6 +342,8 @@ Present all the context files (and the main-doc gates) together after title appr
 
 Set `stage: 2, iteration: 0` on approval.
 
+**Recommend the Stage 2→3 model switch now.** Design and slicing are done; everything from here is orchestration plus delegated subagent work. Tell the user: *"Design is locked. I recommend switching the inline session to **Sonnet** now to cut cost for the build stages — Opus-worthy work (plan authoring) is delegated to Opus subagents, so building stays high-quality. Switch when ready, then say 'continue'."* Wait for confirmation before starting Iteration 0. See [Model policy](#model-policy).
+
 ---
 
 ## Stage 3 — Build Iteration 0
@@ -351,31 +376,46 @@ Write the plan to **its own file**, not the main autobot doc. Name it next to th
 **Reviewed plan:** [Iteration N plan](autobot-<feature>-plan-iter-N-<iter-slug>-<date>.md)
 ```
 
-Break the iteration into the smallest independently-testable phases. In the **plan file**, for each phase append:
-
-```
-### Phase N.M — <Name>
-**What it covers:** One sentence.
-**Files touched:** Bullets — link existing; name new unlinked.
-**Tests (Red):**
-\`\`\`
-<complete test code for review>
-\`\`\`
-**Production code (Green):**
-\`\`\`
-<complete implementation for review>
-\`\`\`
-**Done when:** Observable acceptance criteria.
-```
-
-Before writing the phase plan to the file, scan every file/function/class reference and confirm each existing one is linked (relative to the plan file's location).
-
-Show and stop — implement nothing until the user approves the plan. Handoff happens at [Stage 4](#stage-4--hand-off-iteration-0); the user drives it one phase at a time.
-
-**Spawning a phase** (Stage 4 directs you here when the user says "Implement Phase N.M"). If the Agent tool is available (Claude Code), call it with these exact parameters — do NOT omit `model`:
+**Delegate plan authoring to an Opus subagent.** The Sonnet inline session does **not** write the plan itself — it spawns an Opus subagent that breaks the iteration into the smallest independently-testable phases and writes the full plan to the plan file. If the Agent tool is available (Claude Code), call it with these exact parameters — do NOT omit `model`:
 ```
 Agent(
-  description: "Implement Phase N.M — <phase name>",
+  description: "Author Reviewed TDD plan — Iteration N — <title>",
+  model: "opus",
+  prompt: "<the prompt below>"
+)
+```
+Otherwise, spawn a subagent using whatever mechanism is available, preferring Opus if the model can be specified.
+
+The plan-authoring subagent prompt is:
+```
+Read <path-to-ctx-iter-N.md> for full iteration context. Author a Reviewed-mode TDD plan and write it to <path-to-plan-iter-N.md> (create the file). Break the iteration into the smallest independently-testable phases. For each phase append this exact block:
+
+### Phase N.M — <Name>
+**What it covers:** One sentence.
+**Files touched:** Bullets — link existing files with markdown relative to the plan file's location; name new files unlinked.
+**Tests (Red):**
+```
+<complete test code for review>
+```
+**Production code (Green):**
+```
+<complete implementation for review>
+```
+**Done when:** Observable acceptance criteria.
+
+Rules: strict TDD (a failing test must exist before its production code); test names are plain behavioural English with no phase/iteration numbers; high-level pseudocode is NOT enough here — write complete, reviewable test and production code. Prefer reusing or extending existing code over new implementations — where the context names an existing system to extend or a utility to extract, build on it rather than duplicating. Before finishing, scan every file/function/class reference and confirm each existing one is linked relative to the plan file's location. Do not implement anything or run tests — only write the plan file. When done, report back: the plan file path and the list of phases with their names.
+```
+
+Do not include any other context in the spawn prompt — the context file is sufficient.
+
+When the subagent returns, add the plan-file link to the iteration block in the main doc (the `**Reviewed plan:**` line above) if not already present, and tell the user the plan is ready for review at the plan file.
+
+Show and stop — implement nothing until the user approves the plan. If the user requests small changes, apply them inline (Sonnet); only re-spawn an Opus subagent for a substantial re-design (see [Model policy](#model-policy)). Handoff happens at [Stage 4](#stage-4--hand-off-iteration-0).
+
+**Spawning all phases** (default — Stage 4 directs you here). Spawn one subagent that implements every phase in sequence. If the Agent tool is available (Claude Code), call it with these exact parameters — do NOT omit `model`:
+```
+Agent(
+  description: "Implement all phases — Iteration N — <title>",
   model: "sonnet",
   prompt: "<the prompt below>"
 )
@@ -384,7 +424,7 @@ Otherwise, spawn a subagent using whatever mechanism is available, preferring So
 
 The subagent prompt is:
 ```
-Read <path-to-ctx-iter-N.md> for iteration context. Then read Phase N.M in <path-to-plan-iter-N.md>. Implement that phase only — write the tests (Red), make them pass (Green), refactor if needed. Run only this phase's test file (plus test files for any modules touched) after each step. When done, report back: every test written and its final pass/fail status.
+Read <path-to-ctx-iter-N.md> for iteration context. Then read <path-to-plan-iter-N.md> for the full phase plan. Implement every phase in order — for each phase: write the tests (Red), make them pass (Green), refactor if needed, then move to the next phase. Run only the affected test files after each green. When all phases are done, report back: every test written per phase and its final pass/fail status.
 ```
 
 Do not include any other context in the spawn prompt — the context file + plan file are sufficient.
@@ -397,7 +437,15 @@ When the subagent returns, append its results to the ledger in the autobot doc:
   - <test name>: red → green ✓
 ```
 
-Then wait for the user to say which phase to implement next. Never spawn the next phase automatically.
+**Per-phase spawning** (only when the user explicitly asks to implement one phase at a time). Spawn a subagent for the named phase only:
+```
+Agent(
+  description: "Implement Phase N.M — <phase name>",
+  model: "sonnet",
+  prompt: "Read <path-to-ctx-iter-N.md> for iteration context. Then read Phase N.M in <path-to-plan-iter-N.md>. Implement that phase only — write the tests (Red), make them pass (Green), refactor if needed. Run only this phase's test file (plus test files for any modules touched) after each step. When done, report back: every test written and its final pass/fail status."
+)
+```
+After each per-phase subagent returns, append to the ledger and wait for the user to name the next phase.
 
 ---
 
@@ -417,7 +465,7 @@ Otherwise, spawn a subagent using whatever mechanism is available, preferring So
 
 The subagent prompt is:
 ```
-Read <path-to-ctx-iter-N.md> for full context. TDD the iteration described there — strict red/green/refactor, one test at a time. Run only this iteration's tests (plus any test files for modules you touch) after each green. When all tests pass, report back a one-line summary of every test written and its final status.
+Read <path-to-ctx-iter-N.md> for full context. TDD the iteration described there — strict red/green/refactor, one test at a time. Prefer reusing or extending existing code over new implementations — where the context names an existing system to extend or a utility to extract, build on it rather than duplicating. Run only this iteration's tests (plus any test files for modules you touch) after each green. When all tests pass, report back a one-line summary of every test written and its final status.
 ```
 
 Do not include any other context in the spawn prompt — the context file is sufficient.
@@ -438,7 +486,7 @@ Then present the ledger to the user and ask them to complete the Manual Testing 
 1. Run the full test suite once to establish a clean baseline. Surface any failures and stop until resolved.
 2. Set the iteration context file's `## TDD mode` line to the mode just chosen (the file already exists from Stage 2). If Reviewed, also link the plan file there.
 3. Hand off by mode:
-   - *Reviewed:* Tell the user "Say 'Implement Phase 0.1' (or whichever phase) and I'll spawn a subagent for it. One phase at a time." Stop and wait — do not spawn until the user names a phase. When they do, spawn per [Reviewed mode](#mode-reviewed).
+   - *Reviewed:* Spawn one subagent for all phases immediately per [Reviewed mode](#mode-reviewed) (default). If the user explicitly asked to go phase-by-phase, instead tell them "Say 'Implement Phase 0.1' (or whichever phase) and I'll spawn a subagent for it." and wait.
    - *Autonomous:* Spawn the subagent immediately per [Autonomous mode](#mode-autonomous). No user action needed.
 4. When the work returns, present the ledger and say: *"Complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
 5. Do not plan Iteration 1 until the gate is confirmed.
