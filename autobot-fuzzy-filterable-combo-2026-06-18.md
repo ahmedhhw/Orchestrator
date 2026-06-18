@@ -1,6 +1,6 @@
 <!-- autobot-status
-stage: 2
-iteration: -
+stage: 6
+iteration: 1
 gate: none
 updated: 2026-06-18
 -->
@@ -273,14 +273,23 @@ working `_HighlightDelegate`, so the paint logic is already proven in-app.
 
 > STOP. Do not proceed to Iteration 1 until every item is confirmed.
 
-- [ ] Launch the app (`python3.14 run.py` from `worktree-manager/`) and open Spotlight.
-- [ ] Type a partial command/needle — confirm the matched characters in the suggestion rows are
+- [x] Launch the app (`python3.14 run.py` from `worktree-manager/`) and open Spotlight.
+- [x] Type a partial command/needle — confirm the matched characters in the suggestion rows are
       highlighted in accent blue (bold), exactly as before the change.
-- [ ] Pick a highlighted suggestion — confirm it commits/executes as before.
-- [ ] Confirm no visual regression in the Spotlight suggestion list (spacing, selection background).
+- [x] Pick a highlighted suggestion — confirm it commits/executes as before.
+- [x] Confirm no visual regression in the Spotlight suggestion list (spacing, selection background).
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-18
 **How to confirm:** Check every box, then reply "Iteration 0 confirmed" or describe what failed.
+
+### Implementation Ledger — Iteration 0
+- `test_build_row_html_empty_needle_returns_escaped_text`: red → green ✓
+- `test_build_row_html_wraps_fuzzy_matched_chars_in_accent_spans`: red → green ✓
+- `test_build_row_html_escapes_html_special_characters_in_text`: red → green ✓
+- `test_build_row_html_returns_escaped_plain_text_when_needle_does_not_match`: red → green ✓
+- `test_fuzzy_highlight_delegate_reads_live_needle_from_provider`: red → green ✓
+- `test_fuzzy_highlight_delegate_changing_provider_output_changes_html`: red → green ✓
+- `test_spotlight_overlay_still_highlights_rows_after_import_move`: red → green ✓
 
 ### Iteration 1 — Fuzzy-ranked filtering + highlighted popup in FilterableComboBox
 **Context file:** [Iteration 1 context](autobot-fuzzy-filterable-combo-ctx-iter-1-fuzzy-popup-combo-2026-06-18.md)

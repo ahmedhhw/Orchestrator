@@ -1,20 +1,18 @@
 import ctypes
 import ctypes.util
 import sys
-from html import escape
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import (
-    QLabel, QLineEdit, QListWidget, QStyle, QStyledItemDelegate,
-    QStyleOptionViewItem, QVBoxLayout, QWidget,
+    QLabel, QLineEdit, QListWidget, QVBoxLayout, QWidget,
 )
 
 from worktree_manager.spotlight.action_parser import ActionParser
-from worktree_manager.spotlight.fuzzy import fuzzy_match_indices
-
-# Color for fuzzy-matched characters in suggestion rows.
-HIGHLIGHT_COLOR = "#4da3ff"
+from worktree_manager.ui.fuzzy_highlight import (
+    HIGHLIGHT_COLOR,
+    FuzzyHighlightDelegate,
+    build_row_html,
+)
 
 # --- macOS overlay window constants ---------------------------------------
 # Mirrors the working recipe in TimeControl's TaskPalettePanel (Swift): a
@@ -106,73 +104,6 @@ SLOT_CAPTIONS: dict[str, str] = {
 
 
 
-def build_row_html(text: str, needle: str) -> str:
-    """Return HTML for `text` with the fuzzy-matched chars of `needle` highlighted.
-
-    Each matched character is wrapped in a bold colored span; unmatched runs are
-    HTML-escaped plain text. With no needle (or no match) the whole string is
-    rendered as escaped plain text.
-    """
-    matched = fuzzy_match_indices(needle, text) if needle else None
-    if not matched:
-        return escape(text)
-
-    matched_set = set(matched)
-    parts: list[str] = []
-    for i, ch in enumerate(text):
-        if i in matched_set:
-            parts.append(
-                f'<span style="color: {HIGHLIGHT_COLOR}; font-weight: bold;">'
-                f'{escape(ch)}</span>'
-            )
-        else:
-            parts.append(escape(ch))
-    return "".join(parts)
-
-
-class _HighlightDelegate(QStyledItemDelegate):
-    """Renders list rows as rich text so fuzzy-matched chars can be highlighted.
-
-    The active needle is read from the owning overlay at paint time, so rows
-    re-highlight automatically whenever the filter text changes.
-    """
-
-    def __init__(self, overlay: "SpotlightOverlay"):
-        super().__init__(overlay)
-        self._overlay = overlay
-
-    def _document(self, option: QStyleOptionViewItem, text: str) -> QTextDocument:
-        doc = QTextDocument()
-        doc.setDefaultFont(option.font)
-        doc.setHtml(build_row_html(text, self._overlay._filter_text))
-        return doc
-
-    def paint(self, painter, option, index):
-        opt = QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        text = opt.text
-        opt.text = ""  # we draw the text ourselves below
-
-        # Let the style paint the row background/selection without the text.
-        widget_style = opt.widget.style() if opt.widget is not None else None
-        if widget_style is not None:
-            widget_style.drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
-
-        doc = self._document(opt, text)
-        painter.save()
-        text_rect = opt.rect
-        painter.translate(text_rect.left() + 4, text_rect.top())
-        doc.drawContents(painter)
-        painter.restore()
-
-    def sizeHint(self, option, index):
-        opt = QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        doc = self._document(opt, opt.text)
-        size = super().sizeHint(option, index)
-        size.setHeight(max(size.height(), int(doc.size().height())))
-        return size
-
 
 class SpotlightOverlay(QWidget):
     def __init__(
@@ -207,7 +138,9 @@ class SpotlightOverlay(QWidget):
         layout.addWidget(self._caption)
 
         self._list = QListWidget()
-        self._list.setItemDelegate(_HighlightDelegate(self))
+        self._list.setItemDelegate(
+            FuzzyHighlightDelegate(self, needle_provider=lambda: self._filter_text)
+        )
         self._list.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self._list, 1)
 

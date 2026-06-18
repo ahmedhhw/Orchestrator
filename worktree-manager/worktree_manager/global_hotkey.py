@@ -74,6 +74,9 @@ def _build_carbon_bindings():
     carbon.UnregisterEventHotKey.restype  = OSStatus
     carbon.UnregisterEventHotKey.argtypes = [EventHotKeyRef]
 
+    carbon.RemoveEventHandler.restype  = OSStatus
+    carbon.RemoveEventHandler.argtypes = [EventHandlerRef]
+
     # kEventClassKeyboard = 'keyb'; kEventHotKeyPressed = 5
     return {
         "carbon":        carbon,
@@ -149,10 +152,13 @@ class GlobalHotkey(QObject):
         """Unregister the current hotkey (no-op if none registered)."""
         if sys.platform != "darwin":
             return
+        b = self._bindings
         if self._ref is not None:
-            b = self._bindings
             b["carbon"].UnregisterEventHotKey(self._ref)
             self._ref = None
+        if self._handler_ref is not None:
+            b["carbon"].RemoveEventHandler(self._handler_ref)
+            self._handler_ref = None
 
     # ------------------------------------------------------------------
     # Internal: Carbon registration
