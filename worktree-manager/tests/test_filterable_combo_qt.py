@@ -22,16 +22,9 @@ def test_filterable_combo_is_editable(combo):
     assert combo.isEditable()
 
 
-def test_filterable_combo_has_completer(combo):
-    assert combo.completer() is not None
-
-
-def test_completer_uses_contains_filter(combo):
-    assert combo.completer().filterMode() == Qt.MatchContains
-
-
-def test_completer_is_case_insensitive(combo):
-    assert combo.completer().caseSensitivity() == Qt.CaseInsensitive
+def test_widget_no_longer_exposes_a_qcompleter(combo):
+    """Replaces the old completer-presence assertions."""
+    assert combo.completer() is None
 
 
 def test_typing_does_not_fire_current_index_changed(qtbot, combo):
@@ -49,18 +42,18 @@ def test_typing_does_not_fire_current_text_changed(qtbot, combo):
     assert fired == []
 
 
-def test_committing_valid_item_updates_current_index(qtbot, combo):
+def test_committing_valid_item_via_popup_updates_index(qtbot, combo):
     combo.setCurrentIndex(0)
-    combo._on_completer_activated("feature/search")
+    combo._on_popup_chosen("feature/search")
     assert combo.currentIndex() == 1
     assert combo.currentText() == "feature/search"
 
 
-def test_committing_valid_item_fires_current_index_changed_once(qtbot, combo):
+def test_committing_valid_item_via_popup_fires_current_index_changed_once(qtbot, combo):
     combo.setCurrentIndex(0)
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    combo._on_completer_activated("feature/search")
+    combo._on_popup_chosen("feature/search")
     assert fired == [1]
 
 
@@ -92,20 +85,40 @@ def test_blur_with_valid_text_commits_without_extra_signal(qtbot, combo):
     combo.setCurrentIndex(0)
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    # simulate the user typing a full valid item name
+    # simulate the user typing a full valid item name then blurring (popup closes first)
     combo.lineEdit().textEdited.emit("main")
     combo.lineEdit().setText("main")
+    combo._popup.hide()   # popup closes before editingFinished fires on real blur
     combo._on_editing_finished()
     assert combo.currentText() == "main"
     assert len(fired) == 1
 
 
-def test_addItems_keeps_completer_in_sync(qtbot, combo):
+def test_addItems_keeps_popup_backing_list_correct(qtbot, combo):
+    """Replaces the old 'completer in sync' test."""
     combo.addItems(["hotfix/urgent"])
-    comp = combo.completer()
-    comp.setCompletionPrefix("hotfix")
-    count = comp.completionModel().rowCount()
-    assert count == 1
+    # After adding, total items in combo model should be 5
+    assert combo.count() == 5
+    # Opening the popup should show all 5 items
+    combo._open_popup()
+    rows = [combo._popup.item(i).text() for i in range(combo._popup.count())]
+    assert "hotfix/urgent" in rows
+    assert len(rows) == 5
+
+
+def test_addItem_keeps_popup_backing_list_correct(qtbot, combo):
+    combo.addItem("hotfix/single")
+    assert combo.count() == 5
+    combo._open_popup()
+    rows = [combo._popup.item(i).text() for i in range(combo._popup.count())]
+    assert "hotfix/single" in rows
+
+
+def test_clear_keeps_popup_backing_list_correct(qtbot, combo):
+    combo.clear()
+    assert combo.count() == 0
+    combo._open_popup()
+    assert combo._popup.count() == 0
 
 
 def test_insert_policy_prevents_free_text_entry(combo):
@@ -192,16 +205,16 @@ def test_successful_commit_clears_previously_set_invalid_flag(qtbot, combo):
     assert combo.currentText() == "main"
 
 
-def test_completer_selection_commits_and_clears_invalid_flag(qtbot, combo):
+def test_popup_pick_commits_and_clears_invalid_flag(qtbot, combo):
     combo.setCurrentIndex(0)
     # Set the invalid flag first
     combo.lineEdit().setText("notanitem")
     combo._on_editing_finished()
     assert combo.lineEdit().property("invalid") is True
-    # Pick from the completer — should commit and clear the flag
+    # Pick from the popup — should commit and clear the flag
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    combo._on_completer_activated("feature/search")
+    combo._on_popup_chosen("feature/search")
     assert combo.currentText() == "feature/search"
     assert combo.currentIndex() == 1
     assert fired == [1]

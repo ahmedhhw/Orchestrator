@@ -214,5 +214,5 @@ def test_create_dialog_existing_var_reflects_committed_selection(qtbot):
         on_create=lambda *a: None,
     )
     qtbot.addWidget(d)
-    d._existing_combo._on_completer_activated("fix/login")
+    d._existing_combo._on_popup_chosen("fix/login")
     assert d._existing_var.get() == "fix/login"

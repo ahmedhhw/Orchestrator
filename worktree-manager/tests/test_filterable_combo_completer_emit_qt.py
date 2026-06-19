@@ -1,9 +1,9 @@
-"""Completer activation emit tests.
+"""Popup-activation emit tests (migrated from completer tests).
 
 Covers:
-- completer pick while filtered text is in line edit -> commits once (no blockSignals machinery)
-- completer pick of a different item -> emits once via setCurrentIndex
-- completer pick of the already-committed item -> emits nothing
+- popup pick while filtered text is in line edit -> commits once
+- popup pick of a different item -> emits once via setCurrentIndex
+- popup pick of the already-committed item -> emits nothing
 - raw filter keystrokes without committing -> emit nothing
 """
 import pytest
@@ -19,34 +19,33 @@ def combo(qtbot):
     return c
 
 
-def test_completer_activated_while_filter_text_shown_emits_once(qtbot, combo):
+def test_popup_chosen_while_filter_text_shown_emits_once(qtbot, combo):
     # User has typed a filter prefix so line edit shows partial text, then picks
-    # from the completer dropdown.  Signals are never blocked, so the commit path
-    # just fires currentIndexChanged once via setCurrentIndex.
+    # from the popup.  The commit path fires currentIndexChanged once via setCurrentIndex.
     combo.setCurrentIndex(0)
     combo.lineEdit().setText("search")
     combo.lineEdit().textEdited.emit("search")   # clears any invalid flag only
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    combo._on_completer_activated("feature/search")
+    combo._on_popup_chosen("feature/search")
     assert fired == [1]
     assert combo.currentIndex() == 1
 
 
-def test_completer_activated_with_different_item_emits_once(qtbot, combo):
+def test_popup_chosen_with_different_item_emits_once(qtbot, combo):
     combo.setCurrentIndex(0)
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    combo._on_completer_activated("feature/search")
+    combo._on_popup_chosen("feature/search")
     assert fired == [1]
     assert combo.currentIndex() == 1
 
 
-def test_completer_activated_with_already_committed_item_emits_nothing(qtbot, combo):
+def test_popup_chosen_with_already_committed_item_emits_nothing(qtbot, combo):
     combo.setCurrentIndex(1)
     fired = []
     combo.currentIndexChanged.connect(lambda i: fired.append(i))
-    combo._on_completer_activated("feature/search")
+    combo._on_popup_chosen("feature/search")
     assert fired == []
     assert combo.currentIndex() == 1
 

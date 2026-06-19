@@ -217,4 +217,4 @@ def fuzzy_filter(items: list[str], needle: str) -> list[str]:
       (no bad data passed downstream).
 - [ ] Regression: spotlight overlay still fuzzy-filters and highlights as before.
 
-## TDD mode: <set at Stage 6>
+## TDD mode: Autonomous. TDD directly. Keep the ledger below as you go.

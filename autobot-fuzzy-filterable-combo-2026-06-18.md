@@ -294,6 +294,32 @@ working `_HighlightDelegate`, so the paint logic is already proven in-app.
 ### Iteration 1 — Fuzzy-ranked filtering + highlighted popup in FilterableComboBox
 **Context file:** [Iteration 1 context](autobot-fuzzy-filterable-combo-ctx-iter-1-fuzzy-popup-combo-2026-06-18.md)
 
+### Implementation Ledger — Iteration 1
+**`tests/test_filterable_combo_fuzzy_qt.py` (new — 7 tests):**
+- `test_popup_lists_all_items_in_model_order_for_empty_needle`: red → green ✓
+- `test_popup_lists_only_fuzzy_matches_ranked_best_first`: red → green ✓
+- `test_popup_rows_are_highlighted_against_active_filter`: red → green ✓
+- `test_empty_fuzzy_result_hides_popup`: red → green ✓
+- `test_choosing_popup_row_commits_that_item_once`: red → green ✓
+- `test_choosing_already_committed_row_fires_nothing`: red → green ✓
+- `test_widget_no_longer_exposes_a_qcompleter`: red → green ✓
+
+**`tests/test_filterable_combo_qt.py` (migrated):**
+- `test_widget_no_longer_exposes_a_qcompleter`: red → green ✓
+- `test_committing_valid_item_via_popup_updates_index`: red → green ✓
+- `test_committing_valid_item_via_popup_fires_current_index_changed_once`: red → green ✓
+- `test_addItems_keeps_popup_backing_list_correct`: red → green ✓
+- `test_addItem_keeps_popup_backing_list_correct`: red → green ✓
+- `test_clear_keeps_popup_backing_list_correct`: red → green ✓
+- `test_popup_pick_commits_and_clears_invalid_flag`: red → green ✓
+- All other behavioural tests (typing, blur, Enter, nav, Esc, invalid, setCurrentText, currentText): red → green ✓
+
+**`tests/test_filterable_combo_completer_emit_qt.py` (migrated — 4 tests):**
+- `test_popup_chosen_while_filter_text_shown_emits_once`: red → green ✓
+- `test_popup_chosen_with_different_item_emits_once`: red → green ✓
+- `test_popup_chosen_with_already_committed_item_emits_nothing`: red → green ✓
+- `test_typing_filter_text_without_committing_emits_nothing`: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 1
 
 > STOP. Do not proceed past this iteration until every item is confirmed.
