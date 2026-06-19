@@ -47,6 +47,14 @@ class FilterableComboBox(QComboBox):
         self._popup.setAttribute(Qt.WA_ShowWithoutActivating)
         self._popup.setFocusPolicy(Qt.NoFocus)
         self._popup.setSelectionMode(QAbstractItemView.SingleSelection)
+        # Match the Spotlight overlay's list: a plain grey selection (Qt default),
+        # not a solid accent-blue one. Only set the frame/background and row
+        # padding; leave the selected-row colour to the platform default so it
+        # renders the same neutral grey Spotlight shows.
+        self._popup.setStyleSheet(
+            "QListWidget { border: 1px solid palette(mid); background: palette(base); }"
+            "QListWidget::item { padding: 4px 8px; }"
+        )
         self._popup.setItemDelegate(
             FuzzyHighlightDelegate(self._popup, needle_provider=lambda: self._filter_text)
         )
@@ -122,16 +130,14 @@ class FilterableComboBox(QComboBox):
             le.selectAll()
 
     def _reposition_popup(self):
-        """Anchor the popup flush under the line edit, matching its exact width.
+        """Anchor the popup under the combo, spanning its full width.
 
-        Both the position and the width come from the *line edit*, not the combo:
-        the line edit is inset from the combo frame (and, on an editable combo,
-        the drop-down arrow eats space on the right), so anchoring to the combo
-        would shift the popup right and make it wider than the visible field.
+        Matches a native QComboBox dropdown: the list is as wide as the whole
+        combo (out to the drop-down arrow) and left-aligned with the combo frame,
+        not the inset line edit.
         """
-        le = self.lineEdit()
-        self._popup.move(le.mapToGlobal(le.rect().bottomLeft()))
-        self._popup.setFixedWidth(le.width())
+        self._popup.move(self.mapToGlobal(self.rect().bottomLeft()))
+        self._popup.setFixedWidth(self.width())
 
     def _repopulate(self, rows):
         """Refill the popup with *rows*; hide if empty."""
