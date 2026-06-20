@@ -160,8 +160,8 @@ class GitHubViewModel(QObject):
             self.prs = []
             self._emit_pr_events(self.prs)
             self._initial_load_done = True
-            self.prs_updated.emit()
             self.fetch_status_changed.emit("Tracking: no open PRs found")
+            self.prs_updated.emit()
             return
 
         prev_mergeable = {
@@ -189,9 +189,9 @@ class GitHubViewModel(QObject):
         self._save_pr_cache()
         self._emit_pr_events(self.prs)
         self._initial_load_done = True
-        self.prs_updated.emit()
         repos = sorted({f"{o}/{r}" for o, r, _ in self._known_prs})
         self.fetch_status_changed.emit("Tracking: " + "  ".join(repos))
+        self.prs_updated.emit()
 
     def _fetch_one_pr(self, owner: str, repo: str, number: int) -> PullRequest | None:
         seed = PullRequest(
