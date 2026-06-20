@@ -9,13 +9,14 @@ import requests
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from worktree_manager.github_models import CICheck, PullRequest
+from worktree_manager.github_models import CICheck, PRComment, PullRequest, Review
 from worktree_manager.github_service import GitHubService
 from worktree_manager.git_service import GitService
 
 log = logging.getLogger(__name__)
 
 RERUN_REFETCH_MS = 4000
+CACHE_VERSION = 1
 
 
 class TokenState(Enum):
@@ -32,6 +33,12 @@ class GitHubViewModel(QObject):
     pr_event = Signal(object, str, str)  # (pr_key tuple, event_type, message)
     loading_started = Signal()
     fetch_status_changed = Signal(str)
+
+    # async action result signals
+    merge_finished = Signal(object)      # pr_key on success
+    merge_failed = Signal(object, str)   # (pr_key, error message)
+    open_pr_finished = Signal()
+    open_pr_failed = Signal(str)         # error message
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -262,6 +269,7 @@ class GitHubViewModel(QObject):
                 "html_url": p.html_url,
                 "head_branch": p.head_branch,
                 "base_branch": p.base_branch,
+                "head_sha": p.head_sha,
                 "state": p.state,
                 "draft": p.draft,
                 "mergeable": p.mergeable,
@@ -274,15 +282,31 @@ class GitHubViewModel(QObject):
                         "status": c.status,
                         "conclusion": c.conclusion,
                         "check_suite_id": c.check_suite_id,
+                        "run_id": c.run_id,
                     }
                     for c in p.checks
+                ],
+                "reviews": [
+                    {"author": r.author, "state": r.state}
+                    for r in p.reviews
+                ],
+                "comments": [
+                    {
+                        "id": k.id,
+                        "author": k.author,
+                        "body": k.body,
+                        "created_at": k.created_at,
+                    }
+                    for k in p.comments
                 ],
             }
             for p in self.prs
         ]
         try:
             self._pr_cache_path.parent.mkdir(parents=True, exist_ok=True)
-            self._pr_cache_path.write_text(json.dumps(rows, indent=2))
+            self._pr_cache_path.write_text(
+                json.dumps({"version": CACHE_VERSION, "prs": rows}, indent=2)
+            )
         except Exception:
             log.warning("Failed to save PR cache to disk", exc_info=True)
 
@@ -291,6 +315,10 @@ class GitHubViewModel(QObject):
             return []
         try:
             raw = json.loads(self._pr_cache_path.read_text())
+            if not (isinstance(raw, dict) and "version" in raw):
+                # Old flat-list format — start empty so a fresh fetch repopulates.
+                return []
+            rows = raw["prs"]
             return [
                 PullRequest(
                     number=row["number"],
@@ -299,6 +327,7 @@ class GitHubViewModel(QObject):
                     html_url=row["html_url"],
                     head_branch=row["head_branch"],
                     base_branch=row["base_branch"],
+                    head_sha=row.get("head_sha", ""),
                     state=row["state"],
                     draft=row["draft"],
                     mergeable=row["mergeable"],
@@ -306,8 +335,13 @@ class GitHubViewModel(QObject):
                     owner=row["owner"],
                     repo=row["repo"],
                     checks=[CICheck(**c) for c in row["checks"]],
+                    reviews=[Review(**r) for r in row.get("reviews", [])],
+                    comments=[
+                        PRComment(**{k: v for k, v in c.items() if k != "seen"})
+                        for c in row.get("comments", [])
+                    ],
                 )
-                for row in raw
+                for row in rows
             ]
         except Exception:
             log.warning("Failed to load PR cache; starting empty", exc_info=True)
@@ -424,22 +458,42 @@ class GitHubViewModel(QObject):
     def merge_pr(self, pr: PullRequest, squash: bool = True) -> None:
         if self._svc is None:
             return
-        self._svc.merge_pr(pr, squash=squash)
-        self.pr_event.emit(pr.pr_key, "pr_merged", f'✅ "{pr.title}" merged')
-        self.total_fetch()
+        def _run():
+            try:
+                self._svc.merge_pr(pr, squash=squash)
+                self.pr_event.emit(pr.pr_key, "pr_merged", f'✅ "{pr.title}" merged')
+                self.merge_finished.emit(pr.pr_key)
+                QTimer.singleShot(RERUN_REFETCH_MS, self.total_fetch)
+            except Exception as exc:
+                log.error("merge_pr #%d failed: %s", pr.number, exc, exc_info=True)
+                self.merge_failed.emit(pr.pr_key, str(exc))
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── CI rerun ──────────────────────────────────────────────────────────────
 
     def retry_failed_cis(self, pr: PullRequest) -> str:
-        """Rerun only failed Actions jobs; return a note if some checks can't be re-run."""
+        """Rerun only failed Actions jobs; return a note if some checks can't be re-run.
+
+        Optimistic mark-running happens on the calling (UI) thread for instant feedback.
+        The rerun POSTs are dispatched on a background thread so the UI never blocks.
+        """
         if self._svc is None:
             return ""
-        for rid in pr.failed_actions_run_ids():
-            self._svc.rerun_failed_jobs(rid, pr)
+        run_ids = pr.failed_actions_run_ids()
         skipped = pr.non_rerunnable_failed_count()
+        # Optimistic UI update — stays on calling thread
         self._optimistically_mark_running(pr, only_failed=True)
         self.pr_event.emit(pr.pr_key, "ci_rerun", f'⏳ Re-running failed checks for #{pr.number}…')
         self._schedule_quick_fetch()
+        # Network POSTs — background thread
+        def _run():
+            for rid in run_ids:
+                try:
+                    self._svc.rerun_failed_jobs(rid, pr)
+                except Exception as exc:
+                    log.error("rerun_failed_jobs run_id=%s failed: %s", rid, exc, exc_info=True)
+                    self.refresh_error.emit(str(exc))
+        threading.Thread(target=_run, daemon=True).start()
         if not skipped:
             return ""
         noun = "checks" if skipped != 1 else "check"
@@ -451,20 +505,30 @@ class GitHubViewModel(QObject):
         Prefers re-running each distinct GitHub Actions workflow run (the
         reliable "Re-run all jobs" path). Falls back to re-requesting the
         whole check suite only when the PR has no Actions runs to drive.
+
+        Optimistic mark-running happens on the calling (UI) thread for instant feedback.
+        The rerun POSTs are dispatched on a background thread so the UI never blocks.
         """
         if self._svc is None:
             return
         run_ids = pr.all_actions_run_ids()
-        if run_ids:
-            for rid in run_ids:
-                self._svc.rerun_workflow(rid, pr)
-        else:
-            sid = pr.check_suite_id_for_all()
-            if sid:
-                self._svc.rerun_all_checks(sid, pr)
+        sid = pr.check_suite_id_for_all() if not run_ids else None
+        # Optimistic UI update — stays on calling thread
         self._optimistically_mark_running(pr, only_failed=False)
         self.pr_event.emit(pr.pr_key, "ci_rerun", f'⏳ Re-running all checks for #{pr.number}…')
         self._schedule_quick_fetch()
+        # Network POSTs — background thread
+        def _run():
+            try:
+                if run_ids:
+                    for rid in run_ids:
+                        self._svc.rerun_workflow(rid, pr)
+                elif sid:
+                    self._svc.rerun_all_checks(sid, pr)
+            except Exception as exc:
+                log.error("retry_all_cis failed: %s", exc, exc_info=True)
+                self.refresh_error.emit(str(exc))
+        threading.Thread(target=_run, daemon=True).start()
 
     def _optimistically_mark_running(self, pr: PullRequest, only_failed: bool) -> None:
         for c in pr.checks:
@@ -478,6 +542,38 @@ class GitHubViewModel(QObject):
 
     def _schedule_quick_fetch(self) -> None:
         QTimer.singleShot(RERUN_REFETCH_MS, self.quick_fetch)
+
+    # ── open PR ───────────────────────────────────────────────────────────────
+
+    def open_pull_request(
+        self,
+        title: str,
+        body: str,
+        base: str,
+        branch: str,
+        draft: bool,
+        repo_base_url: str,
+        repo_path: str | None = None,
+    ) -> None:
+        """Push branch and create PR on a background thread; emit open_pr_finished or open_pr_failed."""
+        if self._svc is None:
+            self.open_pr_failed.emit("GitHub service not configured")
+            return
+
+        def _run():
+            try:
+                self._svc.push_branch(branch, repo_path=repo_path)
+                self._svc.create_pull_request(
+                    title=title, body=body, base=base, branch=branch,
+                    draft=draft, repo_base_url=repo_base_url,
+                )
+                self.open_pr_finished.emit()
+                QTimer.singleShot(RERUN_REFETCH_MS, self.total_fetch)
+            except Exception as exc:
+                log.error("open_pull_request failed: %s", exc, exc_info=True)
+                self.open_pr_failed.emit(str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── repo/branch helpers (used by open-PR form) ────────────────────────────
 

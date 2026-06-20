@@ -64,10 +64,10 @@ def store(tmp_path):
     return s
 
 
-# ── Test 1: saving the PR cache writes list-view fields to disk ──────────────
+# ── Test 1: saving the PR cache writes versioned envelope ─────────────────────
 
 
-def test_save_pr_cache_writes_list_view_fields(store, qtbot):
+def test_save_pr_cache_writes_versioned_envelope(store, qtbot):
     vm = _make_vm(store)
     pr = _make_pr(
         number=42,
@@ -79,8 +79,13 @@ def test_save_pr_cache_writes_list_view_fields(store, qtbot):
 
     assert vm._pr_cache_path.exists()
     data = json.loads(vm._pr_cache_path.read_text())
-    assert len(data) == 1
-    row = data[0]
+    # new format: versioned envelope
+    assert isinstance(data, dict), "Cache must be a dict, not a list"
+    assert "version" in data, "Cache must have a 'version' key"
+    assert "prs" in data, "Cache must have a 'prs' key"
+    assert data["version"] == 1
+    assert len(data["prs"]) == 1
+    row = data["prs"][0]
     assert row["number"] == 42
     assert row["title"] == "PR 42"
     assert row["head_branch"] == "feat"
@@ -175,10 +180,10 @@ def test_load_pr_cache_corrupt_file_returns_empty_and_logs(store, qtbot, caplog)
     vm.deleteLater()
 
 
-# ── Test 5: reviews and comments are NOT cached ───────────────────────────────
+# ── Test 5: reviews and comments ARE cached and round-trip correctly ──────────
 
 
-def test_loaded_prs_have_empty_reviews_and_comments(store, qtbot):
+def test_reviews_and_comments_round_trip(store, qtbot):
     from worktree_manager.github_models import PRComment, Review
 
     vm = _make_vm(store)
@@ -191,12 +196,97 @@ def test_loaded_prs_have_empty_reviews_and_comments(store, qtbot):
     loaded = vm._load_pr_cache()
 
     assert len(loaded) == 1
-    assert loaded[0].reviews == []
-    assert loaded[0].comments == []
+    assert len(loaded[0].reviews) == 1
+    assert loaded[0].reviews[0].author == "alice"
+    assert loaded[0].reviews[0].state == "APPROVED"
+    assert len(loaded[0].comments) == 1
+    assert loaded[0].comments[0].id == 1
+    assert loaded[0].comments[0].author == "bob"
+    assert loaded[0].comments[0].body == "lgtm"
+    assert loaded[0].comments[0].created_at == "2024-01-01"
     vm.deleteLater()
 
 
-# ── Test 6: startup populates prs from cache before first live fetch ──────────
+# ── Test 6: check run_id survives the save/load round-trip ───────────────────
+
+
+def test_check_run_id_round_trips(store, qtbot):
+    """run_id must survive cache so Re-try CIs works after a cold start."""
+    vm = _make_vm(store)
+    pr = _make_pr(
+        number=5,
+        checks=[
+            CICheck(
+                name="build",
+                status="completed",
+                conclusion="failure",
+                check_suite_id="suite99",
+                run_id="26702825172",
+            )
+        ],
+    )
+    vm.prs = [pr]
+    vm._save_pr_cache()
+
+    loaded = vm._load_pr_cache()
+
+    assert len(loaded) == 1
+    assert len(loaded[0].checks) == 1
+    c = loaded[0].checks[0]
+    assert c.run_id == "26702825172"
+    assert c.check_suite_id == "suite99"
+    vm.deleteLater()
+
+
+# ── Test 7: head_sha survives the save/load round-trip ────────────────────────
+
+
+def test_head_sha_round_trips(store, qtbot):
+    vm = _make_vm(store)
+    pr = _make_pr(number=8)
+    pr.head_sha = "abc123def456"
+    vm.prs = [pr]
+    vm._save_pr_cache()
+
+    loaded = vm._load_pr_cache()
+
+    assert len(loaded) == 1
+    assert loaded[0].head_sha == "abc123def456"
+    vm.deleteLater()
+
+
+# ── Test 8: old flat-list cache returns empty without raising ─────────────────
+
+
+def test_load_old_flat_list_cache_returns_empty(store, qtbot):
+    """An old (pre-versioned) cache file must not crash — just start empty."""
+    vm = _make_vm(store)
+    old_format = [
+        {
+            "number": 1,
+            "title": "PR 1",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "head_branch": "feat",
+            "base_branch": "main",
+            "state": "open",
+            "draft": False,
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "owner": "org",
+            "repo": "repo",
+            "checks": [],
+        }
+    ]
+    vm._pr_cache_path.parent.mkdir(parents=True, exist_ok=True)
+    vm._pr_cache_path.write_text(json.dumps(old_format))
+
+    result = vm._load_pr_cache()
+
+    assert result == [], f"Expected empty list for old format; got {result}"
+    vm.deleteLater()
+
+
+# ── Test 9: startup populates prs from cache before first live fetch ──────────
 
 
 def test_startup_populates_prs_from_cache_before_live_fetch(store, qtbot):

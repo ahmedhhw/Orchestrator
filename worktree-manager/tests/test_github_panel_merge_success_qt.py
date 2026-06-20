@@ -39,6 +39,7 @@ def _show_detail(panel, vm, pr):
 
 
 def test_merge_success_navigates_back_to_list(panel, configured_vm, qtbot):
+    # merge_pr is now async; the panel navigates back when merge_finished signal fires.
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
         reviews=[Review("alice", "APPROVED")],
@@ -49,12 +50,14 @@ def test_merge_success_navigates_back_to_list(panel, configured_vm, qtbot):
     configured_vm._svc.merge_pr.return_value = None
     configured_vm._svc.list_my_open_prs.return_value = []
 
-    panel._merge_btn.click()
+    with qtbot.waitSignal(configured_vm.merge_finished, timeout=3000):
+        panel._merge_btn.click()
 
     assert panel._my_prs_stack.currentWidget() is panel._pr_list_widget
 
 
 def test_merge_failure_shows_error_label(panel, configured_vm, qtbot):
+    # merge_pr is now async; the error label is shown when merge_failed signal fires.
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
         reviews=[Review("alice", "APPROVED")],
@@ -65,13 +68,15 @@ def test_merge_failure_shows_error_label(panel, configured_vm, qtbot):
     configured_vm._svc.merge_pr.side_effect = RuntimeError("Merge conflict")
     configured_vm.prs = [pr]
 
-    panel._merge_btn.click()
+    with qtbot.waitSignal(configured_vm.merge_failed, timeout=3000):
+        panel._merge_btn.click()
 
     assert panel._merge_error_label.isVisible()
     assert "Merge conflict" in panel._merge_error_label.text()
 
 
 def test_merge_failure_does_not_navigate_back(panel, configured_vm, qtbot):
+    # merge_pr is now async; on failure the panel stays on the detail view.
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
         reviews=[Review("alice", "APPROVED")],
@@ -82,12 +87,14 @@ def test_merge_failure_does_not_navigate_back(panel, configured_vm, qtbot):
     configured_vm._svc.merge_pr.side_effect = RuntimeError("Branch protection rule")
     configured_vm.prs = [pr]
 
-    panel._merge_btn.click()
+    with qtbot.waitSignal(configured_vm.merge_failed, timeout=3000):
+        panel._merge_btn.click()
 
     assert panel._my_prs_stack.currentWidget() is panel._pr_detail_widget
 
 
 def test_vm_emits_pr_merged_event_on_successful_merge(configured_vm, qtbot):
+    # merge_pr is now async; must wait for the signal before checking events.
     merged_events = []
     configured_vm.pr_event.connect(lambda key, evt, msg: merged_events.append((key, evt, msg)))
     configured_vm._svc = MagicMock()
@@ -96,7 +103,8 @@ def test_vm_emits_pr_merged_event_on_successful_merge(configured_vm, qtbot):
 
     pr = _make_pr(1)
     configured_vm.prs = [pr]
-    configured_vm.merge_pr(pr, squash=True)
+    with qtbot.waitSignal(configured_vm.merge_finished, timeout=3000):
+        configured_vm.merge_pr(pr, squash=True)
 
     assert any(e[1] == "pr_merged" for e in merged_events)
     assert any("My Work" in e[2] for e in merged_events)
