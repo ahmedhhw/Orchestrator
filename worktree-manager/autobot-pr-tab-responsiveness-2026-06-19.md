@@ -1,6 +1,6 @@
 <!-- autobot-status
 stage: 6
-iteration: 2
+iteration: 3
 gate: confirmed
 updated: 2026-06-20
 -->
@@ -342,17 +342,24 @@ the model shape is preserved.
 ### Iteration 3 — Persist full PR detail to cache
 **Context file:** [Iteration 3 context](autobot-pr-tab-responsiveness-ctx-iter-3-persist-detail-cache-2026-06-19.md)
 
+### Implementation Ledger — Iteration 3
+- save_pr_cache writes versioned envelope: red → green ✓
+- check run_id round-trips through cache: red → green ✓
+- head_sha round-trips through cache: red → green ✓
+- reviews and comments round-trip through cache: red → green ✓
+- loading old flat-list cache returns empty without raising: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 3
 
 > STOP. Do not proceed to Iteration 4 until every item is confirmed.
 
-- [ ] After a normal session, `github_pr_cache.json` is the `{ "version": 1, "prs": [...] }` shape with `run_id`, `reviews`, `comments` present.
-- [ ] Cold start (relaunch): opening a PR shows its reviews/comments immediately from cache (before any fresh fetch).
-- [ ] Cold start: **Re-try failed CIs** is available immediately on a cached PR with a failed Actions check.
-- [ ] An old (pre-change) cache file does not crash the app — list starts empty and repopulates on fetch.
-- [ ] Regression: startup-from-cache, instant View, and non-freezing actions all still work.
+- [x] After a normal session, `github_pr_cache.json` is the `{ "version": 1, "prs": [...] }` shape with `run_id`, `reviews`, `comments` present.
+- [x] Cold start (relaunch): opening a PR shows its reviews/comments immediately from cache (before any fresh fetch).
+- [x] Cold start: **Re-try failed CIs** is available immediately on a cached PR with a failed Actions check.
+- [x] An old (pre-change) cache file does not crash the app — list starts empty and repopulates on fetch.
+- [x] Regression: startup-from-cache, instant View, and non-freezing actions all still work.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-20
 **How to confirm:** Check every box, then reply "Iteration 3 confirmed" or describe what failed.
 
 ### Iteration 4 — GraphQL poll consolidation

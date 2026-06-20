@@ -9,13 +9,14 @@ import requests
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from worktree_manager.github_models import CICheck, PullRequest
+from worktree_manager.github_models import CICheck, PRComment, PullRequest, Review
 from worktree_manager.github_service import GitHubService
 from worktree_manager.git_service import GitService
 
 log = logging.getLogger(__name__)
 
 RERUN_REFETCH_MS = 4000
+CACHE_VERSION = 1
 
 
 class TokenState(Enum):
@@ -268,6 +269,7 @@ class GitHubViewModel(QObject):
                 "html_url": p.html_url,
                 "head_branch": p.head_branch,
                 "base_branch": p.base_branch,
+                "head_sha": p.head_sha,
                 "state": p.state,
                 "draft": p.draft,
                 "mergeable": p.mergeable,
@@ -280,15 +282,31 @@ class GitHubViewModel(QObject):
                         "status": c.status,
                         "conclusion": c.conclusion,
                         "check_suite_id": c.check_suite_id,
+                        "run_id": c.run_id,
                     }
                     for c in p.checks
+                ],
+                "reviews": [
+                    {"author": r.author, "state": r.state}
+                    for r in p.reviews
+                ],
+                "comments": [
+                    {
+                        "id": k.id,
+                        "author": k.author,
+                        "body": k.body,
+                        "created_at": k.created_at,
+                    }
+                    for k in p.comments
                 ],
             }
             for p in self.prs
         ]
         try:
             self._pr_cache_path.parent.mkdir(parents=True, exist_ok=True)
-            self._pr_cache_path.write_text(json.dumps(rows, indent=2))
+            self._pr_cache_path.write_text(
+                json.dumps({"version": CACHE_VERSION, "prs": rows}, indent=2)
+            )
         except Exception:
             log.warning("Failed to save PR cache to disk", exc_info=True)
 
@@ -297,6 +315,10 @@ class GitHubViewModel(QObject):
             return []
         try:
             raw = json.loads(self._pr_cache_path.read_text())
+            if not (isinstance(raw, dict) and "version" in raw):
+                # Old flat-list format — start empty so a fresh fetch repopulates.
+                return []
+            rows = raw["prs"]
             return [
                 PullRequest(
                     number=row["number"],
@@ -305,6 +327,7 @@ class GitHubViewModel(QObject):
                     html_url=row["html_url"],
                     head_branch=row["head_branch"],
                     base_branch=row["base_branch"],
+                    head_sha=row.get("head_sha", ""),
                     state=row["state"],
                     draft=row["draft"],
                     mergeable=row["mergeable"],
@@ -312,8 +335,13 @@ class GitHubViewModel(QObject):
                     owner=row["owner"],
                     repo=row["repo"],
                     checks=[CICheck(**c) for c in row["checks"]],
+                    reviews=[Review(**r) for r in row.get("reviews", [])],
+                    comments=[
+                        PRComment(**{k: v for k, v in c.items() if k != "seen"})
+                        for c in row.get("comments", [])
+                    ],
                 )
-                for row in raw
+                for row in rows
             ]
         except Exception:
             log.warning("Failed to load PR cache; starting empty", exc_info=True)
