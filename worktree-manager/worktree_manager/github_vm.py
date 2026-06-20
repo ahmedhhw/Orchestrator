@@ -383,11 +383,28 @@ class GitHubViewModel(QObject):
     def select_pr(self, pr: PullRequest) -> None:
         if self._svc is None:
             return
-        log.debug("select_pr #%d: listed mergeable=%r", pr.number, pr.mergeable)
-        self.selected_pr = self._svc.get_pr_detail(pr.number, pr=pr)
-        log.debug("select_pr #%d: after get_pr_detail mergeable=%r", pr.number, self.selected_pr.mergeable)
+        log.debug("select_pr #%d: instant render from memory, mergeable=%r", pr.number, pr.mergeable)
+        self.selected_pr = pr
         self.pr_detail_updated.emit()
         self.mark_pr_comments_seen(pr)
+        threading.Thread(target=self._refresh_selected, args=(pr,), daemon=True).start()
+
+    def _refresh_selected(self, pr: PullRequest) -> None:
+        try:
+            refreshed = self._svc.get_pr_detail(pr.number, pr=pr)
+        except PermissionError:
+            self._token_state = TokenState.EXPIRED
+            self._stop_timers()
+            self.token_state_changed.emit()
+            return
+        except Exception as exc:
+            log.error("_refresh_selected #%d failed: %s", pr.number, exc, exc_info=True)
+            self.refresh_error.emit(str(exc))
+            return
+        if self.selected_pr is not None and self.selected_pr.pr_key == pr.pr_key:
+            log.debug("_refresh_selected #%d: swapping in fresher data", pr.number)
+            self.selected_pr = refreshed
+            self.pr_detail_updated.emit()
 
     def deselect_pr(self) -> None:
         self.selected_pr = None

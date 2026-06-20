@@ -1,6 +1,6 @@
 <!-- autobot-status
-stage: 5
-iteration: 0
+stage: 6
+iteration: 1
 gate: confirmed
 updated: 2026-06-20
 -->
@@ -269,17 +269,23 @@ the model shape is preserved.
 ### Iteration 1 — Instant, non-freezing PR detail (View)
 **Context file:** [Iteration 1 context](autobot-pr-tab-responsiveness-ctx-iter-1-instant-pr-detail-2026-06-19.md)
 
+### Implementation Ledger — Iteration 1
+- select_pr emits detail-updated immediately without network: red → green ✓
+- select_pr background refresh emits updated signal: red → green ✓
+- select_pr background refresh failure surfaces error and keeps detail: red → green ✓
+- select_pr selected_pr never cleared between instant and refresh: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 1
 
 > STOP. Do not proceed to Iteration 2 until every item is confirmed.
 
-- [ ] Clicking **↗ View** opens the detail pane **instantly** (no spinner, no freeze), even on a slow connection.
-- [ ] Shortly after, the detail visibly updates if something changed server-side (silent background refresh).
-- [ ] The app stays interactive (scroll / switch tabs) the whole time a PR detail is opening.
-- [ ] Opening a second PR right after the first does not leave stale data once both refreshes settle.
-- [ ] Regression: PR list still renders at startup from cache with no loading flash.
+- [x] Clicking **↗ View** opens the detail pane **instantly** (no spinner, no freeze), even on a slow connection.
+- [x] Shortly after, the detail visibly updates if something changed server-side (silent background refresh).
+- [x] The app stays interactive (scroll / switch tabs) the whole time a PR detail is opening.
+- [x] Opening a second PR right after the first does not leave stale data once both refreshes settle.
+- [x] Regression: PR list still renders at startup from cache with no loading flash.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-20
 **How to confirm:** Check every box, then reply "Iteration 1 confirmed" or describe what failed.
 
 ### Iteration 2 — Non-freezing actions (Merge / Re-try / Push & Open PR)
