@@ -9,6 +9,172 @@ from worktree_manager.github_models import CICheck, PRComment, PullRequest, Revi
 
 log = logging.getLogger(__name__)
 
+GRAPHQL_QUERY = """
+{
+  viewer { login }
+  search(query: "is:pr is:open author:@me", type: ISSUE, first: 100) {
+    nodes {
+      ... on PullRequest {
+        number
+        title
+        body
+        url
+        state
+        isDraft
+        headRefName
+        baseRefName
+        headRefOid
+        mergeable
+        mergeStateStatus
+        repository { nameWithOwner }
+        reviews(first: 50) {
+          nodes {
+            author { login }
+            state
+          }
+        }
+        comments(first: 100) {
+          nodes {
+            databaseId
+            author { login }
+            body
+            createdAt
+          }
+        }
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup {
+                contexts(first: 100) {
+                  nodes {
+                    __typename
+                    ... on CheckRun {
+                      name
+                      status
+                      conclusion
+                      checkSuite {
+                        databaseId
+                        workflowRun {
+                          databaseId
+                        }
+                      }
+                    }
+                    ... on StatusContext {
+                      context
+                      state
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  rateLimit {
+    cost
+    remaining
+  }
+}
+"""
+
+_MERGEABLE_MAP = {
+    "MERGEABLE": True,
+    "CONFLICTING": False,
+    "UNKNOWN": None,
+}
+
+_STATUS_CONTEXT_CONCLUSION_MAP = {
+    "SUCCESS": "success",
+    "FAILURE": "failure",
+    "ERROR": "failure",
+    "PENDING": None,
+    "EXPECTED": None,
+}
+
+
+def _pr_from_graphql_node(node: dict) -> "PullRequest":
+    """Map a single GraphQL PullRequest node dict into a PullRequest model object."""
+    # Parse owner/repo from repository.nameWithOwner
+    name_with_owner = node["repository"]["nameWithOwner"]
+    owner, repo = name_with_owner.split("/", 1)
+
+    # Build CI checks from the statusCheckRollup contexts
+    checks: list[CICheck] = []
+    commits = node.get("commits", {}).get("nodes", [])
+    if commits:
+        rollup = commits[0].get("commit", {}).get("statusCheckRollup")
+        if rollup:
+            for ctx in rollup.get("contexts", {}).get("nodes", []):
+                typename = ctx.get("__typename")
+                if typename == "CheckRun":
+                    suite = ctx.get("checkSuite")
+                    check_suite_id = str(suite["databaseId"]) if suite else None
+                    wr = suite.get("workflowRun") if suite else None
+                    run_id = str(wr["databaseId"]) if wr else None
+                    checks.append(
+                        CICheck(
+                            name=ctx["name"],
+                            status=ctx["status"].lower(),
+                            conclusion=(ctx["conclusion"].lower() if ctx.get("conclusion") else None),
+                            check_suite_id=check_suite_id,
+                            run_id=run_id,
+                        )
+                    )
+                elif typename == "StatusContext":
+                    checks.append(
+                        CICheck(
+                            name=ctx["context"],
+                            status="completed",
+                            conclusion=_STATUS_CONTEXT_CONCLUSION_MAP.get(ctx.get("state")),
+                            check_suite_id=None,
+                            run_id=None,
+                        )
+                    )
+
+    # Reviews — keep state UPPERCASE (model compares == "APPROVED" etc.)
+    reviews = [
+        Review(author=r["author"]["login"], state=r["state"])
+        for r in node.get("reviews", {}).get("nodes", [])
+    ]
+
+    # Comments
+    comments = [
+        PRComment(
+            id=c["databaseId"],
+            author=c["author"]["login"],
+            body=c["body"],
+            created_at=c["createdAt"],
+        )
+        for c in node.get("comments", {}).get("nodes", [])
+    ]
+
+    mergeable_raw = node.get("mergeable", "UNKNOWN")
+    mergeable = _MERGEABLE_MAP.get(mergeable_raw)
+
+    merge_state_status_raw = node.get("mergeStateStatus", "")
+    mergeable_state = merge_state_status_raw.lower() if merge_state_status_raw else ""
+
+    return PullRequest(
+        number=node["number"],
+        title=node["title"],
+        body=node.get("body") or "",
+        html_url=node["url"],
+        head_branch=node["headRefName"],
+        base_branch=node["baseRefName"],
+        head_sha=node["headRefOid"],
+        state=node["state"].lower(),
+        draft=node["isDraft"],
+        mergeable=mergeable,
+        mergeable_state=mergeable_state,
+        owner=owner,
+        repo=repo,
+        checks=checks,
+        reviews=reviews,
+        comments=comments,
+    )
+
 
 class GitHubService:
     def __init__(self, token: str):
@@ -26,6 +192,33 @@ class GitHubService:
             raise PermissionError("GitHub token is invalid or expired")
         resp.raise_for_status()
         return resp.json()["login"]
+
+    def fetch_all_open_prs(self) -> list[PullRequest]:
+        """Fetch all open PRs authored by the viewer via a single GraphQL request.
+
+        Returns a list of fully-populated PullRequest objects including checks,
+        reviews, comments, and mergeability data.
+
+        Raises:
+            PermissionError: on HTTP 401.
+            RuntimeError:    if the GraphQL response contains errors.
+        """
+        resp = requests.post(
+            "https://api.github.com/graphql",
+            headers=self._headers,
+            json={"query": GRAPHQL_QUERY},
+        )
+        if resp.status_code == 401:
+            raise PermissionError("GitHub token is invalid or expired")
+        resp.raise_for_status()
+        data = resp.json()
+        if "errors" in data:
+            raise RuntimeError(data["errors"][0]["message"])
+        rate = data["data"].get("rateLimit", {})
+        log.debug("fetch_all_open_prs: GraphQL cost=%s remaining=%s",
+                  rate.get("cost"), rate.get("remaining"))
+        nodes = data["data"]["search"]["nodes"]
+        return [_pr_from_graphql_node(n) for n in nodes if n]
 
     def _pr_from_dict(self, data: dict) -> PullRequest:
         return PullRequest(
