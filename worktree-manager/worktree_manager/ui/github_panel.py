@@ -1,6 +1,5 @@
 import logging
 import subprocess
-import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -345,6 +344,10 @@ class GitHubPanel(QWidget):
         vm.token_state_changed.connect(self._apply_token_state)
         vm.refresh_error.connect(self._on_refresh_error)
         vm.fetch_status_changed.connect(self._fetch_status_label.setText)
+        vm.merge_finished.connect(self._on_merge_finished)
+        vm.merge_failed.connect(self._on_merge_failed)
+        vm.open_pr_finished.connect(self._on_open_pr_finished)
+        vm.open_pr_failed.connect(self._on_open_pr_failed)
 
         self._repo_display_map: dict[str, str] = {}
         self._apply_token_state()
@@ -743,22 +746,20 @@ class GitHubPanel(QWidget):
         self._merge_btn.setEnabled(False)
         self._merge_btn.setText("Merging…")
         self._merge_error_label.hide()
-        try:
-            self._vm.merge_pr(pr, squash=squash)
-            self._squash_checkbox.hide()
-            self._merge_btn.hide()
-            self._merge_status_label.setStyleSheet("color: green; font-weight: bold;")
-            for remaining in range(5, 0, -1):
-                self._merge_status_label.setText(f"✅ Merged — refreshing in {remaining}s…")
-                QApplication.processEvents()
-                time.sleep(1)
-            self._vm.total_fetch()
-            self._on_back()
-        except Exception as exc:
-            self._merge_error_label.setText(str(exc))
-            self._merge_error_label.show()
-            self._merge_btn.setEnabled(True)
-            self._merge_btn.setText("Merge PR")
+        self._vm.merge_pr(pr, squash=squash)
+
+    def _on_merge_finished(self, pr_key: object) -> None:
+        self._squash_checkbox.hide()
+        self._merge_btn.hide()
+        self._merge_status_label.setStyleSheet("color: green; font-weight: bold;")
+        self._merge_status_label.setText("✅ Merged")
+        self._on_back()
+
+    def _on_merge_failed(self, pr_key: object, message: str) -> None:
+        self._merge_error_label.setText(message)
+        self._merge_error_label.show()
+        self._merge_btn.setEnabled(True)
+        self._merge_btn.setText("Merge PR")
 
     # ── Open PR form ───────────────────────────────────────────────────────────
 
@@ -875,12 +876,9 @@ class GitHubPanel(QWidget):
         branch = self._head_branch_combo.currentText()
 
         self._open_pr_error_label.hide()
-        self._push_open_btn.setEnabled(False)
-        self._push_open_btn.setText("Pushing…")
 
         try:
-            svc = self._vm._svc
-            if svc is None:
+            if self._vm._svc is None:
                 raise RuntimeError("GitHub service not configured")
             if not repo_path:
                 raise RuntimeError("No repo selected")
@@ -889,18 +887,25 @@ class GitHubPanel(QWidget):
             repo_base_url = _github_api_base(repo_path)
             if not repo_base_url:
                 raise RuntimeError("Could not detect GitHub remote for this directory")
-            svc.push_branch(branch, repo_path=repo_path)
-            svc.create_pull_request(title=title, body=body, base=base, branch=branch, draft=draft, repo_base_url=repo_base_url)
-            delay = 2
-            for remaining in range(delay, 0, -1):
-                self._push_open_btn.setText(f"Sleeping {remaining}s before fetching PRs…")
-                QApplication.processEvents()
-                time.sleep(1)
-            self._vm.total_fetch()
-            self._tabs.setCurrentIndex(0)
         except Exception as exc:
             self._open_pr_error_label.setText(str(exc))
             self._open_pr_error_label.show()
-        finally:
-            self._push_open_btn.setEnabled(True)
-            self._push_open_btn.setText("Push & Open PR")
+            return
+
+        self._push_open_btn.setEnabled(False)
+        self._push_open_btn.setText("Pushing…")
+        self._vm.open_pull_request(
+            title=title, body=body, base=base, branch=branch,
+            draft=draft, repo_base_url=repo_base_url, repo_path=repo_path,
+        )
+
+    def _on_open_pr_finished(self) -> None:
+        self._push_open_btn.setEnabled(True)
+        self._push_open_btn.setText("Push & Open PR")
+        self._tabs.setCurrentIndex(0)
+
+    def _on_open_pr_failed(self, message: str) -> None:
+        self._open_pr_error_label.setText(message)
+        self._open_pr_error_label.show()
+        self._push_open_btn.setEnabled(True)
+        self._push_open_btn.setText("Push & Open PR")

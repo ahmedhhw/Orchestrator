@@ -33,6 +33,12 @@ class GitHubViewModel(QObject):
     loading_started = Signal()
     fetch_status_changed = Signal(str)
 
+    # async action result signals
+    merge_finished = Signal(object)      # pr_key on success
+    merge_failed = Signal(object, str)   # (pr_key, error message)
+    open_pr_finished = Signal()
+    open_pr_failed = Signal(str)         # error message
+
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self._store = store
@@ -424,22 +430,42 @@ class GitHubViewModel(QObject):
     def merge_pr(self, pr: PullRequest, squash: bool = True) -> None:
         if self._svc is None:
             return
-        self._svc.merge_pr(pr, squash=squash)
-        self.pr_event.emit(pr.pr_key, "pr_merged", f'✅ "{pr.title}" merged')
-        self.total_fetch()
+        def _run():
+            try:
+                self._svc.merge_pr(pr, squash=squash)
+                self.pr_event.emit(pr.pr_key, "pr_merged", f'✅ "{pr.title}" merged')
+                self.merge_finished.emit(pr.pr_key)
+                QTimer.singleShot(RERUN_REFETCH_MS, self.total_fetch)
+            except Exception as exc:
+                log.error("merge_pr #%d failed: %s", pr.number, exc, exc_info=True)
+                self.merge_failed.emit(pr.pr_key, str(exc))
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── CI rerun ──────────────────────────────────────────────────────────────
 
     def retry_failed_cis(self, pr: PullRequest) -> str:
-        """Rerun only failed Actions jobs; return a note if some checks can't be re-run."""
+        """Rerun only failed Actions jobs; return a note if some checks can't be re-run.
+
+        Optimistic mark-running happens on the calling (UI) thread for instant feedback.
+        The rerun POSTs are dispatched on a background thread so the UI never blocks.
+        """
         if self._svc is None:
             return ""
-        for rid in pr.failed_actions_run_ids():
-            self._svc.rerun_failed_jobs(rid, pr)
+        run_ids = pr.failed_actions_run_ids()
         skipped = pr.non_rerunnable_failed_count()
+        # Optimistic UI update — stays on calling thread
         self._optimistically_mark_running(pr, only_failed=True)
         self.pr_event.emit(pr.pr_key, "ci_rerun", f'⏳ Re-running failed checks for #{pr.number}…')
         self._schedule_quick_fetch()
+        # Network POSTs — background thread
+        def _run():
+            for rid in run_ids:
+                try:
+                    self._svc.rerun_failed_jobs(rid, pr)
+                except Exception as exc:
+                    log.error("rerun_failed_jobs run_id=%s failed: %s", rid, exc, exc_info=True)
+                    self.refresh_error.emit(str(exc))
+        threading.Thread(target=_run, daemon=True).start()
         if not skipped:
             return ""
         noun = "checks" if skipped != 1 else "check"
@@ -451,20 +477,30 @@ class GitHubViewModel(QObject):
         Prefers re-running each distinct GitHub Actions workflow run (the
         reliable "Re-run all jobs" path). Falls back to re-requesting the
         whole check suite only when the PR has no Actions runs to drive.
+
+        Optimistic mark-running happens on the calling (UI) thread for instant feedback.
+        The rerun POSTs are dispatched on a background thread so the UI never blocks.
         """
         if self._svc is None:
             return
         run_ids = pr.all_actions_run_ids()
-        if run_ids:
-            for rid in run_ids:
-                self._svc.rerun_workflow(rid, pr)
-        else:
-            sid = pr.check_suite_id_for_all()
-            if sid:
-                self._svc.rerun_all_checks(sid, pr)
+        sid = pr.check_suite_id_for_all() if not run_ids else None
+        # Optimistic UI update — stays on calling thread
         self._optimistically_mark_running(pr, only_failed=False)
         self.pr_event.emit(pr.pr_key, "ci_rerun", f'⏳ Re-running all checks for #{pr.number}…')
         self._schedule_quick_fetch()
+        # Network POSTs — background thread
+        def _run():
+            try:
+                if run_ids:
+                    for rid in run_ids:
+                        self._svc.rerun_workflow(rid, pr)
+                elif sid:
+                    self._svc.rerun_all_checks(sid, pr)
+            except Exception as exc:
+                log.error("retry_all_cis failed: %s", exc, exc_info=True)
+                self.refresh_error.emit(str(exc))
+        threading.Thread(target=_run, daemon=True).start()
 
     def _optimistically_mark_running(self, pr: PullRequest, only_failed: bool) -> None:
         for c in pr.checks:
@@ -478,6 +514,38 @@ class GitHubViewModel(QObject):
 
     def _schedule_quick_fetch(self) -> None:
         QTimer.singleShot(RERUN_REFETCH_MS, self.quick_fetch)
+
+    # ── open PR ───────────────────────────────────────────────────────────────
+
+    def open_pull_request(
+        self,
+        title: str,
+        body: str,
+        base: str,
+        branch: str,
+        draft: bool,
+        repo_base_url: str,
+        repo_path: str | None = None,
+    ) -> None:
+        """Push branch and create PR on a background thread; emit open_pr_finished or open_pr_failed."""
+        if self._svc is None:
+            self.open_pr_failed.emit("GitHub service not configured")
+            return
+
+        def _run():
+            try:
+                self._svc.push_branch(branch, repo_path=repo_path)
+                self._svc.create_pull_request(
+                    title=title, body=body, base=base, branch=branch,
+                    draft=draft, repo_base_url=repo_base_url,
+                )
+                self.open_pr_finished.emit()
+                QTimer.singleShot(RERUN_REFETCH_MS, self.total_fetch)
+            except Exception as exc:
+                log.error("open_pull_request failed: %s", exc, exc_info=True)
+                self.open_pr_failed.emit(str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── repo/branch helpers (used by open-PR form) ────────────────────────────
 

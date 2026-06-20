@@ -108,4 +108,5 @@ self._vm.total_fetch()
 - [ ] Clicking **Re-try failed/all CIs** never freezes; checks visibly flip to running immediately and refresh shortly after.
 - [ ] Regression: View still opens instantly (Iteration 1); list still renders from cache at startup (Iteration 0).
 
-## TDD mode: <set when built>
+## TDD mode: Autonomous
+TDD directly. Keep the ledger below as you go.

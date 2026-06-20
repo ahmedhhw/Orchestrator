@@ -1,6 +1,6 @@
 <!-- autobot-status
 stage: 6
-iteration: 1
+iteration: 2
 gate: confirmed
 updated: 2026-06-20
 -->
@@ -291,17 +291,52 @@ the model shape is preserved.
 ### Iteration 2 — Non-freezing actions (Merge / Re-try / Push & Open PR)
 **Context file:** [Iteration 2 context](autobot-pr-tab-responsiveness-ctx-iter-2-non-freezing-actions-2026-06-19.md)
 
+### Implementation Ledger — Iteration 2
+- merge_pr does not call service on calling thread: red → green ✓
+- merge_pr emits merge_finished on success: red → green ✓
+- merge_pr emits pr_event on success: red → green ✓
+- merge_pr schedules delayed refresh not sleep: red → green ✓
+- merge_pr emits merge_failed on error: red → green ✓
+- merge_pr does not emit merge_finished on error: red → green ✓
+- retry_failed_cis rerun POSTs run off UI thread: red → green ✓
+- retry_failed_cis still optimistically marks running on UI thread: red → green ✓
+- retry_failed_cis still schedules quick fetch: red → green ✓
+- retry_all_cis rerun POSTs run off UI thread: red → green ✓
+- retry_all_cis still schedules quick fetch: red → green ✓
+- open_pull_request does not call push on calling thread: red → green ✓
+- open_pull_request emits open_pr_finished on success: red → green ✓
+- open_pull_request calls push then create: red → green ✓
+- open_pull_request schedules delayed refresh on success: red → green ✓
+- open_pull_request emits open_pr_failed on push error: red → green ✓
+- open_pull_request emits open_pr_failed on create error: red → green ✓
+- open_pull_request does not emit finished on error: red → green ✓
+- merge_finished signal navigates back to list: red → green ✓
+- merge_finished signal hides merge button: red → green ✓
+- merge_finished signal hides squash checkbox: red → green ✓
+- merge_failed signal shows error label: red → green ✓
+- merge_failed signal re-enables merge button: red → green ✓
+- merge_failed signal does not navigate back: red → green ✓
+- on_merge_pr calls vm.merge_pr not svc directly: red → green ✓
+- on_merge_pr disables button before vm call: red → green ✓
+- open_pr_finished switches to My PRs tab: red → green ✓
+- open_pr_finished re-enables push button: red → green ✓
+- open_pr_failed shows error label: red → green ✓
+- open_pr_failed re-enables push button: red → green ✓
+- open_pr_failed does not switch tab: red → green ✓
+- on_push_open_pr calls vm.open_pull_request: red → green ✓
+- on_push_open_pr disables button immediately: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 2
 
 > STOP. Do not proceed to Iteration 3 until every item is confirmed.
 
-- [ ] Clicking **Push & Open PR** never freezes the app — the window stays interactive while pushing/creating.
-- [ ] On push/create failure, the inline red error shows and the button re-enables (no stuck "Pushing…").
-- [ ] Clicking **Merge PR** never freezes; on success it returns to the list and the merge notification fires.
-- [ ] Clicking **Re-try failed/all CIs** never freezes; checks flip to running immediately and refresh shortly after.
-- [ ] Regression: View still opens instantly; list still renders from cache at startup.
+- [x] Clicking **Push & Open PR** never freezes the app — the window stays interactive while pushing/creating.
+- [x] On push/create failure, the inline red error shows and the button re-enables (no stuck "Pushing…").
+- [x] Clicking **Merge PR** never freezes; on success it returns to the list and the merge notification fires.
+- [x] Clicking **Re-try failed/all CIs** never freezes; checks flip to running immediately and refresh shortly after.
+- [x] Regression: View still opens instantly; list still renders from cache at startup.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-20
 **How to confirm:** Check every box, then reply "Iteration 2 confirmed" or describe what failed.
 
 ### Iteration 3 — Persist full PR detail to cache

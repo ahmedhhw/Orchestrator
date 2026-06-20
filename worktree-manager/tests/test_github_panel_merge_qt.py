@@ -100,6 +100,7 @@ def test_squash_checkbox_checked_by_default(panel, configured_vm, qtbot):
 
 
 def test_merge_button_calls_service_with_squash(panel, configured_vm, qtbot):
+    # merge_pr is now async; wait for merge_finished before inspecting call_args
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
         reviews=[Review("alice", "APPROVED")],
@@ -111,13 +112,15 @@ def test_merge_button_calls_service_with_squash(panel, configured_vm, qtbot):
     configured_vm._svc.list_my_open_prs.return_value = []
     configured_vm.prs = [pr]
     panel._squash_checkbox.setChecked(True)
-    panel._merge_btn.click()
+    with qtbot.waitSignal(configured_vm.merge_finished, timeout=3000):
+        panel._merge_btn.click()
     args, kwargs = configured_vm._svc.merge_pr.call_args
     assert args[0].number == 1
     assert kwargs["squash"] is True
 
 
 def test_merge_button_calls_service_without_squash(panel, configured_vm, qtbot):
+    # merge_pr is now async; wait for merge_finished before inspecting call_args
     pr = _make_pr(
         checks=[CICheck("build", "completed", "success")],
         reviews=[Review("alice", "APPROVED")],
@@ -129,7 +132,8 @@ def test_merge_button_calls_service_without_squash(panel, configured_vm, qtbot):
     configured_vm._svc.list_my_open_prs.return_value = []
     configured_vm.prs = [pr]
     panel._squash_checkbox.setChecked(False)
-    panel._merge_btn.click()
+    with qtbot.waitSignal(configured_vm.merge_finished, timeout=3000):
+        panel._merge_btn.click()
     args, kwargs = configured_vm._svc.merge_pr.call_args
     assert args[0].number == 1
     assert kwargs["squash"] is False
