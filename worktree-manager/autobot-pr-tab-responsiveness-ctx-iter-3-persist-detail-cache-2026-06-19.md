@@ -81,4 +81,5 @@ checks missing `run_id` (live `run_id` for that check is `26702825172`).
 - [ ] An old (pre-change) cache file does not crash the app — PR list just starts empty and repopulates on fetch.
 - [ ] Regression: list/startup, instant View, and non-freezing actions all still work (Iterations 0–2).
 
-## TDD mode: <set when built>
+## TDD mode: Autonomous
+TDD directly. Keep the ledger below as you go.
