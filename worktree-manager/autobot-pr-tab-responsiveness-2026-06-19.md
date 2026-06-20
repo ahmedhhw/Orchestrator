@@ -1,6 +1,6 @@
 <!-- autobot-status
-stage: 6
-iteration: 3
+stage: 7
+iteration: 4
 gate: confirmed
 updated: 2026-06-20
 -->
@@ -365,17 +365,31 @@ the model shape is preserved.
 ### Iteration 4 — GraphQL poll consolidation
 **Context file:** [Iteration 4 context](autobot-pr-tab-responsiveness-ctx-iter-4-graphql-poll-consolidation-2026-06-19.md)
 
+### Implementation Ledger — Iteration 4
+- GraphQL query string contains required fields: red → green ✓
+- _pr_from_graphql_node maps CheckRun to CICheck with lowercased status/conclusion and run_id: red → green ✓
+- _pr_from_graphql_node maps mergeable enum MERGEABLE/CONFLICTING/UNKNOWN to True/False/None: red → green ✓
+- _pr_from_graphql_node lowercases mergeStateStatus: red → green ✓
+- _pr_from_graphql_node maps reviews and comments into Review/PRComment: red → green ✓
+- _pr_from_graphql_node handles StatusContext node without error (5 parametrized): red → green ✓
+- fetch_all_open_prs issues exactly one POST to GraphQL endpoint: red → green ✓
+- fetch_all_open_prs skips null nodes: red → green ✓
+- fetch_all_open_prs raises PermissionError on 401: red → green ✓
+- fetch_all_open_prs raises RuntimeError on GraphQL errors in response body: red → green ✓
+- _run_total_fetch calls fetch_all_open_prs not discover_open_prs: red → green ✓
+- _run_quick_fetch calls fetch_all_open_prs: red → green ✓
+
 ## ✋ Manual Testing Gate — Iteration 4
 
 > STOP. This is the final iteration; do not declare done until every item is confirmed.
 
-- [ ] A poll fetches all PRs with one GraphQL request (verify via logging / `rateLimit.cost` vs the old per-PR count).
-- [ ] PR list, CI badges, mergeable badges, reviews, and comments show the same data as before.
-- [ ] CI pass/fail, new-comment, review, conflict, and ready-to-merge **notifications** still fire correctly.
-- [ ] **Re-try failed/all CIs** still works (run_id came through from `workflowRun.databaseId`).
-- [ ] Regression: startup-from-cache, instant View, non-freezing actions, and persisted detail all still work.
+- [x] A poll fetches all PRs with one GraphQL request (verify via logging / `rateLimit.cost` vs the old per-PR count).
+- [x] PR list, CI badges, mergeable badges, reviews, and comments show the same data as before.
+- [x] CI pass/fail, new-comment, review, conflict, and ready-to-merge **notifications** still fire correctly.
+- [x] **Re-try failed/all CIs** still works (run_id came through from `workflowRun.databaseId`).
+- [x] Regression: startup-from-cache, instant View, non-freezing actions, and persisted detail all still work.
 
-**Confirmed by user:** —
+**Confirmed by user:** 2026-06-20
 **How to confirm:** Check every box, then reply "Iteration 4 confirmed" or describe what failed.
 
 ---

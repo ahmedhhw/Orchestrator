@@ -70,8 +70,7 @@ def test_save_token_updates_state_to_configured(tmp_path, qtbot):
 def test_fetch_updates_pr_list(store, qtbot):
     svc = MagicMock()
     vm = _vm_with(svc, store)
-    svc.get_pr_detail.side_effect = lambda n, pr=None: _make_pr(n)
-    vm._known_prs = [("myorg", "api", 1), ("myorg", "api", 2)]
+    svc.fetch_all_open_prs.return_value = [_make_pr(1), _make_pr(2)]
     _run_fetch_sync(vm, "quick_fetch")
     assert len(vm.prs) == 2
     vm.deleteLater()
@@ -80,7 +79,7 @@ def test_fetch_updates_pr_list(store, qtbot):
 def test_fetch_on_401_sets_expired_state(store, qtbot):
     svc = MagicMock()
     vm = _vm_with(svc, store)
-    svc.discover_open_prs.side_effect = PermissionError("401")
+    svc.fetch_all_open_prs.side_effect = PermissionError("401")
     _run_fetch_sync(vm, "total_fetch")
     assert vm.token_state == TokenState.EXPIRED
     vm.deleteLater()
@@ -93,8 +92,7 @@ def _vm_with(svc, store):
     """Create a VM with timers stopped and startup fetch suppressed."""
     from PySide6.QtWidgets import QApplication
     import time
-    svc.get_authenticated_user.return_value = "me"
-    svc.discover_open_prs.return_value = []
+    svc.fetch_all_open_prs.return_value = []
     svc.get_pr_detail.side_effect = None
     svc.get_pr_detail.return_value = None
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
@@ -109,11 +107,11 @@ def _vm_with(svc, store):
         time.sleep(0.02)
     QApplication.processEvents()
     # reset to clean state for the actual test
-    vm._login = ""
     vm._known_prs = []
     vm.prs = []
     vm._pr_state = {}
-    svc.discover_open_prs.reset_mock()
+    svc.fetch_all_open_prs.reset_mock()
+    svc.fetch_all_open_prs.return_value = []
     svc.get_pr_detail.reset_mock()
     svc.get_pr_detail.side_effect = None
     return vm
@@ -130,40 +128,33 @@ def _run_fetch_sync(vm, method_name):
     QApplication.processEvents()
 
 
-def test_total_fetch_discovers_then_fetches_each_pr(store, qtbot):
+def test_total_fetch_calls_fetch_all_open_prs(store, qtbot):
+    """total_fetch must call fetch_all_open_prs (single GraphQL call) and populate vm.prs."""
     svc = MagicMock()
     vm = _vm_with(svc, store)
-    svc.discover_open_prs.return_value = [("o", "r", 1), ("o", "r", 2)]
-    svc.get_pr_detail.side_effect = lambda n, pr=None: _make_pr(n)
+    svc.fetch_all_open_prs.return_value = [_make_pr(1), _make_pr(2)]
     _run_fetch_sync(vm, "total_fetch")
     assert sorted(p.number for p in vm.prs) == [1, 2]
-    svc.discover_open_prs.assert_called_once()
+    svc.fetch_all_open_prs.assert_called_once()
     vm.deleteLater()
 
 
-def test_quick_fetch_reuses_known_set_without_discovery(store, qtbot):
+def test_quick_fetch_calls_fetch_all_open_prs(store, qtbot):
+    """quick_fetch must call fetch_all_open_prs (same single-call path as total_fetch)."""
     svc = MagicMock()
     vm = _vm_with(svc, store)
-    svc.get_pr_detail.side_effect = lambda n, pr=None: _make_pr(n)
-    vm._login = "me"
-    vm._known_prs = [("o", "r", 5)]
+    svc.fetch_all_open_prs.return_value = [_make_pr(5)]
     _run_fetch_sync(vm, "quick_fetch")
     assert [p.number for p in vm.prs] == [5]
-    svc.discover_open_prs.assert_not_called()
+    svc.fetch_all_open_prs.assert_called_once()
     vm.deleteLater()
 
 
-def test_fetch_drops_pr_that_404s(store, qtbot):
-    import requests as req
+def test_fetch_returns_only_prs_from_graphql(store, qtbot):
+    """GraphQL returns exactly the PRs it got — only those are in vm.prs."""
     svc = MagicMock()
     vm = _vm_with(svc, store)
-    svc.discover_open_prs.return_value = [("o", "r", 1), ("o", "r", 2)]
-
-    def _detail(n, pr=None):
-        if n == 2:
-            raise req.HTTPError("404")
-        return _make_pr(n)
-    svc.get_pr_detail.side_effect = _detail
+    svc.fetch_all_open_prs.return_value = [_make_pr(1)]
     _run_fetch_sync(vm, "total_fetch")
     assert [p.number for p in vm.prs] == [1]
     vm.deleteLater()
@@ -173,16 +164,15 @@ def test_fetch_carries_forward_last_known_mergeable(store, qtbot):
     import copy
     svc = MagicMock()
     vm = _vm_with(svc, store)
-    svc.discover_open_prs.return_value = [("o", "r", 1)]
     good = _make_pr(1)
     good.mergeable = True
     good.mergeable_state = "clean"
-    svc.get_pr_detail.side_effect = lambda n, pr=None: copy.copy(good)
+    svc.fetch_all_open_prs.return_value = [copy.copy(good)]
     _run_fetch_sync(vm, "total_fetch")
     nullp = _make_pr(1)
     nullp.mergeable = None
     nullp.mergeable_state = "unknown"
-    svc.get_pr_detail.side_effect = lambda n, pr=None: copy.copy(nullp)
+    svc.fetch_all_open_prs.return_value = [copy.copy(nullp)]
     _run_fetch_sync(vm, "total_fetch")
     assert vm.prs[0].mergeable is True
     assert vm.prs[0].mergeable_state == "clean"
@@ -196,8 +186,8 @@ def _make_pr_copy(src):
 
 def test_total_fetch_on_401_sets_expired_state(store, qtbot):
     svc = MagicMock()
-    svc.discover_open_prs.side_effect = PermissionError("401")
     vm = _vm_with(svc, store)
+    svc.fetch_all_open_prs.side_effect = PermissionError("401")
     _run_fetch_sync(vm, "total_fetch")
     assert vm.token_state == TokenState.EXPIRED
     vm.deleteLater()

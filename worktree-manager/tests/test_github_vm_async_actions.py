@@ -37,8 +37,7 @@ def vm(tmp_path, qtbot):
     store.save_github_token("ghp_test")
     with patch("worktree_manager.github_vm.GitHubService") as MockSvc:
         svc = MagicMock()
-        svc.get_authenticated_user.return_value = "me"
-        svc.discover_open_prs.return_value = []
+        svc.fetch_all_open_prs.return_value = []
         MockSvc.return_value = svc
         v = GitHubViewModel(store=store)
         v._total_timer.stop()

@@ -1,4 +1,3 @@
-import concurrent.futures
 import json
 import logging
 import threading
@@ -51,7 +50,6 @@ class GitHubViewModel(QObject):
         self._pr_state: dict[tuple, dict] = self._load_pr_state()
         self._pr_cache_path: Path = store._path.parent / "github_pr_cache.json"
         self._known_prs: list[tuple[str, str, int]] = []
-        self._login: str = ""
         self._initial_load_done: bool = False
         self._total_fetch_running = False
         self._fetch_lock = threading.Lock()
@@ -125,7 +123,6 @@ class GitHubViewModel(QObject):
 
     def rescan_repos(self) -> None:
         self._known_prs = []
-        self._login = ""
         self.total_fetch()
 
     # ── fetch internals ───────────────────────────────────────────────────────
@@ -134,11 +131,8 @@ class GitHubViewModel(QObject):
         with self._fetch_lock:
             self._total_fetch_running = True
         try:
-            if not self._login:
-                self._login = self._svc.get_authenticated_user()
-            self.fetch_status_changed.emit("Scanning repos & fetching all PRs…")
-            self._known_prs = self._svc.discover_open_prs(self._login)
-            self._fetch_known_prs()
+            self.fetch_status_changed.emit("Fetching all PRs…")
+            self._apply_graphql_results(self._svc.fetch_all_open_prs())
         except PermissionError:
             self._token_state = TokenState.EXPIRED
             self._stop_timers()
@@ -153,7 +147,7 @@ class GitHubViewModel(QObject):
     def _run_quick_fetch(self) -> None:
         try:
             self.fetch_status_changed.emit("Refreshing PRs…")
-            self._fetch_known_prs()
+            self._apply_graphql_results(self._svc.fetch_all_open_prs())
         except PermissionError:
             self._token_state = TokenState.EXPIRED
             self._stop_timers()
@@ -162,59 +156,29 @@ class GitHubViewModel(QObject):
             log.error("quick_fetch failed: %s", exc, exc_info=True)
             self.refresh_error.emit(str(exc))
 
-    def _fetch_known_prs(self) -> None:
-        if not self._known_prs:
-            self.prs = []
-            self._emit_pr_events(self.prs)
-            self._initial_load_done = True
-            self.fetch_status_changed.emit("Tracking: no open PRs found")
-            self.prs_updated.emit()
-            return
-
+    def _apply_graphql_results(self, results: list[PullRequest]) -> None:
+        """Shared post-fetch logic for both total and quick fetches."""
+        # Preserve last-known mergeable when the new result says UNKNOWN (None)
         prev_mergeable = {
             p.pr_key: (p.mergeable, p.mergeable_state)
             for p in self.prs if p.mergeable is not None
         }
-
-        results: list[PullRequest] = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            futures = {
-                pool.submit(self._fetch_one_pr, owner, repo, number): number
-                for owner, repo, number in self._known_prs
-            }
-            for fut in concurrent.futures.as_completed(futures):
-                pr = fut.result()
-                if pr is not None:
-                    results.append(pr)
-
         for pr in results:
             if pr.mergeable is None and pr.pr_key in prev_mergeable:
                 pr.mergeable, pr.mergeable_state = prev_mergeable[pr.pr_key]
 
         results.sort(key=lambda p: p.pr_key)
         self.prs = results
+        self._known_prs = [p.pr_key for p in self.prs]
         self._save_pr_cache()
         self._emit_pr_events(self.prs)
         self._initial_load_done = True
-        repos = sorted({f"{o}/{r}" for o, r, _ in self._known_prs})
-        self.fetch_status_changed.emit("Tracking: " + "  ".join(repos))
+        if self._known_prs:
+            repos = sorted({f"{o}/{r}" for o, r, _ in self._known_prs})
+            self.fetch_status_changed.emit("Tracking: " + "  ".join(repos))
+        else:
+            self.fetch_status_changed.emit("Tracking: no open PRs found")
         self.prs_updated.emit()
-
-    def _fetch_one_pr(self, owner: str, repo: str, number: int) -> PullRequest | None:
-        seed = PullRequest(
-            number=number, title="", body="",
-            html_url=f"https://github.com/{owner}/{repo}/pull/{number}",
-            head_branch="", base_branch="", state="open", draft=False, mergeable=None,
-        )
-        try:
-            return self._svc.get_pr_detail(number, pr=seed)
-        except PermissionError:
-            raise
-        except requests.HTTPError as exc:
-            if "404" in str(exc):
-                log.info("PR #%d 404 — dropping (closed?)", number)
-                return None
-            raise
 
     # ── notification de-dup ───────────────────────────────────────────────────
 
