@@ -160,8 +160,8 @@ class GitHubViewModel(QObject):
             self.prs = []
             self._emit_pr_events(self.prs)
             self._initial_load_done = True
-            self.prs_updated.emit()
             self.fetch_status_changed.emit("Tracking: no open PRs found")
+            self.prs_updated.emit()
             return
 
         prev_mergeable = {
@@ -189,9 +189,9 @@ class GitHubViewModel(QObject):
         self._save_pr_cache()
         self._emit_pr_events(self.prs)
         self._initial_load_done = True
-        self.prs_updated.emit()
         repos = sorted({f"{o}/{r}" for o, r, _ in self._known_prs})
         self.fetch_status_changed.emit("Tracking: " + "  ".join(repos))
+        self.prs_updated.emit()
 
     def _fetch_one_pr(self, owner: str, repo: str, number: int) -> PullRequest | None:
         seed = PullRequest(
@@ -383,11 +383,28 @@ class GitHubViewModel(QObject):
     def select_pr(self, pr: PullRequest) -> None:
         if self._svc is None:
             return
-        log.debug("select_pr #%d: listed mergeable=%r", pr.number, pr.mergeable)
-        self.selected_pr = self._svc.get_pr_detail(pr.number, pr=pr)
-        log.debug("select_pr #%d: after get_pr_detail mergeable=%r", pr.number, self.selected_pr.mergeable)
+        log.debug("select_pr #%d: instant render from memory, mergeable=%r", pr.number, pr.mergeable)
+        self.selected_pr = pr
         self.pr_detail_updated.emit()
         self.mark_pr_comments_seen(pr)
+        threading.Thread(target=self._refresh_selected, args=(pr,), daemon=True).start()
+
+    def _refresh_selected(self, pr: PullRequest) -> None:
+        try:
+            refreshed = self._svc.get_pr_detail(pr.number, pr=pr)
+        except PermissionError:
+            self._token_state = TokenState.EXPIRED
+            self._stop_timers()
+            self.token_state_changed.emit()
+            return
+        except Exception as exc:
+            log.error("_refresh_selected #%d failed: %s", pr.number, exc, exc_info=True)
+            self.refresh_error.emit(str(exc))
+            return
+        if self.selected_pr is not None and self.selected_pr.pr_key == pr.pr_key:
+            log.debug("_refresh_selected #%d: swapping in fresher data", pr.number)
+            self.selected_pr = refreshed
+            self.pr_detail_updated.emit()
 
     def deselect_pr(self) -> None:
         self.selected_pr = None

@@ -350,8 +350,11 @@ class GitHubPanel(QWidget):
         self._apply_token_state()
         self._populate_open_pr_form()
         if vm.token_state == TokenState.CONFIGURED:
-            self._pr_list.hide()
-            self._loading_label.show()
+            if vm.prs:
+                self._render_pr_list()
+            else:
+                self._pr_list.hide()
+                self._loading_label.show()
 
     # ── token state ────────────────────────────────────────────────────────────
 

@@ -106,6 +106,10 @@ class App(QMainWindow):
         )
         self._central_layout.addWidget(self._sidebar)
 
+        if self._store.get_experimental_features():
+            self._github_vm = GitHubViewModel(store=self._store)
+            self._github_vm.pr_event.connect(self._on_pr_event)
+
         if repo_path:
             self._load_repo(repo_path)
         else:
