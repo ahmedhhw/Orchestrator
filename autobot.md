@@ -4,6 +4,11 @@ Given a feature description, autobot guides frontend design → backend design �
 
 The inline session is **stage-aware**: it runs Opus for design (Stage 1–2) then switches to Sonnet for building (Stage 3–7), and Reviewed-mode TDD plans are authored by an Opus subagent rather than inline. See [Model policy](#model-policy).
 
+**Host detection (mandatory on every invocation).** Before doing anything else, identify which host you are running in:
+- **Claude Code** — subagent paradigm applies; all "spawn a subagent" instructions are executed via the `Agent` tool.
+- **Cursor or VS Code** — fully inline; every "spawn a subagent" instruction is performed by the inline session itself using the spawn prompt verbatim. Follow the [Cursor / VS Code — inline only](#cursor--vs-code--inline-only-no-subagents) rules throughout.
+- **GitHub Copilot** — fully inline; same as Cursor/VS Code above. See [GitHub Copilot — inline only](#github-copilot--inline-only-no-subagents).
+
 When invoked, announce **"I am using autobot."** before anything else.
 
 Immediately after the announcement, recommend the user run on **Opus High, non-thinking** (extended thinking OFF) for the design stages and wait for them to confirm before proceeding. At the Stage 2→3 boundary you will recommend switching the inline session to **Sonnet Medium, non-thinking** for the build stages. See [Model policy](#model-policy) — the reasoning-level rule there applies to every model recommendation and subagent in this doc.
@@ -68,27 +73,25 @@ Omit links for files that don't exist yet (e.g. before Stage 2 there is only the
 
 The inline model is **stage-aware** — Opus where design reasoning lives, Sonnet for the orchestration-heavy build tail. Every Opus-worthy build-time task is delegated to an Opus subagent, so the inline session never needs to be Opus after Stage 2.
 
-- **Reasoning level — applies to every model recommendation and every subagent in this doc, no exceptions.** Whenever Opus is used (inline session or subagent), it MUST be **Opus High, non-thinking** (highest effort/capability tier, extended thinking OFF). Whenever Sonnet is used (inline session or subagent), it MUST be **Sonnet Medium, non-thinking** (medium effort tier, extended thinking OFF). Apply this when recommending the inline model to the user, when spawning subagents (set the host's effort tier accordingly and disable thinking), and when defining Cursor agent files. Where a host has no separate effort selector, treat "High"/"Medium" as the strongest/standard model respectively, and still disable thinking if the host exposes that switch.
+- **Reasoning level — applies to every model recommendation and every subagent in this doc, no exceptions.** Whenever Opus is used (inline session or subagent), it MUST be **Opus High, non-thinking** (highest effort/capability tier, extended thinking OFF). Whenever Sonnet is used (inline session or subagent), it MUST be **Sonnet Medium, non-thinking** (medium effort tier, extended thinking OFF). Apply this when recommending the inline model to the user and when spawning subagents (set the host's effort tier accordingly and disable thinking). Where a host has no separate effort selector, treat "High"/"Medium" as the strongest/standard model respectively, and still disable thinking if the host exposes that switch.
 
 | What | Model | Where |
 |------|-------|-------|
-| Stage 1–2 — design + iteration slicing | **Opus High, non-thinking** | inline |
-| Stage 2→3 boundary | — | recommend switching inline to Sonnet (see below) |
-| Stage 3–7 — orchestration, gates, commits | **Sonnet Medium, non-thinking** | inline |
-| Reviewed-mode TDD plan authoring | **Opus High, non-thinking** | subagent (spawned by the Sonnet inline session) |
-| Implementation (Reviewed phases & Autonomous) | **Sonnet Medium, non-thinking** | subagent |
+| Stage 1–2 — design + iteration slicing | **Opus High, non-thinking** | inline (all hosts) |
+| Stage 2→3 boundary | — | recommend switching inline to Sonnet — **Claude Code only** (see below) |
+| Stage 3–7 — orchestration, gates, commits | **Sonnet Medium, non-thinking** | inline (all hosts) |
+| Reviewed-mode TDD plan authoring | **Opus High, non-thinking** | subagent — **Claude Code only**; inline on Cursor/VS Code/Copilot |
+| Implementation (Reviewed phases & Autonomous) | **Sonnet Medium, non-thinking** | subagent — **Claude Code only**; inline on Cursor/VS Code/Copilot |
 
-- **Stage 2→3 switch.** After the iteration plan is approved (`stage: 2`) and before building Iteration 0, recommend the user switch the inline session to **Sonnet Medium, non-thinking** to save cost, and **wait for confirmation** before continuing. This is the one and only inline model switch in a run. Mirror the tone of the Opus recommendation at invocation. **Copilot exception:** Copilot authors Reviewed plans inline ([no subagents](#github-copilot--inline-only-no-subagents)) — Opus-worthy work — so skip the one-time Sonnet switch; use the strongest model when authoring/revising a plan and a standard model for the orchestration/implementation tail (or the stronger model throughout if the host can't switch per-task).
-- **Why this is safe.** No Opus-worthy work happens inline after Stage 2: design is done, plan authoring is delegated to an Opus subagent, and implementation is delegated to Sonnet subagents. The Sonnet inline session only orchestrates (spawns, copies ledgers, coordinates gates, applies small plan-review tweaks, writes commit messages). On Copilot (plan authoring and implementation inline), follow the Copilot exception above instead.
-- **Plan revisions.** When the user requests changes to a delegated Opus-authored plan after review, apply small tweaks **inline** (Sonnet) — only re-spawn an Opus subagent if the revision is a substantial re-design.
+- **Stage 2→3 switch.** After the iteration plan is approved (`stage: 2`) and before building Iteration 0, recommend the user switch the inline session to **Sonnet Medium, non-thinking** to save cost, and **wait for confirmation** before continuing. This is the one and only inline model switch in a run. Mirror the tone of the Opus recommendation at invocation. **Inline-only exception (Cursor, VS Code, Copilot):** These hosts author Reviewed plans inline — Opus-worthy work — so skip the one-time Sonnet switch; use the strongest model when authoring/revising a plan and a standard model for the orchestration/implementation tail (or the stronger model throughout if the host can't switch per-task).
+- **Why this is safe (Claude Code only).** No Opus-worthy work happens inline after Stage 2: design is done, plan authoring is delegated to an Opus subagent, and implementation is delegated to Sonnet subagents. The Sonnet inline session only orchestrates (spawns, copies ledgers, coordinates gates, applies small plan-review tweaks, writes commit messages). On Cursor, VS Code, and Copilot (plan authoring and implementation inline), follow the inline-only exception above instead.
+- **Plan revisions.** When the user requests changes to a delegated Opus-authored plan after review, apply small tweaks **inline** (Sonnet) — only re-spawn an Opus subagent if the revision is a substantial re-design. On inline-only hosts, all revisions are inline.
 
 ---
 
 ## Spawning subagents (host-specific)
 
-Every "spawn a subagent" instruction in the stages below is host-agnostic. **Use whichever mechanism your host provides** — the role (plan author / implementer), the model (Opus or Sonnet), and the task prompt are the same regardless of host.
-
-> **Copilot exception — no subagents, ever.** On **GitHub Copilot** (any host that is **not** Claude Code and **not** Cursor), autobot runs **purely inline**: every "spawn a subagent" instruction is done by the inline session itself, following the spawn prompt verbatim. See [GitHub Copilot](#github-copilot--inline-only-no-subagents); it overrides the [Any other host](#any-other-host) fallback.
+Every "spawn a subagent" instruction in the stages below is host-specific. See your host's section below.
 
 **Reasoning level (mandatory, every subagent).** Opus subagents run at **High effort, non-thinking** (extended thinking OFF); Sonnet subagents run at **Medium effort, non-thinking**. See the reasoning-level rule in [Model policy](#model-policy). Set the host's effort tier accordingly and disable thinking wherever the host exposes the switch.
 
@@ -103,46 +106,13 @@ Agent(
 )
 ```
 
-### Cursor — predefined subagents in `.cursor/agents/`
+### Cursor / VS Code — inline only, no subagents
 
-Cursor subagents are **defined ahead of time as files**, then invoked **by name** — you do not pass a model or a system prompt at call time (the model lives in the file's frontmatter). So setup is two parts:
+Cursor subagents are currently broken (composer-2.5 bug — subagents cannot start). VS Code does not have an equivalent subagent mechanism. On both hosts, autobot runs **purely inline**: every "spawn a subagent" instruction is performed by the inline session itself, following the spawn prompt verbatim as its own instructions — for both **plan authoring** (Stage 3 / Reviewed) and **implementation** (Reviewed phases and Autonomous). After the inline work "returns," do exactly what the stage says for a returning subagent (append to the ledger, link the plan file, etc.) — there is just no separate agent context.
 
-**1. Create these two agent files once** (idempotent — only create if missing). Put them in `.cursor/agents/` at the repo root:
+Do **not** create `.cursor/agents/` files or attempt to invoke subagents. With no throwaway subagent context to absorb the heavy work, keep [context lean](#keeping-context-lean) by other means: read narrowly (line ranges, not whole files), lean on the iteration context and plan files, and avoid speculative reads.
 
-`.cursor/agents/autobot-plan-author.md`
-```markdown
----
-name: autobot-plan-author
-description: "Authors a Reviewed-mode TDD plan for one autobot iteration. Use when autobot needs an Opus-quality phase plan written to a plan file."
-model: opus          # strongest model available; use the non-thinking variant
-effort: high         # if your Cursor version rejects this field, delete it and set effort in agent settings
-readonly: false
----
-You author Reviewed-mode TDD plans for autobot. Follow the spawn prompt you are given exactly: read the named context file, break the iteration into the smallest independently-testable phases, and write complete, reviewable test + production code per phase to the named plan file. Strict TDD; behavioural test names; prefer reusing/extending existing code over new implementations. Do not implement anything or run tests — only write the plan file. Report back the plan file path and the list of phases.
-```
-
-`.cursor/agents/autobot-implementer.md`
-```markdown
----
-name: autobot-implementer
-description: "Implements an autobot iteration or phase via strict TDD. Use when autobot needs to build the code for an iteration."
-model: sonnet        # standard build model; use the non-thinking variant
-effort: medium       # if your Cursor version rejects this field, delete it and set effort in agent settings
-readonly: false
----
-You implement autobot iterations via strict red/green/refactor TDD. Follow the spawn prompt you are given exactly: read the named context file (and plan file if given), write tests first, make them pass, refactor. Run only the affected test files after each green. Prefer reusing/extending existing code over new implementations. Report back every test written and its final pass/fail status.
-```
-
-> **Model** is set with the `model:` frontmatter field (`inherit`, or a specific id like `opus` / `composer-2` / `gpt-5.5`) — map **Opus → strongest available model** and **Sonnet → `sonnet`** (the standard build model; use `composer-2` or another id if your install doesn't expose `sonnet`). Set `model: inherit` and ask the user to pick the model if you don't know which ids their install exposes.
-> **Effort** is set with the `effort:` frontmatter field — `high` for the plan author, `medium` for the implementer (Cursor's documented levels are `low/medium/high/xhigh/max`). This field is **not** in the official subagents page; it's reported by community guides, so if your Cursor version rejects it, delete the line and set effort in the agent's settings instead.
-> **Thinking off:** Cursor has no documented frontmatter key to disable thinking — choose the non-reasoning/non-extended-thinking variant of the model, or turn thinking off in the agent's settings if your version exposes that toggle.
-
-**2. Invoke the right agent by name**, passing the stage's spawn prompt as the task:
-```
-/autobot-plan-author <the stage's spawn prompt>
-/autobot-implementer <the stage's spawn prompt>
-```
-or in natural language: *"Use the autobot-implementer subagent to: <the stage's spawn prompt>"*.
+> **Model:** Use the strongest available model for plan authoring and a standard model for implementation. Honour the non-thinking preference if the host exposes that toggle. Follow the inline-only exception in [Model policy](#model-policy) — skip the one-time Stage 2→3 Sonnet switch.
 
 ### GitHub Copilot — inline only, no subagents
 
@@ -154,7 +124,7 @@ Do **not** create `.cursor/agents/` files or look for a Copilot subagent API. Wi
 
 ### Any other host
 
-(Not Copilot — see above.) Spawn a subagent using whatever mechanism is available, preferring the requested model (Opus for plan authoring, Sonnet for implementation) if the model can be specified — Opus at **High effort, non-thinking**, Sonnet at **Medium effort, non-thinking**. Pass the stage's spawn prompt verbatim.
+Spawn a subagent using whatever mechanism is available, preferring the requested model (Opus for plan authoring, Sonnet for implementation) if the model can be specified — Opus at **High effort, non-thinking**, Sonnet at **Medium effort, non-thinking**. Pass the stage's spawn prompt verbatim. If no subagent mechanism is available, follow the [Cursor / VS Code](#cursor--vs-code--inline-only-no-subagents) inline path.
 
 ---
 
@@ -163,10 +133,10 @@ Do **not** create `.cursor/agents/` files or look for a Copilot subagent API. Wi
 Long autobot runs accumulate context. Apply these throughout:
 
 - **Reviewed plans in separate files** — see the Conventions rule on plan files.
-- **Iteration context files** — implementer agents read the lean context file for the current iteration instead of the full autobot doc. See [Iteration context files](#iteration-context-files).
-- **Delegate implementation to Sonnet subagents** (see Model policy) — the heavy work happens in the subagent's context, not the inline session's.
-- **Delegate Reviewed-mode plan authoring to an Opus subagent** (see Model policy) — the plan's full test + production code is written in the subagent's throwaway context and never accumulates in the inline session, which only sees "plan ready" and the file link.
-- **Read narrowly.** When you only need one function, read its line range — not the whole file. Prefer search over speculative full-file reads.
+- **Iteration context files** — the lean context file for the current iteration carries everything needed; the inline session should read it rather than re-deriving from the full autobot doc. See [Iteration context files](#iteration-context-files).
+- **Delegate implementation to Sonnet subagents** (Claude Code only — see Model policy) — the heavy work happens in the subagent's context, not the inline session's.
+- **Delegate Reviewed-mode plan authoring to an Opus subagent** (Claude Code only — see Model policy) — the plan's full test + production code is written in the subagent's throwaway context and never accumulates in the inline session, which only sees "plan ready" and the file link.
+- **Inline-only hosts (Cursor, VS Code, Copilot):** No throwaway subagent contexts are available. Compensate by reading narrowly (always use line ranges, never whole files unless essential), working from the context file rather than the full autobot doc, and avoiding any speculative reads. Complete one phase fully before reading the next.
 
 ---
 
@@ -418,7 +388,9 @@ Present all the context files (and the main-doc gates) together after title appr
 
 Set `stage: 2, iteration: 0` on approval.
 
-**Recommend the Stage 2→3 model switch now.** Design and slicing are done; everything from here is orchestration plus delegated subagent work. Tell the user: *"Design is locked. I recommend switching the inline session to **Sonnet Medium, non-thinking** now to cut cost for the build stages — Opus-worthy work (plan authoring) is delegated to **Opus High, non-thinking** subagents, so building stays high-quality. Switch when ready, then say 'continue'."* Wait for confirmation before starting Iteration 0. See [Model policy](#model-policy).
+**Recommend the Stage 2→3 model switch now (Claude Code only).** Design and slicing are done; everything from here is orchestration plus delegated subagent work. Tell the user: *"Design is locked. I recommend switching the inline session to **Sonnet Medium, non-thinking** now to cut cost for the build stages — Opus-worthy work (plan authoring) is delegated to **Opus High, non-thinking** subagents, so building stays high-quality. Switch when ready, then say 'continue'."* Wait for confirmation before starting Iteration 0. See [Model policy](#model-policy).
+
+**Inline-only hosts (Cursor, VS Code, Copilot):** Skip the model switch recommendation. Plan authoring happens inline and requires the strongest model — do not downgrade mid-run. Proceed directly to Stage 3 once the user approves the plan.
 
 ---
 
@@ -452,7 +424,7 @@ Write the plan to **its own file**, not the main autobot doc. Name it next to th
 **Reviewed plan:** [Iteration N plan](autobot-<feature>-plan-iter-N-<iter-slug>-<date>.md)
 ```
 
-**Delegate plan authoring to an Opus subagent.** The Sonnet inline session does **not** write the plan itself — it spawns an Opus subagent that breaks the iteration into the smallest independently-testable phases and writes the full plan to the plan file. Spawn per [Spawning subagents (host-specific)](#spawning-subagents-host-specific) — in **Claude Code** use the `Agent` tool with these exact parameters, do NOT omit `model`:
+**Delegate plan authoring to an Opus subagent (Claude Code only).** The Sonnet inline session does **not** write the plan itself — it spawns an Opus subagent that breaks the iteration into the smallest independently-testable phases and writes the full plan to the plan file. In **Claude Code** use the `Agent` tool with these exact parameters, do NOT omit `model`:
 ```
 Agent(
   description: "Author Reviewed TDD plan — Iteration N — <title>",
@@ -460,7 +432,7 @@ Agent(
   prompt: "<the prompt below>"
 )
 ```
-In **Cursor**, invoke `/autobot-plan-author <the prompt below>` (create `.cursor/agents/autobot-plan-author.md` first if missing). In **GitHub Copilot**, write the plan file inline yourself using the prompt below (see [GitHub Copilot](#github-copilot--inline-only-no-subagents)). On any other host, spawn a subagent preferring Opus at **High effort, non-thinking**. The spawn prompt is the same regardless of host.
+On **Cursor, VS Code, and GitHub Copilot**, write the plan file inline yourself using the prompt below as your own instructions (see [Cursor / VS Code](#cursor--vs-code--inline-only-no-subagents) / [GitHub Copilot](#github-copilot--inline-only-no-subagents)). On any other host, spawn a subagent preferring Opus at **High effort, non-thinking**. The spawn prompt is the same regardless of host.
 
 The plan-authoring subagent prompt is:
 ```
@@ -488,7 +460,7 @@ When the subagent returns, add the plan-file link to the iteration block in the 
 
 Show and stop — implement nothing until the user approves the plan. If the user requests small changes, apply them inline (Sonnet); only re-spawn an Opus subagent for a substantial re-design (see [Model policy](#model-policy)). Handoff happens at [Stage 4](#stage-4--hand-off-iteration-0).
 
-**Spawning all phases** (default — Stage 4 directs you here). Spawn one subagent that implements every phase in sequence, per [Spawning subagents (host-specific)](#spawning-subagents-host-specific). In **Claude Code** use the `Agent` tool with these exact parameters — do NOT omit `model`:
+**Spawning all phases** (default — Stage 4 directs you here). Spawn one subagent that implements every phase in sequence. In **Claude Code** use the `Agent` tool with these exact parameters — do NOT omit `model`:
 ```
 Agent(
   description: "Implement all phases — Iteration N — <title>",
@@ -496,7 +468,7 @@ Agent(
   prompt: "<the prompt below>"
 )
 ```
-In **Cursor**, invoke `/autobot-implementer <the prompt below>` (create `.cursor/agents/autobot-implementer.md` first if missing). In **GitHub Copilot**, implement inline yourself using the prompt below (see [GitHub Copilot](#github-copilot--inline-only-no-subagents)). On any other host, spawn a subagent preferring Sonnet at **Medium effort, non-thinking**. The spawn prompt is the same regardless of host.
+On **Cursor, VS Code, and GitHub Copilot**, implement inline yourself using the prompt below as your own instructions (see [Cursor / VS Code](#cursor--vs-code--inline-only-no-subagents) / [GitHub Copilot](#github-copilot--inline-only-no-subagents)). On any other host, spawn a subagent preferring Sonnet at **Medium effort, non-thinking**. The spawn prompt is the same regardless of host.
 
 The subagent prompt is:
 ```
@@ -513,7 +485,7 @@ When the subagent returns, append its results to the ledger in the autobot doc:
   - <test name>: red → green ✓
 ```
 
-**Per-phase spawning** (only when the user explicitly asks to implement one phase at a time). Spawn a subagent for the named phase only, per [Spawning subagents (host-specific)](#spawning-subagents-host-specific). In **Claude Code**:
+**Per-phase spawning** (only when the user explicitly asks to implement one phase at a time). In **Claude Code**:
 ```
 Agent(
   description: "Implement Phase N.M — <phase name>",
@@ -521,7 +493,7 @@ Agent(
   prompt: "Read <path-to-ctx-iter-N.md> for iteration context. Then read Phase N.M in <path-to-plan-iter-N.md>. Implement that phase only — write the tests (Red), make them pass (Green), refactor if needed. Run only this phase's test file (plus test files for any modules touched) after each step. When done, report back: every test written and its final pass/fail status."
 )
 ```
-In **Cursor**, invoke `/autobot-implementer <that same prompt>`. In **GitHub Copilot**, implement the named phase inline yourself (see [GitHub Copilot](#github-copilot--inline-only-no-subagents)). After each per-phase subagent returns (or the inline work finishes), append to the ledger and wait for the user to name the next phase.
+On **Cursor, VS Code, and GitHub Copilot**, implement the named phase inline yourself using that same prompt as your own instructions. After each phase is done (subagent or inline), append to the ledger and wait for the user to name the next phase.
 
 ---
 
@@ -529,7 +501,7 @@ In **Cursor**, invoke `/autobot-implementer <that same prompt>`. In **GitHub Cop
 
 Handoff happens at [Stage 4](#stage-4--hand-off-iteration-0), which spawns the subagent for the whole iteration in one shot.
 
-**Spawning the iteration** (Stage 4 directs you here), per [Spawning subagents (host-specific)](#spawning-subagents-host-specific). In **Claude Code** use the `Agent` tool with these exact parameters — do NOT omit `model`:
+**Spawning the iteration** (Stage 4 directs you here). In **Claude Code** use the `Agent` tool with these exact parameters — do NOT omit `model`:
 ```
 Agent(
   description: "TDD Iteration N — <title>",
@@ -537,7 +509,7 @@ Agent(
   prompt: "<the prompt below>"
 )
 ```
-In **Cursor**, invoke `/autobot-implementer <the prompt below>` (create `.cursor/agents/autobot-implementer.md` first if missing). In **GitHub Copilot**, implement inline yourself using the prompt below (see [GitHub Copilot](#github-copilot--inline-only-no-subagents)). On any other host, spawn a subagent preferring Sonnet at **Medium effort, non-thinking**. The spawn prompt is the same regardless of host.
+On **Cursor, VS Code, and GitHub Copilot**, implement inline yourself using the prompt below as your own instructions (see [Cursor / VS Code](#cursor--vs-code--inline-only-no-subagents) / [GitHub Copilot](#github-copilot--inline-only-no-subagents)). On any other host, spawn a subagent preferring Sonnet at **Medium effort, non-thinking**. The spawn prompt is the same regardless of host.
 
 The subagent prompt is:
 ```
@@ -562,8 +534,8 @@ Then present the ledger to the user and ask them to complete the Manual Testing 
 1. Run the full test suite once to establish a clean baseline. Surface any failures and stop until resolved.
 2. Set the iteration context file's `## TDD mode` line to the mode just chosen (the file already exists from Stage 2). If Reviewed, also link the plan file there.
 3. Hand off by mode:
-   - *Reviewed:* Spawn one subagent for all phases immediately per [Reviewed mode](#mode-reviewed) (default). If the user explicitly asked to go phase-by-phase, instead tell them "Say 'Implement Phase 0.1' (or whichever phase) and I'll spawn a subagent for it." and wait.
-   - *Autonomous:* Spawn the subagent immediately per [Autonomous mode](#mode-autonomous). No user action needed.
+   - *Reviewed:* On **Claude Code**, spawn one subagent for all phases immediately per [Reviewed mode](#mode-reviewed) (default). On **Cursor, VS Code, and Copilot**, implement all phases inline immediately. If the user explicitly asked to go phase-by-phase on any host, tell them "Say 'Implement Phase 0.1' (or whichever phase) and I'll do it." and wait.
+   - *Autonomous:* On **Claude Code**, spawn the subagent immediately per [Autonomous mode](#mode-autonomous). On **Cursor, VS Code, and Copilot**, implement the iteration inline immediately. No user action needed on any host.
 4. When the work returns, present the ledger and say: *"Complete the Manual Testing Gate and reply 'Iteration 0 confirmed', or describe what failed."*
 5. Do not plan Iteration 1 until the gate is confirmed.
 
